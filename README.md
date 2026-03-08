@@ -46,6 +46,14 @@ The current MVP implements:
 - `internal/media`: RTP helpers backed by Pion
 - `docs`: compatibility matrix, media roadmap, testing strategy
 
+## Documentation
+
+- `docs/gossip-vs-sipp.md`: high-level overview of what `gossip` can do and how it compares to SIPp
+- `docs/compatibility.md`: current XML, keyword, action, transport, and CLI compatibility matrix
+- `docs/architecture.md`: package-level architecture and execution model
+- `docs/media-roadmap.md`: media-related scope, next steps, and deferred items
+- `docs/compatibility-testing.md`: testing approach for compatibility work and regression coverage
+
 ## Quick start
 
 Run the built-in UAC scenario against a SIP endpoint:
@@ -158,3 +166,7 @@ go run ./cmd/gossip -sf ./testdata/scenarios/3pcc_master.xml -master m -slave_cf
 - RTP support is a separate milestone layered on top of the SIP engine.
 - Current RTP support focuses on audio streaming from PCM mono 8kHz WAV input, audio PCAP replay, RTP echo, and basic RTCP observability.
 - `play_pcap_audio` currently replays UDP payloads from the capture as RTP toward the negotiated audio endpoint; `play_pcap_video` and `play_pcap_image` are still deferred.
+
+## License
+
+MIT. See `LICENSE`.
