@@ -123,7 +123,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 		}
 		logger.statsFile = file
 		logger.statsPath = statsPath
-		if _, err := file.WriteString("timestamp,elapsed_ms,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,retransmits,timeouts,avg_call_ms,avg_invite_ms,rtp_packets_sent,rtp_packets_received,rtcp_sender_reports,rtcp_receiver_reports,rtcp_packets_received\n"); err != nil {
+		if _, err := file.WriteString("timestamp,elapsed_ms,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,retransmits,timeouts,avg_call_ms,avg_invite_ms,rtp_packets_sent,rtp_packets_received,rtcp_sender_reports,rtcp_receiver_reports,rtcp_packets_received,interval_ms,interval_calls_per_second,delta_total_calls,delta_success_calls,delta_failed_calls,delta_retransmits,delta_timeouts,delta_rtp_packets_sent,delta_rtp_packets_received,delta_rtcp_sender_reports,delta_rtcp_receiver_reports,delta_rtcp_packets_received\n"); err != nil {
 			_ = logger.Close()
 			return nil, err
 		}
@@ -347,25 +347,64 @@ func (t *traceLogger) startStatsLoop(collector *stats.Collector) {
 
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
+		var previous *stats.Summary
 
 		for {
 			select {
 			case <-ticker.C:
-				t.writeStatsSnapshot(collector.Snapshot())
+				summary := collector.Snapshot()
+				t.writeStatsSnapshot(summary, previous)
+				snapshotCopy := summary
+				previous = &snapshotCopy
 			case <-t.statsStop:
-				t.writeStatsSnapshot(collector.Snapshot())
+				summary := collector.Snapshot()
+				t.writeStatsSnapshot(summary, previous)
 				return
 			}
 		}
 	}()
 }
 
-func (t *traceLogger) writeStatsSnapshot(summary stats.Summary) {
+func (t *traceLogger) writeStatsSnapshot(summary stats.Summary, previous *stats.Summary) {
 	if t == nil || t.statsFile == nil {
 		return
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	intervalMS := summary.Duration.Milliseconds()
+	deltaTotalCalls := summary.TotalCalls
+	deltaSuccessCalls := summary.SuccessCalls
+	deltaFailedCalls := summary.FailedCalls
+	deltaRetransmits := summary.Retransmits
+	deltaTimeouts := summary.Timeouts
+	deltaRTPPacketsSent := int(summary.Media.RTPPacketsSent)
+	deltaRTPPacketsReceived := int(summary.Media.RTPPacketsReceived)
+	deltaRTCPSenderReports := int(summary.Media.RTCPSenderReports)
+	deltaRTCPReceiverReports := int(summary.Media.RTCPReceiverReports)
+	deltaRTCPPacketsReceived := int(summary.Media.RTCPPacketsReceived)
+	if previous != nil {
+		interval := summary.FinishedAt.Sub(previous.FinishedAt)
+		if interval > 0 {
+			intervalMS = interval.Milliseconds()
+		} else {
+			intervalMS = 0
+		}
+		deltaTotalCalls -= previous.TotalCalls
+		deltaSuccessCalls -= previous.SuccessCalls
+		deltaFailedCalls -= previous.FailedCalls
+		deltaRetransmits -= previous.Retransmits
+		deltaTimeouts -= previous.Timeouts
+		deltaRTPPacketsSent -= int(previous.Media.RTPPacketsSent)
+		deltaRTPPacketsReceived -= int(previous.Media.RTPPacketsReceived)
+		deltaRTCPSenderReports -= int(previous.Media.RTCPSenderReports)
+		deltaRTCPReceiverReports -= int(previous.Media.RTCPReceiverReports)
+		deltaRTCPPacketsReceived -= int(previous.Media.RTCPPacketsReceived)
+	}
+	intervalCPS := 0.0
+	if intervalMS > 0 {
+		intervalCPS = float64(deltaTotalCalls) / (float64(intervalMS) / 1000.0)
+	}
 
 	writer := csv.NewWriter(t.statsFile)
 	_ = writer.Write([]string{
@@ -386,6 +425,18 @@ func (t *traceLogger) writeStatsSnapshot(summary stats.Summary) {
 		strconv.FormatUint(uint64(summary.Media.RTCPSenderReports), 10),
 		strconv.FormatUint(uint64(summary.Media.RTCPReceiverReports), 10),
 		strconv.FormatUint(uint64(summary.Media.RTCPPacketsReceived), 10),
+		strconv.FormatInt(intervalMS, 10),
+		strconv.FormatFloat(intervalCPS, 'f', 6, 64),
+		strconv.Itoa(deltaTotalCalls),
+		strconv.Itoa(deltaSuccessCalls),
+		strconv.Itoa(deltaFailedCalls),
+		strconv.Itoa(deltaRetransmits),
+		strconv.Itoa(deltaTimeouts),
+		strconv.Itoa(deltaRTPPacketsSent),
+		strconv.Itoa(deltaRTPPacketsReceived),
+		strconv.Itoa(deltaRTCPSenderReports),
+		strconv.Itoa(deltaRTCPReceiverReports),
+		strconv.Itoa(deltaRTCPPacketsReceived),
 	})
 	writer.Flush()
 }

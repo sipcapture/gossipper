@@ -27,7 +27,7 @@ The current MVP implements:
 - Basic statistics and JSON summary export
 - Named per-step RTD timers via `start_rtd` / `rtd`, aggregated into summary JSON
 - XML `counter` / `display` attributes aggregated into summary JSON as execution counts
-- Full message tracing via `-trace_msg` / `-message_file`, compact CSV tracing via `-trace_shortmsg`, periodic CSV stats snapshots via `-trace_stat`, RTD CSV dumps via `-trace_rtt`, error tracing via `-trace_err`, compact unexpected-response code tracing via `-trace_error_codes`, and action log tracing via `-trace_logs`
+- Full message tracing via `-trace_msg` / `-message_file`, compact CSV tracing via `-trace_shortmsg`, periodic CSV stats snapshots with cumulative and interval delta fields via `-trace_stat`, RTD CSV dumps via `-trace_rtt`, error tracing via `-trace_err`, compact unexpected-response code tracing via `-trace_error_codes`, and action log tracing via `-trace_logs`
 - SIP mirroring to Homer over HEP3 via `-hep_addr`, `-hep_capture_id`, and optional `-hep_password`
 - Summary output now includes aggregated RTP/RTCP counters
 - RTP streaming over `pion/rtp`, including `exec rtp_stream` with SIPp-style params and `start` / `pause` / `resume` / `stop`
@@ -208,7 +208,7 @@ at `/usr/bin/gossipper`.
 - `-trace_err` writes unexpected SIP responses and runtime failures to `-error_file`.
 - `-trace_error_codes` writes a sibling compact CSV file with unexpected SIP response codes and expected match criteria.
 - `-trace_logs` writes XML `<log>` action output to `-log_file`.
-- `-trace_stat` writes periodic and final CSV stats snapshots to a sibling `*_stats.log` file; when `-message_file` is set it uses that base path.
+- `-trace_stat` writes periodic and final CSV stats snapshots to a sibling `*_stats.log` file; when `-message_file` is set it uses that base path. The CSV now includes both cumulative totals and per-interval delta fields.
 - `-trace_rtt` writes each completed named RTD sample to a sibling `*_rtt.log` CSV file with timestamp, call, RTD name, and duration in milliseconds.
 - `-hep_addr` mirrors SIP `send` / `recv` traffic to a Homer-compatible HEP3 collector over UDP.
 - `-hep_capture_id` sets the HEP capture node ID; `-hep_password` sets the optional HEP auth key.

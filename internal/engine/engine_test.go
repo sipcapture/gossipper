@@ -381,9 +381,15 @@ Content-Length: 0
 	if len(header) == 0 || header[0] != "timestamp" {
 		t.Fatalf("unexpected trace_stat header: %v", header)
 	}
+	if len(header) < 29 || header[17] != "interval_ms" || header[20] != "delta_success_calls" {
+		t.Fatalf("expected richer trace_stat header with interval/delta fields, got %v", header)
+	}
 	last := rows[len(rows)-1]
 	if last[2] != "1" || last[3] != "1" || last[4] != "0" {
 		t.Fatalf("unexpected final trace_stat counters: %v", last)
+	}
+	if last[20] != "1" {
+		t.Fatalf("expected final delta_success_calls=1, got %v", last)
 	}
 }
 
