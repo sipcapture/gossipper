@@ -18,6 +18,7 @@ order.
 - UDP, TCP, TLS, and server-side UDP aliases
 - digest auth via `[authentication]`
 - RTD, `counter`, `display`, tracing, and JSON summary output
+- periodic CSV stats snapshots via `-trace_stat`
 - `rtp_stream`, RTP echo, RTCP counters, and `play_pcap_audio`
 
 ## Source references used for this plan
@@ -34,6 +35,8 @@ The milestones below are based on the gaps visible in:
 
 Priority: high
 
+Status: in progress
+
 Why first:
 
 - `gossipper` already has JSON summaries and basic RTD/counter support
@@ -42,15 +45,17 @@ Why first:
 
 Target gaps from SIPp:
 
-- `-trace_stat` style periodic CSV snapshots
 - `-trace_rtt` style RTD dump files
 - richer cumulative vs periodic counters
 - broader call-failure classification in exported stats
 - SIPp-like latency / repartition style reporting where it adds real value
 
+Completed so far in this milestone:
+
+- `-trace_stat` style periodic CSV snapshots via sibling `*_stats.log` output
+
 Deliverables:
 
-- periodic stats writer
 - RTD CSV export
 - documented field mapping between current `gossipper` JSON and SIPp-style counters
 
@@ -160,7 +165,6 @@ These are concrete SIPp-side features that are not currently present in
 - `[server_ip]`
 - `warning` action
 - `lookup` action family
-- `-trace_stat`
 - `-trace_rtt`
 - richer periodic/cumulative statistics exports
 - `play_pcap_video`

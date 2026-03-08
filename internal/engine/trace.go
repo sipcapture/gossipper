@@ -13,6 +13,7 @@ import (
 
 	"github.com/adubovikov/gossipper/internal/scenario"
 	"github.com/adubovikov/gossipper/internal/sip"
+	"github.com/adubovikov/gossipper/internal/stats"
 )
 
 type traceLogger struct {
@@ -22,15 +23,19 @@ type traceLogger struct {
 	errFile      *os.File
 	errCodes     *os.File
 	logFile      *os.File
+	statsFile    *os.File
 	fullPath     string
 	shortPath    string
 	errPath      string
 	errCodesPath string
 	logPath      string
+	statsPath    string
+	statsStop    chan struct{}
+	statsDone    chan struct{}
 }
 
 func newTraceLogger(cfg Config) (*traceLogger, error) {
-	if !cfg.TraceMessages && !cfg.TraceShortMsg && !cfg.TraceErrors && !cfg.TraceErrorCodes && !cfg.TraceLogs {
+	if !cfg.TraceMessages && !cfg.TraceShortMsg && !cfg.TraceErrors && !cfg.TraceErrorCodes && !cfg.TraceLogs && !cfg.TraceStats {
 		return nil, nil
 	}
 
@@ -107,6 +112,20 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 		logger.logFile = file
 		logger.logPath = logPath
 	}
+	if cfg.TraceStats {
+		statsPath := deriveStatsTracePath(basePath)
+		file, err := os.Create(statsPath)
+		if err != nil {
+			_ = logger.Close()
+			return nil, err
+		}
+		logger.statsFile = file
+		logger.statsPath = statsPath
+		if _, err := file.WriteString("timestamp,elapsed_ms,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,retransmits,timeouts,avg_call_ms,avg_invite_ms,rtp_packets_sent,rtp_packets_received,rtcp_sender_reports,rtcp_receiver_reports,rtcp_packets_received\n"); err != nil {
+			_ = logger.Close()
+			return nil, err
+		}
+	}
 	return logger, nil
 }
 
@@ -140,6 +159,19 @@ func (t *traceLogger) Close() error {
 			errs = append(errs, closeErr)
 		}
 	}
+	if t.statsStop != nil {
+		close(t.statsStop)
+		t.statsStop = nil
+	}
+	if t.statsDone != nil {
+		<-t.statsDone
+		t.statsDone = nil
+	}
+	if t.statsFile != nil {
+		if closeErr := t.statsFile.Close(); closeErr != nil {
+			errs = append(errs, closeErr)
+		}
+	}
 	return errors.Join(errs...)
 }
 
@@ -164,12 +196,19 @@ func deriveErrorCodesPath(cfg Config, basePath string) string {
 	return deriveNamedTracePath(source, "_error_codes")
 }
 
+func deriveStatsTracePath(basePath string) string {
+	return deriveNamedTracePath(basePath, "_stats")
+}
+
 func (e *Engine) startTrace() error {
 	logger, err := newTraceLogger(e.cfg)
 	if err != nil {
 		return err
 	}
 	e.trace = logger
+	if e.trace != nil {
+		e.trace.startStatsLoop(e.stats)
+	}
 	return nil
 }
 
@@ -252,6 +291,60 @@ func (e *Engine) traceErrorCode(callNumber, code int, reason, callID, expected s
 		reason,
 		callID,
 		expected,
+	})
+	writer.Flush()
+}
+
+func (t *traceLogger) startStatsLoop(collector *stats.Collector) {
+	if t == nil || t.statsFile == nil || collector == nil {
+		return
+	}
+	t.statsStop = make(chan struct{})
+	t.statsDone = make(chan struct{})
+	go func() {
+		defer close(t.statsDone)
+
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				t.writeStatsSnapshot(collector.Snapshot())
+			case <-t.statsStop:
+				t.writeStatsSnapshot(collector.Snapshot())
+				return
+			}
+		}
+	}()
+}
+
+func (t *traceLogger) writeStatsSnapshot(summary stats.Summary) {
+	if t == nil || t.statsFile == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	writer := csv.NewWriter(t.statsFile)
+	_ = writer.Write([]string{
+		summary.FinishedAt.Format(time.RFC3339Nano),
+		strconv.FormatInt(summary.Duration.Milliseconds(), 10),
+		strconv.Itoa(summary.TotalCalls),
+		strconv.Itoa(summary.SuccessCalls),
+		strconv.Itoa(summary.FailedCalls),
+		strconv.Itoa(summary.ActiveCalls),
+		strconv.FormatFloat(summary.SuccessRatio, 'f', 6, 64),
+		strconv.FormatFloat(summary.CallsPerSecond, 'f', 6, 64),
+		strconv.Itoa(summary.Retransmits),
+		strconv.Itoa(summary.Timeouts),
+		strconv.FormatInt(summary.AverageCallLatency.Milliseconds(), 10),
+		strconv.FormatInt(summary.AverageInviteRTT.Milliseconds(), 10),
+		strconv.FormatUint(uint64(summary.Media.RTPPacketsSent), 10),
+		strconv.FormatUint(uint64(summary.Media.RTPPacketsReceived), 10),
+		strconv.FormatUint(uint64(summary.Media.RTCPSenderReports), 10),
+		strconv.FormatUint(uint64(summary.Media.RTCPReceiverReports), 10),
+		strconv.FormatUint(uint64(summary.Media.RTCPPacketsReceived), 10),
 	})
 	writer.Flush()
 }

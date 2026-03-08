@@ -752,9 +752,6 @@ func (e *Engine) executeCall(
 		e.stats.AddMediaStats(mediaSession.Snapshot())
 		mediaSession.Stop()
 		e.stats.FinishCall(success, time.Since(startedAt))
-		if e.cfg.TraceStats {
-			fmt.Fprintf(os.Stdout, "call[%d] success=%t duration=%s\n", callNumber, success, time.Since(startedAt))
-		}
 	}()
 
 	renderCtx := templ.Context{

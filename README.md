@@ -27,7 +27,7 @@ The current MVP implements:
 - Basic statistics and JSON summary export
 - Named per-step RTD timers via `start_rtd` / `rtd`, aggregated into summary JSON
 - XML `counter` / `display` attributes aggregated into summary JSON as execution counts
-- Full message tracing via `-trace_msg` / `-message_file`, compact CSV tracing via `-trace_shortmsg`, error tracing via `-trace_err`, compact unexpected-response code tracing via `-trace_error_codes`, and action log tracing via `-trace_logs`
+- Full message tracing via `-trace_msg` / `-message_file`, compact CSV tracing via `-trace_shortmsg`, periodic CSV stats snapshots via `-trace_stat`, error tracing via `-trace_err`, compact unexpected-response code tracing via `-trace_error_codes`, and action log tracing via `-trace_logs`
 - SIP mirroring to Homer over HEP3 via `-hep_addr`, `-hep_capture_id`, and optional `-hep_password`
 - Summary output now includes aggregated RTP/RTCP counters
 - RTP streaming over `pion/rtp`, including `exec rtp_stream` with SIPp-style params and `start` / `pause` / `resume` / `stop`
@@ -89,6 +89,12 @@ Write unexpected responses and action logs to dedicated files:
 
 ```bash
 go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_err -trace_error_codes -error_file ./errors.log -trace_logs -log_file ./actions.log
+```
+
+Write periodic CSV stats snapshots:
+
+```bash
+go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_stat -message_file ./messages.log
 ```
 
 Mirror SIP messages to Homer over HEP3:
@@ -196,6 +202,7 @@ at `/usr/bin/gossipper`.
 - `-trace_err` writes unexpected SIP responses and runtime failures to `-error_file`.
 - `-trace_error_codes` writes a sibling compact CSV file with unexpected SIP response codes and expected match criteria.
 - `-trace_logs` writes XML `<log>` action output to `-log_file`.
+- `-trace_stat` writes periodic and final CSV stats snapshots to a sibling `*_stats.log` file; when `-message_file` is set it uses that base path.
 - `-hep_addr` mirrors SIP `send` / `recv` traffic to a Homer-compatible HEP3 collector over UDP.
 - `-hep_capture_id` sets the HEP capture node ID; `-hep_password` sets the optional HEP auth key.
 - The current HEP MVP exports SIP signaling only; RTP/RTCP mirroring is not included yet.
