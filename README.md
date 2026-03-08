@@ -1,8 +1,8 @@
-# gossip
+# 🤫 gossipper
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-`gossip` is a Go rewrite of SIPp focused on SIP signaling load generation,
+`gossipper` is a Go rewrite of SIPp focused on SIP signaling load generation,
 incremental XML scenario compatibility, and a cleaner engine architecture.
 
 ## Current scope
@@ -10,7 +10,7 @@ incremental XML scenario compatibility, and a cleaner engine architecture.
 The current MVP implements:
 
 - XML scenarios with `send`, `recv`, `pause`, `nop`, `label`, `timewait`, and `init`
-- XML command handoff via `sendCmd` / `recvCmd`, both inside one `gossip` process and across multiple instances
+- XML command handoff via `sendCmd` / `recvCmd`, both inside one `gossipper` process and across multiple instances
 - SIPp-style 3PCC CLI aliases `-master`, `-slave`, and `-slave_cfg` on top of the external command transport
 - Out-of-call SIP scenarios such as stateless `OPTIONS` ping/pong
 - Command-only 3PCC/out-of-call flows can run without a SIP remote address
@@ -36,7 +36,7 @@ The current MVP implements:
 
 ## Project layout
 
-- `cmd/gossip`: CLI entry point
+- `cmd/gossipper`: CLI entry point
 - `internal/cli`: argument parsing
 - `internal/scenario`: XML parser and built-in scenarios
 - `internal/template`: SIPp keyword rendering
@@ -50,108 +50,108 @@ The current MVP implements:
 
 ## Documentation
 
-- `docs/gossip-vs-sipp.md`: high-level overview of what `gossip` can do and how it compares to SIPp
+- `docs/gossipper-vs-sipp.md`: high-level overview of what `gossipper` can do and how it compares to SIPp
 - `docs/compatibility.md`: current XML, keyword, action, transport, and CLI compatibility matrix
 - `docs/architecture.md`: package-level architecture and execution model
 - `docs/media-roadmap.md`: media-related scope, next steps, and deferred items
 - `docs/compatibility-testing.md`: testing approach for compatibility work and regression coverage
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
-- `milestone.md`: prioritized roadmap for SIPp features that are still missing in `gossip`
+- `milestone.md`: prioritized roadmap for SIPp features that are still missing in `gossipper`
 
 ## Quick start
 
 Run the built-in UAC scenario against a SIP endpoint:
 
 ```bash
-go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
+go run ./cmd/gossipper -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
 Run a custom XML scenario:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -m 10 -r 5
+go run ./cmd/gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -m 10 -r 5
 ```
 
 Write a JSON summary:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -summary_json summary.json
+go run ./cmd/gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -summary_json summary.json
 ```
 
 Write full and short message traces:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_msg -trace_shortmsg -message_file ./messages.log
+go run ./cmd/gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_msg -trace_shortmsg -message_file ./messages.log
 ```
 
 Write unexpected responses and action logs to dedicated files:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_err -trace_error_codes -error_file ./errors.log -trace_logs -log_file ./actions.log
+go run ./cmd/gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_err -trace_error_codes -error_file ./errors.log -trace_logs -log_file ./actions.log
 ```
 
 Run over TLS:
 
 ```bash
-go run ./cmd/gossip -t l1 -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
+go run ./cmd/gossipper -t l1 -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
 ```
 
 Run the built-in UAS in SIPp-style server transport mode:
 
 ```bash
-go run ./cmd/gossip -sn uas -t s1 -i 0.0.0.0 -p 5060 -m 1
+go run ./cmd/gossipper -sn uas -t s1 -i 0.0.0.0 -p 5060 -m 1
 ```
 
-Run out-of-call `OPTIONS` ping/pong between two `gossip` instances:
+Run out-of-call `OPTIONS` ping/pong between two `gossipper` instances:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/options_server.xml -t s1 -i 0.0.0.0 -p 5060 -m 1
-go run ./cmd/gossip -sf ./testdata/scenarios/options_client.xml -rsa 127.0.0.1:5060 -s options -m 1 -r 1
+go run ./cmd/gossipper -sf ./testdata/scenarios/options_server.xml -t s1 -i 0.0.0.0 -p 5060 -m 1
+go run ./cmd/gossipper -sf ./testdata/scenarios/options_client.xml -rsa 127.0.0.1:5060 -s options -m 1 -r 1
 ```
 
 Run a challenged Digest auth scenario with SIPp-style credentials:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/auth_uac.xml -rsa 127.0.0.1:5060 -s alice -au alice -ap secret -m 1 -r 1
+go run ./cmd/gossipper -sf ./testdata/scenarios/auth_uac.xml -rsa 127.0.0.1:5060 -s alice -au alice -ap secret -m 1 -r 1
 ```
 
 Run a SIPp-style audio PCAP replay action from a scenario:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -m 1 -r 1
+go run ./cmd/gossipper -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
-Run the bundled local two-sided PCAP demo between two `gossip` instances:
+Run the bundled local two-sided PCAP demo between two `gossipper` instances:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
-go run ./cmd/gossip -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
+go run ./cmd/gossipper -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
+go run ./cmd/gossipper -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
 ```
 
 Run the bundled DTMF-over-PCAP demo against the same local UAS:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
-go run ./cmd/gossip -sf ./testdata/scenarios/uac_dtmf_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
+go run ./cmd/gossipper -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
+go run ./cmd/gossipper -sf ./testdata/scenarios/uac_dtmf_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
 ```
 
 Run 3PCC-style command exchange between instances with the low-level transport flags:
 
 ```bash
-go run ./cmd/gossip -sf ./scenario.xml -rsa 127.0.0.1:5060 -cmd_name m -cmd_peers ./peers.cfg
+go run ./cmd/gossipper -sf ./scenario.xml -rsa 127.0.0.1:5060 -cmd_name m -cmd_peers ./peers.cfg
 ```
 
 Run the same flow with SIPp-style master/slave aliases:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/3pcc_slave.xml -slave s1 -slave_cfg ./peers.cfg
-go run ./cmd/gossip -sf ./testdata/scenarios/3pcc_master.xml -master m -slave_cfg ./peers.cfg -rsa 127.0.0.1:5060
+go run ./cmd/gossipper -sf ./testdata/scenarios/3pcc_slave.xml -slave s1 -slave_cfg ./peers.cfg
+go run ./cmd/gossipper -sf ./testdata/scenarios/3pcc_master.xml -master m -slave_cfg ./peers.cfg -rsa 127.0.0.1:5060
 ```
 
 ## Notes
 
 - This is a behavior-oriented rewrite, not a literal source port of SIPp.
-- For a narrative overview of current capabilities and trade-offs versus SIPp, see `docs/gossip-vs-sipp.md`.
+- For a narrative overview of current capabilities and trade-offs versus SIPp, see `docs/gossipper-vs-sipp.md`.
 - XML compatibility is intentionally incremental. See `docs/compatibility.md`.
 - External `sendCmd` / `recvCmd` uses a simple TCP peer map in `name;host:port` format via either `-cmd_name` / `-cmd_peers` or the SIPp-like aliases `-master` / `-slave` / `-slave_cfg`.
 - If a scenario only uses `sendCmd` / `recvCmd` plus control commands, it can run without `-rsa`.
@@ -166,7 +166,7 @@ go run ./cmd/gossip -sf ./testdata/scenarios/3pcc_master.xml -master m -slave_cf
 - `counter` and `display` are currently exposed as successful-command execution counters in the summary model, which is a practical first step toward richer SIPp-style reporting.
 - In external 3PCC-style flows, the first incoming `recvCmd` can automatically adopt its `Call-ID` into `[call_id]` for later commands.
 - `init` can also use `sendCmd` / `recvCmd`, so inter-instance setup data may be loaded into global scopes before SIP traffic starts.
-- When launched with `-slave`, `gossip` validates that the scenario first enters the flow via `recvCmd` before it sends any `sendCmd`.
+- When launched with `-slave`, `gossipper` validates that the scenario first enters the flow via `recvCmd` before it sends any `sendCmd`.
 - RTP support is a separate milestone layered on top of the SIP engine.
 - Current RTP support focuses on audio streaming from PCM mono 8kHz WAV input, audio PCAP replay, RTP echo, and basic RTCP observability.
 - `play_pcap_audio` currently replays UDP payloads from the capture as RTP toward the negotiated audio endpoint; `play_pcap_video` and `play_pcap_image` are still deferred.
