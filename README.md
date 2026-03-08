@@ -1,5 +1,7 @@
 # gossip
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 `gossip` is a Go rewrite of SIPp focused on SIP signaling load generation,
 incremental XML scenario compatibility, and a cleaner engine architecture.
 
@@ -53,6 +55,7 @@ The current MVP implements:
 - `docs/architecture.md`: package-level architecture and execution model
 - `docs/media-roadmap.md`: media-related scope, next steps, and deferred items
 - `docs/compatibility-testing.md`: testing approach for compatibility work and regression coverage
+- `docs/licensing.md`: license choice and SPDX header guidance for future source files
 
 ## Quick start
 
