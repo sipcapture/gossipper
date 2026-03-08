@@ -56,6 +56,7 @@ The current MVP implements:
 - `docs/media-roadmap.md`: media-related scope, next steps, and deferred items
 - `docs/compatibility-testing.md`: testing approach for compatibility work and regression coverage
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
+- `milestone.md`: prioritized roadmap for SIPp features that are still missing in `gossip`
 
 ## Quick start
 
