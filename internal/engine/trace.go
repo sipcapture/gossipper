@@ -24,18 +24,20 @@ type traceLogger struct {
 	errCodes     *os.File
 	logFile      *os.File
 	statsFile    *os.File
+	rttFile      *os.File
 	fullPath     string
 	shortPath    string
 	errPath      string
 	errCodesPath string
 	logPath      string
 	statsPath    string
+	rttPath      string
 	statsStop    chan struct{}
 	statsDone    chan struct{}
 }
 
 func newTraceLogger(cfg Config) (*traceLogger, error) {
-	if !cfg.TraceMessages && !cfg.TraceShortMsg && !cfg.TraceErrors && !cfg.TraceErrorCodes && !cfg.TraceLogs && !cfg.TraceStats {
+	if !cfg.TraceMessages && !cfg.TraceShortMsg && !cfg.TraceErrors && !cfg.TraceErrorCodes && !cfg.TraceLogs && !cfg.TraceStats && !cfg.TraceRTT {
 		return nil, nil
 	}
 
@@ -126,6 +128,20 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 			return nil, err
 		}
 	}
+	if cfg.TraceRTT {
+		rttPath := deriveRTTTracePath(basePath)
+		file, err := os.Create(rttPath)
+		if err != nil {
+			_ = logger.Close()
+			return nil, err
+		}
+		logger.rttFile = file
+		logger.rttPath = rttPath
+		if _, err := file.WriteString("timestamp,call,name,value_ms\n"); err != nil {
+			_ = logger.Close()
+			return nil, err
+		}
+	}
 	return logger, nil
 }
 
@@ -172,6 +188,11 @@ func (t *traceLogger) Close() error {
 			errs = append(errs, closeErr)
 		}
 	}
+	if t.rttFile != nil {
+		if closeErr := t.rttFile.Close(); closeErr != nil {
+			errs = append(errs, closeErr)
+		}
+	}
 	return errors.Join(errs...)
 }
 
@@ -198,6 +219,10 @@ func deriveErrorCodesPath(cfg Config, basePath string) string {
 
 func deriveStatsTracePath(basePath string) string {
 	return deriveNamedTracePath(basePath, "_stats")
+}
+
+func deriveRTTTracePath(basePath string) string {
+	return deriveNamedTracePath(basePath, "_rtt")
 }
 
 func (e *Engine) startTrace() error {
@@ -291,6 +316,22 @@ func (e *Engine) traceErrorCode(callNumber, code int, reason, callID, expected s
 		reason,
 		callID,
 		expected,
+	})
+	writer.Flush()
+}
+
+func (e *Engine) traceRTD(callNumber int, name string, value time.Duration) {
+	if e.trace == nil || e.trace.rttFile == nil {
+		return
+	}
+	e.trace.mu.Lock()
+	defer e.trace.mu.Unlock()
+	writer := csv.NewWriter(e.trace.rttFile)
+	_ = writer.Write([]string{
+		time.Now().Format(time.RFC3339Nano),
+		strconv.Itoa(callNumber),
+		name,
+		strconv.FormatInt(value.Milliseconds(), 10),
 	})
 	writer.Flush()
 }

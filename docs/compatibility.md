@@ -123,6 +123,7 @@ This document defines the currently supported SIPp subset in `gossipper`.
 | `-message_file` | supported | Explicit path for the full message trace log; also enables `-trace_msg` |
 | `-trace_shortmsg` | supported | Writes a compact CSV sibling log with timestamp, direction, protocol, summary, and `Call-ID` |
 | `-trace_stat` | supported | Writes periodic and final CSV stats snapshots to a sibling `_stats` trace file |
+| `-trace_rtt` | supported | Writes each completed named RTD sample to a sibling `_rtt` CSV trace file |
 | `-trace_err` | supported | Writes unexpected SIP messages and runtime failures to the configured error file |
 | `-error_file` | supported | Explicit path for the error trace log; also enables `-trace_err` |
 | `-trace_error_codes` | supported | Writes a compact sibling CSV file with unexpected SIP response codes, reasons, `Call-ID`, and expected match |

@@ -47,6 +47,7 @@ type Config struct {
 	TraceLogs       bool
 	LogFile         string
 	TraceStats      bool
+	TraceRTT        bool
 	HEPAddr         string
 	HEPCaptureID    uint32
 	HEPPassword     string
@@ -98,6 +99,7 @@ func Parse(args []string) (Config, error) {
 	fs.BoolVar(&cfg.TraceLogs, "trace_logs", false, "trace action log output to a file")
 	fs.StringVar(&cfg.LogFile, "log_file", "", "path to action log trace file")
 	fs.BoolVar(&cfg.TraceStats, "trace_stat", false, "trace call statistics")
+	fs.BoolVar(&cfg.TraceRTT, "trace_rtt", false, "write RTD samples to a compact CSV log")
 	fs.StringVar(&cfg.HEPAddr, "hep_addr", "", "HEP3 collector address host:port for SIP mirroring to Homer")
 	fs.StringVar(&cfg.HEPPassword, "hep_password", "", "optional HEP3 auth key")
 	fs.StringVar(&cfg.TLSCertFile, "tls_cert", "", "TLS certificate file for server mode or mutual TLS")

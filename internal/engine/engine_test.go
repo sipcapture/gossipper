@@ -387,6 +387,130 @@ Content-Length: 0
 	}
 }
 
+func TestEngineTraceRTTWritesCSV(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+	defer serverConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg, err := sip.Parse(buffer[:n])
+			if err != nil {
+				return
+			}
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			via, _ := sip.Header(msg.Headers, "Via")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+
+			switch strings.ToUpper(msg.Method) {
+			case "INVITE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				time.Sleep(40 * time.Millisecond)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			case "BYE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				return
+			}
+		}
+	}()
+
+	scenarioXML := `<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="Trace RTT UAC">
+  <send start_rtd="invite"><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="200" rtd="invite"/>
+  <send><![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`
+	sc, err := scenario.ParseString(scenarioXML)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	messagePath := filepath.Join(t.TempDir(), "messages.log")
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+		TraceRTT:      true,
+		MessageFile:   messagePath,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	<-done
+
+	rttPath := deriveRTTTracePath(messagePath)
+	raw, err := os.ReadFile(rttPath)
+	if err != nil {
+		t.Fatalf("ReadFile(trace_rtt) error = %v", err)
+	}
+
+	rows, err := csv.NewReader(strings.NewReader(string(raw))).ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll(trace_rtt) error = %v", err)
+	}
+	if len(rows) < 2 {
+		t.Fatalf("expected header plus RTD row, got %d rows: %q", len(rows), raw)
+	}
+	if rows[0][0] != "timestamp" || rows[0][2] != "name" {
+		t.Fatalf("unexpected trace_rtt header: %v", rows[0])
+	}
+	last := rows[len(rows)-1]
+	if last[1] != "1" || last[2] != "invite" {
+		t.Fatalf("unexpected trace_rtt row: %v", last)
+	}
+}
+
 func TestEngineCollectsNamedRTDStats(t *testing.T) {
 	t.Parallel()
 

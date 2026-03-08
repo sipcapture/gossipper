@@ -70,6 +70,7 @@ func run(args []string) error {
 		TraceLogs:       cfg.TraceLogs,
 		LogFile:         cfg.LogFile,
 		TraceStats:      cfg.TraceStats,
+		TraceRTT:        cfg.TraceRTT,
 		HEPAddr:         cfg.HEPAddr,
 		HEPCaptureID:    cfg.HEPCaptureID,
 		HEPPassword:     cfg.HEPPassword,

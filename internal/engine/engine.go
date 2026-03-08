@@ -54,6 +54,7 @@ type Config struct {
 	TraceLogs       bool
 	LogFile         string
 	TraceStats      bool
+	TraceRTT        bool
 	HEPAddr         string
 	HEPCaptureID    uint32
 	HEPPassword     string
@@ -794,7 +795,9 @@ func (e *Engine) executeCall(
 		if !ok {
 			return
 		}
-		e.stats.AddRTD(name, time.Since(startedAt))
+		value := time.Since(startedAt)
+		e.stats.AddRTD(name, value)
+		e.traceRTD(callNumber, name, value)
 		delete(rtdStarts, name)
 	}
 	recordCommandStats := func(cmd scenario.Command) {

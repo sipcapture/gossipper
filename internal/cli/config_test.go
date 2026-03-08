@@ -147,6 +147,22 @@ func TestParseAcceptsTraceErrorCodes(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsTraceRTT(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-trace_rtt",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !cfg.TraceRTT {
+		t.Fatal("expected trace_rtt to be enabled")
+	}
+}
+
 func TestParseAcceptsHEPSettings(t *testing.T) {
 	t.Parallel()
 

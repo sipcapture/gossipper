@@ -45,7 +45,6 @@ Why first:
 
 Target gaps from SIPp:
 
-- `-trace_rtt` style RTD dump files
 - richer cumulative vs periodic counters
 - broader call-failure classification in exported stats
 - SIPp-like latency / repartition style reporting where it adds real value
@@ -53,10 +52,10 @@ Target gaps from SIPp:
 Completed so far in this milestone:
 
 - `-trace_stat` style periodic CSV snapshots via sibling `*_stats.log` output
+- `-trace_rtt` style RTD dump files via sibling `*_rtt.log` CSV output
 
 Deliverables:
 
-- RTD CSV export
 - documented field mapping between current `gossipper` JSON and SIPp-style counters
 
 ## Milestone 2: XML action and scenario parity
@@ -165,7 +164,6 @@ These are concrete SIPp-side features that are not currently present in
 - `[server_ip]`
 - `warning` action
 - `lookup` action family
-- `-trace_rtt`
 - richer periodic/cumulative statistics exports
 - `play_pcap_video`
 - `play_pcap_image`
