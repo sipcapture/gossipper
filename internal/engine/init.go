@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/adubovikov/gossip/internal/media"
-	"github.com/adubovikov/gossip/internal/scenario"
-	templ "github.com/adubovikov/gossip/internal/template"
+	"github.com/adubovikov/gossipper/internal/media"
+	"github.com/adubovikov/gossipper/internal/scenario"
+	templ "github.com/adubovikov/gossipper/internal/template"
 )
 
 func (e *Engine) runInit(ctx context.Context) error {

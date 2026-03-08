@@ -1,4 +1,4 @@
-module github.com/adubovikov/gossip
+module github.com/adubovikov/gossipper
 
 go 1.24.4
 

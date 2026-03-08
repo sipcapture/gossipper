@@ -14,13 +14,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adubovikov/gossip/internal/media"
-	"github.com/adubovikov/gossip/internal/scenario"
-	"github.com/adubovikov/gossip/internal/scheduler"
-	"github.com/adubovikov/gossip/internal/sip"
-	"github.com/adubovikov/gossip/internal/stats"
-	templ "github.com/adubovikov/gossip/internal/template"
-	"github.com/adubovikov/gossip/internal/transport"
+	"github.com/adubovikov/gossipper/internal/media"
+	"github.com/adubovikov/gossipper/internal/scenario"
+	"github.com/adubovikov/gossipper/internal/scheduler"
+	"github.com/adubovikov/gossipper/internal/sip"
+	"github.com/adubovikov/gossipper/internal/stats"
+	templ "github.com/adubovikov/gossipper/internal/template"
+	"github.com/adubovikov/gossipper/internal/transport"
 )
 
 var (

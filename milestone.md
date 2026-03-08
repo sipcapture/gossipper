@@ -1,6 +1,6 @@
-# gossip milestones toward broader SIPp parity
+# gossipper milestones toward broader SIPp parity
 
-This file tracks the next practical development milestones for `gossip`,
+This file tracks the next practical development milestones for `gossipper`,
 focusing on features that exist in `SIPp` and are still missing or only
 partially covered here.
 
@@ -10,7 +10,7 @@ order.
 
 ## Baseline already implemented
 
-`gossip` already covers a useful subset:
+`gossipper` already covers a useful subset:
 
 - SIP XML scenarios with `send`, `recv`, `pause`, `nop`, `label`, `timewait`,
   and `init`
@@ -36,7 +36,7 @@ Priority: high
 
 Why first:
 
-- `gossip` already has JSON summaries and basic RTD/counter support
+- `gossipper` already has JSON summaries and basic RTD/counter support
 - SIPp still offers richer built-in reporting flows that are useful in CI and
   long-running load tests
 
@@ -52,7 +52,7 @@ Deliverables:
 
 - periodic stats writer
 - RTD CSV export
-- documented field mapping between current `gossip` JSON and SIPp-style counters
+- documented field mapping between current `gossipper` JSON and SIPp-style counters
 
 ## Milestone 2: XML action and scenario parity
 
@@ -65,7 +65,7 @@ Target gaps from SIPp:
 - broader action surface and legacy scenario semantics beyond the currently
   implemented `ereg` / `assignstr` / `test` / `log` / `exec`
 - wider keyword catalog where SIPp still exposes scenario helpers not yet in
-  `gossip`
+  `gossipper`
 
 Deliverables:
 
@@ -102,7 +102,7 @@ Target gaps from SIPp:
 - broader generic PCAP replay coverage like SIPp's "play any RTP stream"
   positioning
 - bidirectional RTP / SRTP checking (`rtpcheck`)
-- wider codec/file handling beyond the currently practical `gossip` subset
+- wider codec/file handling beyond the currently practical `gossipper` subset
 
 Deliverables:
 
@@ -143,7 +143,7 @@ Target gaps from SIPp:
 - obscure keyword variants
 - edge-case branching semantics
 - older scenario constructs that are valid in SIPp but not yet important for
-  current `gossip` users
+  current `gossipper` users
 
 Deliverables:
 
@@ -153,7 +153,7 @@ Deliverables:
 ## Explicit backlog checklist
 
 These are concrete SIPp-side features that are not currently present in
-`gossip`, or are only partially covered:
+`gossipper`, or are only partially covered:
 
 - `-t ui`
 - `-inf` + `-ip_field` multi-IP local address workflow

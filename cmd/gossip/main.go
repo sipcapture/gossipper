@@ -8,9 +8,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/adubovikov/gossip/internal/cli"
-	"github.com/adubovikov/gossip/internal/engine"
-	"github.com/adubovikov/gossip/internal/scenario"
+	"github.com/adubovikov/gossipper/internal/cli"
+	"github.com/adubovikov/gossipper/internal/engine"
+	"github.com/adubovikov/gossipper/internal/scenario"
 )
 
 func main() {

@@ -36,7 +36,7 @@ The current MVP implements:
 
 ## Project layout
 
-- `cmd/gossipper`: CLI entry point
+- `cmd/gossip`: CLI entry point
 - `internal/cli`: argument parsing
 - `internal/scenario`: XML parser and built-in scenarios
 - `internal/template`: SIPp keyword rendering
@@ -63,89 +63,89 @@ The current MVP implements:
 Run the built-in UAC scenario against a SIP endpoint:
 
 ```bash
-go run ./cmd/gossipper -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
+go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
 Run a custom XML scenario:
 
 ```bash
-go run ./cmd/gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -m 10 -r 5
+go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -m 10 -r 5
 ```
 
 Write a JSON summary:
 
 ```bash
-go run ./cmd/gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -summary_json summary.json
+go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -summary_json summary.json
 ```
 
 Write full and short message traces:
 
 ```bash
-go run ./cmd/gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_msg -trace_shortmsg -message_file ./messages.log
+go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_msg -trace_shortmsg -message_file ./messages.log
 ```
 
 Write unexpected responses and action logs to dedicated files:
 
 ```bash
-go run ./cmd/gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_err -trace_error_codes -error_file ./errors.log -trace_logs -log_file ./actions.log
+go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_err -trace_error_codes -error_file ./errors.log -trace_logs -log_file ./actions.log
 ```
 
 Run over TLS:
 
 ```bash
-go run ./cmd/gossipper -t l1 -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
+go run ./cmd/gossip -t l1 -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
 ```
 
 Run the built-in UAS in SIPp-style server transport mode:
 
 ```bash
-go run ./cmd/gossipper -sn uas -t s1 -i 0.0.0.0 -p 5060 -m 1
+go run ./cmd/gossip -sn uas -t s1 -i 0.0.0.0 -p 5060 -m 1
 ```
 
 Run out-of-call `OPTIONS` ping/pong between two `gossipper` instances:
 
 ```bash
-go run ./cmd/gossipper -sf ./testdata/scenarios/options_server.xml -t s1 -i 0.0.0.0 -p 5060 -m 1
-go run ./cmd/gossipper -sf ./testdata/scenarios/options_client.xml -rsa 127.0.0.1:5060 -s options -m 1 -r 1
+go run ./cmd/gossip -sf ./testdata/scenarios/options_server.xml -t s1 -i 0.0.0.0 -p 5060 -m 1
+go run ./cmd/gossip -sf ./testdata/scenarios/options_client.xml -rsa 127.0.0.1:5060 -s options -m 1 -r 1
 ```
 
 Run a challenged Digest auth scenario with SIPp-style credentials:
 
 ```bash
-go run ./cmd/gossipper -sf ./testdata/scenarios/auth_uac.xml -rsa 127.0.0.1:5060 -s alice -au alice -ap secret -m 1 -r 1
+go run ./cmd/gossip -sf ./testdata/scenarios/auth_uac.xml -rsa 127.0.0.1:5060 -s alice -au alice -ap secret -m 1 -r 1
 ```
 
 Run a SIPp-style audio PCAP replay action from a scenario:
 
 ```bash
-go run ./cmd/gossipper -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -m 1 -r 1
+go run ./cmd/gossip -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
 Run the bundled local two-sided PCAP demo between two `gossipper` instances:
 
 ```bash
-go run ./cmd/gossipper -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
-go run ./cmd/gossipper -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
+go run ./cmd/gossip -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
+go run ./cmd/gossip -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
 ```
 
 Run the bundled DTMF-over-PCAP demo against the same local UAS:
 
 ```bash
-go run ./cmd/gossipper -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
-go run ./cmd/gossipper -sf ./testdata/scenarios/uac_dtmf_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
+go run ./cmd/gossip -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
+go run ./cmd/gossip -sf ./testdata/scenarios/uac_dtmf_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
 ```
 
 Run 3PCC-style command exchange between instances with the low-level transport flags:
 
 ```bash
-go run ./cmd/gossipper -sf ./scenario.xml -rsa 127.0.0.1:5060 -cmd_name m -cmd_peers ./peers.cfg
+go run ./cmd/gossip -sf ./scenario.xml -rsa 127.0.0.1:5060 -cmd_name m -cmd_peers ./peers.cfg
 ```
 
 Run the same flow with SIPp-style master/slave aliases:
 
 ```bash
-go run ./cmd/gossipper -sf ./testdata/scenarios/3pcc_slave.xml -slave s1 -slave_cfg ./peers.cfg
-go run ./cmd/gossipper -sf ./testdata/scenarios/3pcc_master.xml -master m -slave_cfg ./peers.cfg -rsa 127.0.0.1:5060
+go run ./cmd/gossip -sf ./testdata/scenarios/3pcc_slave.xml -slave s1 -slave_cfg ./peers.cfg
+go run ./cmd/gossip -sf ./testdata/scenarios/3pcc_master.xml -master m -slave_cfg ./peers.cfg -rsa 127.0.0.1:5060
 ```
 
 ## Notes

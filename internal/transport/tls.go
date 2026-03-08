@@ -7,7 +7,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/adubovikov/gossip/internal/sip"
+	"github.com/adubovikov/gossipper/internal/sip"
 )
 
 type SharedTLS struct {

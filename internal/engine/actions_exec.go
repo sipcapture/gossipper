@@ -7,10 +7,10 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/adubovikov/gossip/internal/media"
-	"github.com/adubovikov/gossip/internal/scenario"
-	"github.com/adubovikov/gossip/internal/sip"
-	templ "github.com/adubovikov/gossip/internal/template"
+	"github.com/adubovikov/gossipper/internal/media"
+	"github.com/adubovikov/gossipper/internal/scenario"
+	"github.com/adubovikov/gossipper/internal/sip"
+	templ "github.com/adubovikov/gossipper/internal/template"
 )
 
 func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, renderCtx templ.Context, vars *varStore, mediaSession *media.Session) error {

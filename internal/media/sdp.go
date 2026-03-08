@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/adubovikov/gossip/internal/sip"
+	"github.com/adubovikov/gossipper/internal/sip"
 )
 
 func ParseAudioEndpoint(msg sip.Message, fallbackIP string) (Endpoint, error) {

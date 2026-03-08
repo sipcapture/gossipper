@@ -20,14 +20,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adubovikov/gossip/internal/media"
+	"github.com/adubovikov/gossipper/internal/media"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/pion/rtcp"
 
-	"github.com/adubovikov/gossip/internal/scenario"
-	"github.com/adubovikov/gossip/internal/sip"
+	"github.com/adubovikov/gossipper/internal/scenario"
+	"github.com/adubovikov/gossipper/internal/sip"
 )
 
 func TestEngineRunsBasicUACScenario(t *testing.T) {

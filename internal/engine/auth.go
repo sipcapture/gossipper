@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/adubovikov/gossip/internal/sip"
-	templ "github.com/adubovikov/gossip/internal/template"
+	"github.com/adubovikov/gossipper/internal/sip"
+	templ "github.com/adubovikov/gossipper/internal/template"
 )
 
 const authPlaceholder = "Authorization: pending"

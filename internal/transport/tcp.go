@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adubovikov/gossip/internal/sip"
+	"github.com/adubovikov/gossipper/internal/sip"
 )
 
 type SharedTCP struct {

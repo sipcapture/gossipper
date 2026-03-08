@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adubovikov/gossip/internal/sip"
+	"github.com/adubovikov/gossipper/internal/sip"
 	"github.com/pion/rtp"
 )
 

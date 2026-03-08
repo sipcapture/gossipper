@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adubovikov/gossip/internal/media"
+	"github.com/adubovikov/gossipper/internal/media"
 )
 
 type Collector struct {

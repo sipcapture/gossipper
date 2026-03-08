@@ -1,6 +1,6 @@
 # XML compatibility matrix
 
-This document defines the currently supported SIPp subset in `gossip`.
+This document defines the currently supported SIPp subset in `gossipper`.
 
 ## Commands
 

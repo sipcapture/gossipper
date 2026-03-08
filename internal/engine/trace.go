@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adubovikov/gossip/internal/scenario"
-	"github.com/adubovikov/gossip/internal/sip"
+	"github.com/adubovikov/gossipper/internal/scenario"
+	"github.com/adubovikov/gossipper/internal/sip"
 )
 
 type traceLogger struct {
@@ -36,7 +36,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 
 	basePath := cfg.MessageFile
 	if basePath == "" {
-		basePath = filepath.Join(".", fmt.Sprintf("gossip_%d_messages.log", os.Getpid()))
+		basePath = filepath.Join(".", fmt.Sprintf("gossipper_%d_messages.log", os.Getpid()))
 	}
 
 	logger := &traceLogger{}

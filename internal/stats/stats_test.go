@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adubovikov/gossip/internal/media"
+	"github.com/adubovikov/gossipper/internal/media"
 )
 
 func TestCollectorAggregatesMediaStats(t *testing.T) {
