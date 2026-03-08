@@ -25,6 +25,7 @@ type Collector struct {
 	rtds            map[string]rtdAccumulator
 	counters        map[string]int
 	displays        map[string]int
+	failureClasses  map[string]int
 }
 
 type MediaSummary struct {
@@ -62,14 +63,16 @@ type Summary struct {
 	RTD                map[string]RTDSummary `json:"rtd,omitempty"`
 	Counters           map[string]int        `json:"counters,omitempty"`
 	Displays           map[string]int        `json:"displays,omitempty"`
+	FailureClasses     map[string]int        `json:"failure_classes,omitempty"`
 }
 
 func New() *Collector {
 	return &Collector{
-		startedAt: time.Now(),
-		rtds:      make(map[string]rtdAccumulator),
-		counters:  make(map[string]int),
-		displays:  make(map[string]int),
+		startedAt:      time.Now(),
+		rtds:           make(map[string]rtdAccumulator),
+		counters:       make(map[string]int),
+		displays:       make(map[string]int),
+		failureClasses: make(map[string]int),
 	}
 }
 
@@ -160,6 +163,16 @@ func (c *Collector) AddDisplay(name string) {
 	c.displays[name]++
 }
 
+func (c *Collector) AddFailureClass(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.failureClasses[name]++
+}
+
 func (c *Collector) Snapshot() Summary {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -222,6 +235,14 @@ func (c *Collector) Snapshot() Summary {
 		}
 	}
 
+	var failureClasses map[string]int
+	if len(c.failureClasses) > 0 {
+		failureClasses = make(map[string]int, len(c.failureClasses))
+		for name, value := range c.failureClasses {
+			failureClasses[name] = value
+		}
+	}
+
 	return Summary{
 		StartedAt:          c.startedAt,
 		FinishedAt:         now,
@@ -240,6 +261,7 @@ func (c *Collector) Snapshot() Summary {
 		RTD:                rtdSummary,
 		Counters:           counters,
 		Displays:           displays,
+		FailureClasses:     failureClasses,
 	}
 }
 

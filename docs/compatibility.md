@@ -130,6 +130,13 @@ This document defines the currently supported SIPp subset in `gossipper`.
 | `-trace_logs` | supported | Writes XML action `<log>` output to a dedicated file |
 | `-log_file` | supported | Explicit path for the action log trace file; also enables `-trace_logs` |
 
+## Statistics export
+
+| Export surface | Status | Notes |
+| --- | --- | --- |
+| summary JSON failure classes | supported | Exports failure class counters such as `timeout`, `unexpected_sip`, `transport_error`, `parse_error`, `scenario_error`, and `cancelled` |
+| `-trace_stat` failure class columns | supported | Periodic stats CSV includes cumulative and delta columns for the same failure classes |
+
 ## HEP CLI workflow
 
 | CLI surface | Status | Notes |

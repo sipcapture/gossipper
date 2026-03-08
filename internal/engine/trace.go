@@ -123,7 +123,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 		}
 		logger.statsFile = file
 		logger.statsPath = statsPath
-		if _, err := file.WriteString("timestamp,elapsed_ms,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,retransmits,timeouts,avg_call_ms,avg_invite_ms,rtp_packets_sent,rtp_packets_received,rtcp_sender_reports,rtcp_receiver_reports,rtcp_packets_received,interval_ms,interval_calls_per_second,delta_total_calls,delta_success_calls,delta_failed_calls,delta_retransmits,delta_timeouts,delta_rtp_packets_sent,delta_rtp_packets_received,delta_rtcp_sender_reports,delta_rtcp_receiver_reports,delta_rtcp_packets_received\n"); err != nil {
+		if _, err := file.WriteString("timestamp,elapsed_ms,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,retransmits,timeouts,avg_call_ms,avg_invite_ms,rtp_packets_sent,rtp_packets_received,rtcp_sender_reports,rtcp_receiver_reports,rtcp_packets_received,failure_timeout,failure_unexpected_sip,failure_transport_error,failure_parse_error,failure_scenario_error,failure_cancelled,interval_ms,interval_calls_per_second,delta_total_calls,delta_success_calls,delta_failed_calls,delta_retransmits,delta_timeouts,delta_rtp_packets_sent,delta_rtp_packets_received,delta_rtcp_sender_reports,delta_rtcp_receiver_reports,delta_rtcp_packets_received,delta_failure_timeout,delta_failure_unexpected_sip,delta_failure_transport_error,delta_failure_parse_error,delta_failure_scenario_error,delta_failure_cancelled\n"); err != nil {
 			_ = logger.Close()
 			return nil, err
 		}
@@ -383,6 +383,18 @@ func (t *traceLogger) writeStatsSnapshot(summary stats.Summary, previous *stats.
 	deltaRTCPSenderReports := int(summary.Media.RTCPSenderReports)
 	deltaRTCPReceiverReports := int(summary.Media.RTCPReceiverReports)
 	deltaRTCPPacketsReceived := int(summary.Media.RTCPPacketsReceived)
+	failureTimeout := failureClassCount(summary, "timeout")
+	failureUnexpectedSIP := failureClassCount(summary, "unexpected_sip")
+	failureTransportError := failureClassCount(summary, "transport_error")
+	failureParseError := failureClassCount(summary, "parse_error")
+	failureScenarioError := failureClassCount(summary, "scenario_error")
+	failureCancelled := failureClassCount(summary, "cancelled")
+	deltaFailureTimeout := failureTimeout
+	deltaFailureUnexpectedSIP := failureUnexpectedSIP
+	deltaFailureTransportError := failureTransportError
+	deltaFailureParseError := failureParseError
+	deltaFailureScenarioError := failureScenarioError
+	deltaFailureCancelled := failureCancelled
 	if previous != nil {
 		interval := summary.FinishedAt.Sub(previous.FinishedAt)
 		if interval > 0 {
@@ -400,6 +412,12 @@ func (t *traceLogger) writeStatsSnapshot(summary stats.Summary, previous *stats.
 		deltaRTCPSenderReports -= int(previous.Media.RTCPSenderReports)
 		deltaRTCPReceiverReports -= int(previous.Media.RTCPReceiverReports)
 		deltaRTCPPacketsReceived -= int(previous.Media.RTCPPacketsReceived)
+		deltaFailureTimeout -= failureClassCount(*previous, "timeout")
+		deltaFailureUnexpectedSIP -= failureClassCount(*previous, "unexpected_sip")
+		deltaFailureTransportError -= failureClassCount(*previous, "transport_error")
+		deltaFailureParseError -= failureClassCount(*previous, "parse_error")
+		deltaFailureScenarioError -= failureClassCount(*previous, "scenario_error")
+		deltaFailureCancelled -= failureClassCount(*previous, "cancelled")
 	}
 	intervalCPS := 0.0
 	if intervalMS > 0 {
@@ -425,6 +443,12 @@ func (t *traceLogger) writeStatsSnapshot(summary stats.Summary, previous *stats.
 		strconv.FormatUint(uint64(summary.Media.RTCPSenderReports), 10),
 		strconv.FormatUint(uint64(summary.Media.RTCPReceiverReports), 10),
 		strconv.FormatUint(uint64(summary.Media.RTCPPacketsReceived), 10),
+		strconv.Itoa(failureTimeout),
+		strconv.Itoa(failureUnexpectedSIP),
+		strconv.Itoa(failureTransportError),
+		strconv.Itoa(failureParseError),
+		strconv.Itoa(failureScenarioError),
+		strconv.Itoa(failureCancelled),
 		strconv.FormatInt(intervalMS, 10),
 		strconv.FormatFloat(intervalCPS, 'f', 6, 64),
 		strconv.Itoa(deltaTotalCalls),
@@ -437,8 +461,21 @@ func (t *traceLogger) writeStatsSnapshot(summary stats.Summary, previous *stats.
 		strconv.Itoa(deltaRTCPSenderReports),
 		strconv.Itoa(deltaRTCPReceiverReports),
 		strconv.Itoa(deltaRTCPPacketsReceived),
+		strconv.Itoa(deltaFailureTimeout),
+		strconv.Itoa(deltaFailureUnexpectedSIP),
+		strconv.Itoa(deltaFailureTransportError),
+		strconv.Itoa(deltaFailureParseError),
+		strconv.Itoa(deltaFailureScenarioError),
+		strconv.Itoa(deltaFailureCancelled),
 	})
 	writer.Flush()
+}
+
+func failureClassCount(summary stats.Summary, name string) int {
+	if summary.FailureClasses == nil {
+		return 0
+	}
+	return summary.FailureClasses[name]
 }
 
 func buildShortTraceRecord(direction string, callNumber int, raw string) []string {

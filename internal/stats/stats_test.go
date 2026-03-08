@@ -167,3 +167,30 @@ func TestCollectorWriteJSONIncludesCounterAndDisplayStats(t *testing.T) {
 		t.Fatalf("expected displays in JSON, got %+v", summary.Displays)
 	}
 }
+
+func TestCollectorWriteJSONIncludesFailureClasses(t *testing.T) {
+	t.Parallel()
+
+	collector := New()
+	collector.AddFailureClass("timeout")
+	collector.AddFailureClass("timeout")
+	collector.AddFailureClass("transport_error")
+
+	path := filepath.Join(t.TempDir(), "summary.json")
+	if err := collector.WriteJSON(path); err != nil {
+		t.Fatalf("WriteJSON() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(summary) error = %v", err)
+	}
+
+	var summary Summary
+	if err := json.Unmarshal(raw, &summary); err != nil {
+		t.Fatalf("Unmarshal(summary) error = %v", err)
+	}
+	if summary.FailureClasses["timeout"] != 2 || summary.FailureClasses["transport_error"] != 1 {
+		t.Fatalf("expected failure classes in JSON, got %+v", summary.FailureClasses)
+	}
+}

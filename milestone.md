@@ -45,7 +45,6 @@ Why first:
 
 Target gaps from SIPp:
 
-- broader call-failure classification in exported stats
 - SIPp-like latency / repartition style reporting where it adds real value
 
 Completed so far in this milestone:
@@ -53,6 +52,7 @@ Completed so far in this milestone:
 - `-trace_stat` style periodic CSV snapshots via sibling `*_stats.log` output
 - `-trace_rtt` style RTD dump files via sibling `*_rtt.log` CSV output
 - richer cumulative vs periodic counters in `-trace_stat` via interval delta columns
+- broader call-failure classification in exported stats via summary and `-trace_stat` failure-class counters
 
 Deliverables:
 

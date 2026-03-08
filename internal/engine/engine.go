@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	mrand "math/rand"
 	"net"
 	"os"
@@ -744,12 +745,16 @@ func (e *Engine) executeCall(
 	remotePort int,
 	send func([]byte) error,
 	receive func(context.Context) (sip.Message, error),
-) error {
+) (runErr error) {
 	startedAt := time.Now()
 	e.stats.StartCall()
 	success := false
 	mediaSession := media.NewSession()
+	sawUnexpectedSIP := false
 	defer func() {
+		if !success {
+			e.stats.AddFailureClass(classifyCallFailure(runErr, sawUnexpectedSIP))
+		}
 		e.stats.AddMediaStats(mediaSession.Snapshot())
 		mediaSession.Stop()
 		e.stats.FinishCall(success, time.Since(startedAt))
@@ -887,6 +892,7 @@ func (e *Engine) executeCall(
 			}
 			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, send, retransmit, recvTimeout, func(msg sip.Message) {
 				e.traceUnexpectedSIP(callNumber, cmd, msg)
+				sawUnexpectedSIP = true
 				pending = append(pending, msg)
 			})
 			if err != nil {
@@ -971,6 +977,41 @@ func (e *Engine) executeCall(
 
 	success = true
 	return nil
+}
+
+func classifyCallFailure(err error, sawUnexpectedSIP bool) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		if sawUnexpectedSIP {
+			return "unexpected_sip"
+		}
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	if errors.Is(err, io.EOF) {
+		return "transport_error"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return "transport_error"
+	}
+
+	errText := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(errText, "empty sip message"),
+		strings.Contains(errText, "invalid sip"),
+		strings.Contains(errText, "malformed sip"):
+		return "parse_error"
+	case strings.Contains(errText, "missing call-id"),
+		strings.Contains(errText, "malformed"):
+		return "parse_error"
+	default:
+		return "scenario_error"
+	}
 }
 
 func (e *Engine) waitForCommand(ctx context.Context, callID, channel, src string, timeout time.Duration) (string, commandMessage, error) {
