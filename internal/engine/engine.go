@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/adubovikov/gossipper/internal/hep"
 	"github.com/adubovikov/gossipper/internal/media"
 	"github.com/adubovikov/gossipper/internal/scenario"
 	"github.com/adubovikov/gossipper/internal/scheduler"
@@ -53,6 +54,9 @@ type Config struct {
 	TraceLogs       bool
 	LogFile         string
 	TraceStats      bool
+	HEPAddr         string
+	HEPCaptureID    uint32
+	HEPPassword     string
 	TLSCertFile     string
 	TLSKeyFile      string
 	TLSCAFile       string
@@ -71,6 +75,7 @@ type Engine struct {
 	commands *commandBroker
 	cmdNet   *commandNetwork
 	trace    *traceLogger
+	hep      *hep.Client
 }
 
 func New(cfg Config) *Engine {
@@ -93,6 +98,10 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 	defer e.stopTrace()
+	if err := e.startHEP(); err != nil {
+		return err
+	}
+	defer e.stopHEP()
 	defer func() {
 		if runErr != nil && !errors.Is(runErr, context.Canceled) {
 			e.traceError("runtime-error", 0, runErr.Error())
@@ -166,6 +175,8 @@ func (e *Engine) runClientCommandOnly(ctx context.Context) error {
 			receive := func(waitCtx context.Context) (sip.Message, error) {
 				return sip.Message{}, fmt.Errorf("SIP receive is not available in command-only scenario")
 			}
+			send = e.wrapSIPSend(callNumber, resolveLocalIP(0, e.cfg.LocalIP), e.cfg.LocalPort, e.cfg.RemoteHost, e.cfg.RemotePort, send)
+			receive = e.wrapSIPReceive(callNumber, resolveLocalIP(0, e.cfg.LocalIP), e.cfg.LocalPort, e.cfg.RemoteHost, e.cfg.RemotePort, receive)
 
 			runErrLocal := e.executeCall(
 				ctx,
@@ -241,6 +252,8 @@ func (e *Engine) runClientShared(ctx context.Context) error {
 			}
 
 			localIP := resolveLocalIP(shared.LocalPort(), e.cfg.LocalIP)
+			send = e.wrapSIPSend(callNumber, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send)
+			receive = e.wrapSIPReceive(callNumber, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, receive)
 			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send, receive)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
@@ -297,9 +310,6 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 				if err != nil {
 					return sip.Message{}, err
 				}
-				if e.cfg.TraceMessages || e.cfg.TraceShortMsg {
-					e.traceEvent("recv", callNumber, msg.Raw)
-				}
 				return msg, nil
 			}
 			send := func(payload []byte) error {
@@ -307,6 +317,8 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 			}
 
 			localIP := resolveLocalIP(dialog.LocalPort(), e.cfg.LocalIP)
+			send = e.wrapSIPSend(callNumber, localIP, dialog.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send)
+			receive = e.wrapSIPReceive(callNumber, localIP, dialog.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, receive)
 			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, dialog.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send, receive)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
@@ -365,6 +377,8 @@ func (e *Engine) runClientSharedTCP(ctx context.Context) error {
 				return shared.Send(payload)
 			}
 			localIP := resolveLocalIP(shared.LocalPort(), e.cfg.LocalIP)
+			send = e.wrapSIPSend(callNumber, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send)
+			receive = e.wrapSIPReceive(callNumber, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, receive)
 			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
@@ -414,9 +428,6 @@ func (e *Engine) runClientPerCallTCP(ctx context.Context) error {
 				if err != nil {
 					return sip.Message{}, err
 				}
-				if e.cfg.TraceMessages || e.cfg.TraceShortMsg {
-					e.traceEvent("recv", callNumber, msg.Raw)
-				}
 				return msg, nil
 			}
 			send := func(payload []byte) error {
@@ -424,6 +435,8 @@ func (e *Engine) runClientPerCallTCP(ctx context.Context) error {
 			}
 
 			localIP := resolveLocalIP(dialog.LocalPort(), e.cfg.LocalIP)
+			send = e.wrapSIPSend(callNumber, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send)
+			receive = e.wrapSIPReceive(callNumber, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, receive)
 			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
@@ -491,9 +504,6 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 			if err != nil {
 				continue
 			}
-			if e.cfg.TraceMessages || e.cfg.TraceShortMsg {
-				e.traceEvent("recv-server", finished+1, msg.Raw)
-			}
 
 			callID, ok := sip.Header(msg.Headers, "Call-ID")
 			if !ok {
@@ -541,6 +551,8 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 					}
 
 					localIP := resolveLocalIP(shared.LocalPort(), e.cfg.LocalIP)
+					send = e.wrapSIPSend(callNumber, localIP, shared.LocalPort(), sess.remote.IP.String(), sess.remote.Port, send)
+					receive = e.wrapSIPReceive(callNumber, localIP, shared.LocalPort(), sess.remote.IP.String(), sess.remote.Port, receive)
 					_ = e.executeCall(ctx, callNumber, id, localIP, shared.LocalPort(), sess.remote.IP.String(), sess.remote.Port, send, receive)
 				}(finished+1, callID, msg, sess)
 				mu.Unlock()
@@ -642,6 +654,8 @@ func (e *Engine) runServerTCPShared(ctx context.Context) error {
 					}
 					remote := conn.RemoteAddr().(*net.TCPAddr)
 					localIP := resolveLocalIP(reader.LocalPort(), e.cfg.LocalIP)
+					send = e.wrapSIPSend(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
+					receive = e.wrapSIPReceive(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, receive)
 					_ = e.executeCall(ctx, callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive)
 				}(callID, sess.inbox, callNumber)
 			}
@@ -710,6 +724,8 @@ func (e *Engine) runServerTCPPerConn(ctx context.Context) error {
 			send := func(payload []byte) error { return reader.Write(payload) }
 			remote := conn.RemoteAddr().(*net.TCPAddr)
 			localIP := resolveLocalIP(reader.LocalPort(), e.cfg.LocalIP)
+			send = e.wrapSIPSend(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
+			receive = e.wrapSIPReceive(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, receive)
 			_ = e.executeCall(ctx, callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive)
 		}(accepted+1, conn)
 	}
@@ -829,9 +845,6 @@ func (e *Engine) executeCall(
 			if err != nil {
 				return err
 			}
-			if e.cfg.TraceMessages || e.cfg.TraceShortMsg {
-				e.traceEvent("send", callNumber, message)
-			}
 			if err := send([]byte(message)); err != nil {
 				return err
 			}
@@ -889,9 +902,6 @@ func (e *Engine) executeCall(
 
 			renderCtx.LastMessage = msg.Raw
 			renderCtx.LastHeaders = msg.Headers
-			if e.cfg.TraceMessages || e.cfg.TraceShortMsg {
-				e.traceEvent("recv", callNumber, msg.Raw)
-			}
 			renderCtx.Variables = store.Snapshot()
 			if err := e.applyActions(ctx, cmd.Actions, renderCtx, store, mediaSession); err != nil {
 				if errors.Is(err, errStopCall) {

@@ -28,6 +28,7 @@ The current MVP implements:
 - Named per-step RTD timers via `start_rtd` / `rtd`, aggregated into summary JSON
 - XML `counter` / `display` attributes aggregated into summary JSON as execution counts
 - Full message tracing via `-trace_msg` / `-message_file`, compact CSV tracing via `-trace_shortmsg`, error tracing via `-trace_err`, compact unexpected-response code tracing via `-trace_error_codes`, and action log tracing via `-trace_logs`
+- SIP mirroring to Homer over HEP3 via `-hep_addr`, `-hep_capture_id`, and optional `-hep_password`
 - Summary output now includes aggregated RTP/RTCP counters
 - RTP streaming over `pion/rtp`, including `exec rtp_stream` with SIPp-style params and `start` / `pause` / `resume` / `stop`
 - Audio PCAP replay via `exec play_pcap_audio="capture.pcap"` with preserved inter-packet timing and SDP-driven remote endpoint discovery
@@ -88,6 +89,12 @@ Write unexpected responses and action logs to dedicated files:
 
 ```bash
 go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_err -trace_error_codes -error_file ./errors.log -trace_logs -log_file ./actions.log
+```
+
+Mirror SIP messages to Homer over HEP3:
+
+```bash
+go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -hep_addr 127.0.0.1:9060 -hep_capture_id 2001 -hep_password secret
 ```
 
 Run over TLS:
@@ -189,6 +196,9 @@ at `/usr/bin/gossipper`.
 - `-trace_err` writes unexpected SIP responses and runtime failures to `-error_file`.
 - `-trace_error_codes` writes a sibling compact CSV file with unexpected SIP response codes and expected match criteria.
 - `-trace_logs` writes XML `<log>` action output to `-log_file`.
+- `-hep_addr` mirrors SIP `send` / `recv` traffic to a Homer-compatible HEP3 collector over UDP.
+- `-hep_capture_id` sets the HEP capture node ID; `-hep_password` sets the optional HEP auth key.
+- The current HEP MVP exports SIP signaling only; RTP/RTCP mirroring is not included yet.
 - `[authentication]` currently covers Digest `401` / `407` challenge responses with `MD5` and `qop=auth`; the scenario must explicitly place `[authentication]` into the retried request.
 - `start_rtd` and `rtd` now record named per-step timings into the summary model; they are especially useful for XML flows like `send INVITE` -> `recv 200`.
 - `counter` and `display` are currently exposed as successful-command execution counters in the summary model, which is a practical first step toward richer SIPp-style reporting.

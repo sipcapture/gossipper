@@ -56,6 +56,8 @@ func (e *Engine) runClientSharedTLS(ctx context.Context) error {
 			}
 			send := func(payload []byte) error { return shared.Send(payload) }
 			localIP := resolveLocalIP(shared.LocalPort(), e.cfg.LocalIP)
+			send = e.wrapSIPSend(callNumber, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send)
+			receive = e.wrapSIPReceive(callNumber, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, receive)
 			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
@@ -95,9 +97,11 @@ func (e *Engine) runClientPerCallTLS(ctx context.Context) error {
 			}
 			defer dialog.Close()
 			callID := newCallID(callNumber)
+			localIP := resolveLocalIP(dialog.LocalPort(), e.cfg.LocalIP)
 			send := func(payload []byte) error { return dialog.Send(payload) }
 			receive := func(waitCtx context.Context) (sip.Message, error) { return dialog.Receive(waitCtx) }
-			localIP := resolveLocalIP(dialog.LocalPort(), e.cfg.LocalIP)
+			send = e.wrapSIPSend(callNumber, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send)
+			receive = e.wrapSIPReceive(callNumber, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, receive)
 			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
@@ -183,6 +187,8 @@ func (e *Engine) runServerTLSShared(ctx context.Context) error {
 					}
 					remote := conn.RemoteAddr().(*net.TCPAddr)
 					localIP := resolveLocalIP(reader.LocalPort(), e.cfg.LocalIP)
+					send = e.wrapSIPSend(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
+					receive = e.wrapSIPReceive(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, receive)
 					_ = e.executeCall(ctx, callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive)
 				}(callID, sess.inbox, callNumber)
 			}
@@ -246,6 +252,8 @@ func (e *Engine) runServerTLSPerConn(ctx context.Context) error {
 			send := func(payload []byte) error { return reader.Write(payload) }
 			remote := conn.RemoteAddr().(*net.TCPAddr)
 			localIP := resolveLocalIP(reader.LocalPort(), e.cfg.LocalIP)
+			send = e.wrapSIPSend(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
+			receive = e.wrapSIPReceive(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, receive)
 			_ = e.executeCall(ctx, callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive)
 		}(accepted+1, conn)
 	}

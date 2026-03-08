@@ -147,6 +147,30 @@ func TestParseAcceptsTraceErrorCodes(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsHEPSettings(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-hep_addr", "127.0.0.1:9060",
+		"-hep_capture_id", "2001",
+		"-hep_password", "secret",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.HEPAddr != "127.0.0.1:9060" {
+		t.Fatalf("unexpected HEP addr %q", cfg.HEPAddr)
+	}
+	if cfg.HEPCaptureID != 2001 {
+		t.Fatalf("unexpected HEP capture ID %d", cfg.HEPCaptureID)
+	}
+	if cfg.HEPPassword != "secret" {
+		t.Fatalf("unexpected HEP password %q", cfg.HEPPassword)
+	}
+}
+
 func TestParseAuthCredentials(t *testing.T) {
 	t.Parallel()
 

@@ -128,6 +128,15 @@ This document defines the currently supported SIPp subset in `gossipper`.
 | `-trace_logs` | supported | Writes XML action `<log>` output to a dedicated file |
 | `-log_file` | supported | Explicit path for the action log trace file; also enables `-trace_logs` |
 
+## HEP CLI workflow
+
+| CLI surface | Status | Notes |
+| --- | --- | --- |
+| `-hep_addr` | supported | Mirrors SIP `send` / `recv` messages to a Homer-compatible HEP3 UDP collector |
+| `-hep_capture_id` | supported | Sets the HEP capture node ID |
+| `-hep_password` | supported | Sets the optional HEP auth key |
+| RTP/RTCP mirroring | deferred | Current HEP MVP exports SIP signaling only |
+
 ## Authentication CLI workflow
 
 | CLI surface | Status | Notes |

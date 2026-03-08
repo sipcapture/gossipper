@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adubovikov/gossipper/internal/hep"
 	"github.com/adubovikov/gossipper/internal/media"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -115,6 +116,148 @@ func TestEngineRunsBasicUACScenario(t *testing.T) {
 	}
 	if summary.FailedCalls != 0 {
 		t.Fatalf("expected zero failed calls, got %+v", summary)
+	}
+}
+
+func TestEngineMirrorsSIPToHEP(t *testing.T) {
+	t.Parallel()
+
+	hepConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(hep) error = %v", err)
+	}
+	defer hepConn.Close()
+
+	hepPackets := make(chan hep.Decoded, 16)
+	hepDone := make(chan struct{})
+	go func() {
+		defer close(hepDone)
+		buffer := make([]byte, 65535)
+		for {
+			_ = hepConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			n, _, err := hepConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			packet, err := hep.Decode(buffer[:n])
+			if err != nil {
+				return
+			}
+			hepPackets <- packet
+		}
+	}()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(sip) error = %v", err)
+	}
+	defer serverConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg, err := sip.Parse(buffer[:n])
+			if err != nil {
+				return
+			}
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			via, _ := sip.Header(msg.Headers, "Via")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+
+			switch strings.ToUpper(msg.Method) {
+			case "INVITE":
+				trying := fmt.Sprintf(
+					"SIP/2.0 100 Trying\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(trying), addr)
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContact: <sip:127.0.0.1:%d>\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq, serverConn.LocalAddr().(*net.UDPAddr).Port,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			case "BYE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				return
+			}
+		}
+	}()
+
+	sc, err := scenario.ParseFile("../../testdata/scenarios/basic_uac.xml")
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+		HEPAddr:       hepConn.LocalAddr().String(),
+		HEPCaptureID:  1001,
+		HEPPassword:   "secret",
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	<-done
+	_ = hepConn.Close()
+	<-hepDone
+	close(hepPackets)
+
+	var packets []hep.Decoded
+	for packet := range hepPackets {
+		packets = append(packets, packet)
+	}
+	if len(packets) < 4 {
+		t.Fatalf("expected HEP packets for SIP dialog, got %d", len(packets))
+	}
+
+	var sawInvite bool
+	var sawOK bool
+	for _, packet := range packets {
+		if packet.ProtoType != hep.ProtocolSIP {
+			t.Fatalf("unexpected HEP proto type %d", packet.ProtoType)
+		}
+		if packet.CaptureID != 1001 || packet.AuthKey != "secret" {
+			t.Fatalf("unexpected HEP metadata: %+v", packet)
+		}
+		payload := string(packet.Payload)
+		if strings.HasPrefix(payload, "INVITE ") {
+			sawInvite = true
+			if packet.SrcPort == 0 || packet.DstPort != uint16(serverConn.LocalAddr().(*net.UDPAddr).Port) {
+				t.Fatalf("unexpected INVITE ports in HEP packet: %+v", packet)
+			}
+		}
+		if strings.HasPrefix(payload, "SIP/2.0 200 OK") {
+			sawOK = true
+		}
+	}
+	if !sawInvite || !sawOK {
+		t.Fatalf("expected both INVITE and 200 OK in HEP export, got %d packets", len(packets))
 	}
 }
 

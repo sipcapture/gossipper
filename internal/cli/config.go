@@ -47,6 +47,9 @@ type Config struct {
 	TraceLogs       bool
 	LogFile         string
 	TraceStats      bool
+	HEPAddr         string
+	HEPCaptureID    uint32
+	HEPPassword     string
 	TLSCertFile     string
 	TLSKeyFile      string
 	TLSCAFile       string
@@ -95,6 +98,8 @@ func Parse(args []string) (Config, error) {
 	fs.BoolVar(&cfg.TraceLogs, "trace_logs", false, "trace action log output to a file")
 	fs.StringVar(&cfg.LogFile, "log_file", "", "path to action log trace file")
 	fs.BoolVar(&cfg.TraceStats, "trace_stat", false, "trace call statistics")
+	fs.StringVar(&cfg.HEPAddr, "hep_addr", "", "HEP3 collector address host:port for SIP mirroring to Homer")
+	fs.StringVar(&cfg.HEPPassword, "hep_password", "", "optional HEP3 auth key")
 	fs.StringVar(&cfg.TLSCertFile, "tls_cert", "", "TLS certificate file for server mode or mutual TLS")
 	fs.StringVar(&cfg.TLSKeyFile, "tls_key", "", "TLS private key file")
 	fs.StringVar(&cfg.TLSCAFile, "tls_ca", "", "TLS CA bundle file")
@@ -114,6 +119,7 @@ func Parse(args []string) (Config, error) {
 
 	pauseMS := fs.Int("pause_ms", DefaultPauseDurationMS, "default pause duration in milliseconds")
 	recvMS := fs.Int("recv_timeout_ms", int(DefaultRecvTimeout/time.Millisecond), "default receive timeout in milliseconds")
+	hepCaptureID := fs.Uint("hep_capture_id", 0, "HEP3 capture node ID")
 
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
@@ -147,6 +153,7 @@ func Parse(args []string) (Config, error) {
 
 	cfg.DefaultPause = time.Duration(*pauseMS) * time.Millisecond
 	cfg.DefaultRecvTO = time.Duration(*recvMS) * time.Millisecond
+	cfg.HEPCaptureID = uint32(*hepCaptureID)
 
 	switch cfg.Transport {
 	case "u1", "un", "t1", "tn", "l1", "ln", "s1", "sn":
@@ -201,6 +208,11 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.LogFile != "" {
 		cfg.TraceLogs = true
+	}
+	if cfg.HEPAddr != "" {
+		if _, _, err := splitHostPort(cfg.HEPAddr); err != nil {
+			return Config{}, fmt.Errorf("invalid HEP collector address: %w", err)
+		}
 	}
 
 	return cfg, nil
