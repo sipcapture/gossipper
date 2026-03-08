@@ -1,0 +1,93 @@
+name: Build-n-Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref_name:
+        description: Release Version
+        required: true
+      release:
+        description: Upload release assets
+        required: true
+        type: boolean
+        default: true
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64, arm64]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref_name || github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.24.4"
+
+      - name: Set version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ inputs.ref_name }}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=${{ github.ref_name }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build binary
+        env:
+          OS: ${{ matrix.goos }}
+          ARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          GOOS="${OS}" GOARCH="${ARCH}" go build -o "dist/gossipper_${OS}_${ARCH}" ./cmd/gossip
+
+      - name: Install nfpm
+        if: github.event_name == 'release' || inputs.release
+        run: |
+          wget -qO- https://github.com/goreleaser/nfpm/releases/download/v2.41.1/nfpm_2.41.1_Linux_x86_64.tar.gz | tar --directory ./ -xz nfpm
+          chmod +x nfpm
+          echo "$PWD" >> "$GITHUB_PATH"
+
+      - name: Create packages
+        if: github.event_name == 'release' || inputs.release
+        env:
+          VERSION: ${{ env.VERSION }}
+          OS: ${{ matrix.goos }}
+          ARCH: ${{ matrix.goarch }}
+        run: |
+          scripts/build-package.sh deb
+          scripts/build-package.sh rpm
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gossipper-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/gossipper_${{ matrix.goos }}_${{ matrix.goarch }}
+            dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.deb
+            dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.rpm
+          if-no-files-found: ignore
+
+      - name: Upload release assets
+        if: github.event_name == 'release' || inputs.release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          files: |
+            dist/gossipper_${{ matrix.goos }}_${{ matrix.goarch }}
+            dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.deb
+            dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.rpm
+          fail_on_unmatched_files: true

@@ -148,6 +148,34 @@ go run ./cmd/gossip -sf ./testdata/scenarios/3pcc_slave.xml -slave s1 -slave_cfg
 go run ./cmd/gossip -sf ./testdata/scenarios/3pcc_master.xml -master m -slave_cfg ./peers.cfg -rsa 127.0.0.1:5060
 ```
 
+## Packaging
+
+Build the release binary:
+
+```bash
+make build
+```
+
+Build Linux packages with `nfpm`:
+
+```bash
+make package-deb
+make package-rpm
+```
+
+Or call the builder script directly:
+
+```bash
+VERSION=0.1.0 ARCH=amd64 scripts/build-package.sh deb
+VERSION=0.1.0 ARCH=amd64 scripts/build-package.sh rpm
+```
+
+The builder uses local `nfpm` when available and falls back to the
+`goreleaser/nfpm` Docker image otherwise.
+
+Package artifacts are written to `dist/` and install the `gossipper` binary
+at `/usr/bin/gossipper`.
+
 ## Notes
 
 - This is a behavior-oriented rewrite, not a literal source port of SIPp.
