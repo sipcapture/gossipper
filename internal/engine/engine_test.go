@@ -411,14 +411,20 @@ Content-Length: 0
 	if len(header) == 0 || header[0] != "timestamp" {
 		t.Fatalf("unexpected trace_stat header: %v", header)
 	}
-	if len(header) < 41 || header[17] != "failure_timeout" || header[23] != "interval_ms" || header[26] != "delta_success_calls" || header[35] != "delta_failure_timeout" {
-		t.Fatalf("expected richer trace_stat header with interval/delta fields, got %v", header)
+	headerIndex := make(map[string]int, len(header))
+	for i, name := range header {
+		headerIndex[name] = i
+	}
+	for _, required := range []string{"call_stddev_ms", "invite_stddev_ms", "failure_timeout", "interval_ms", "delta_success_calls", "delta_failure_timeout"} {
+		if _, ok := headerIndex[required]; !ok {
+			t.Fatalf("expected trace_stat column %q in header %v", required, header)
+		}
 	}
 	last := rows[len(rows)-1]
-	if last[2] != "1" || last[3] != "1" || last[4] != "0" {
+	if last[headerIndex["total_calls"]] != "1" || last[headerIndex["success_calls"]] != "1" || last[headerIndex["failed_calls"]] != "0" {
 		t.Fatalf("unexpected final trace_stat counters: %v", last)
 	}
-	if last[26] != "1" {
+	if last[headerIndex["delta_success_calls"]] != "1" {
 		t.Fatalf("expected final delta_success_calls=1, got %v", last)
 	}
 }

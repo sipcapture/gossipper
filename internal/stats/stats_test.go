@@ -194,3 +194,38 @@ func TestCollectorWriteJSONIncludesFailureClasses(t *testing.T) {
 		t.Fatalf("expected failure classes in JSON, got %+v", summary.FailureClasses)
 	}
 }
+
+func TestCollectorLatencyRepartitionSummary(t *testing.T) {
+	t.Parallel()
+
+	collector := New()
+	collector.StartCall()
+	collector.FinishCall(true, 10*time.Millisecond)
+	collector.StartCall()
+	collector.FinishCall(true, 20*time.Millisecond)
+	collector.AddInviteLatency(12 * time.Millisecond)
+	collector.AddInviteLatency(18 * time.Millisecond)
+	collector.AddRTD("invite", 12*time.Millisecond)
+	collector.AddRTD("invite", 18*time.Millisecond)
+
+	summary := collector.Snapshot()
+	if summary.CallLength == nil || summary.InviteRTT == nil {
+		t.Fatalf("expected call length and invite RTT latency summaries, got %+v", summary)
+	}
+	if summary.CallLength.StdDev != 5*time.Millisecond {
+		t.Fatalf("expected call length stddev 5ms, got %+v", summary.CallLength)
+	}
+	if summary.InviteRTT.StdDev != 3*time.Millisecond {
+		t.Fatalf("expected invite RTT stddev 3ms, got %+v", summary.InviteRTT)
+	}
+	if len(summary.CallLength.Buckets) == 0 || summary.CallLength.Buckets[0].Count != 1 || summary.CallLength.Buckets[1].Count != 1 {
+		t.Fatalf("expected call length repartition buckets, got %+v", summary.CallLength.Buckets)
+	}
+	invite, ok := summary.RTD["invite"]
+	if !ok {
+		t.Fatalf("expected RTD latency summary, got %+v", summary.RTD)
+	}
+	if invite.StdDev != 3*time.Millisecond {
+		t.Fatalf("expected RTD stddev 3ms, got %+v", invite)
+	}
+}

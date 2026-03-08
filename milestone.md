@@ -35,7 +35,7 @@ The milestones below are based on the gaps visible in:
 
 Priority: high
 
-Status: in progress
+Status: mostly completed
 
 Why first:
 
@@ -45,7 +45,9 @@ Why first:
 
 Target gaps from SIPp:
 
-- SIPp-like latency / repartition style reporting where it adds real value
+Remaining gap:
+
+- documented field mapping between current `gossipper` JSON and SIPp-style counters
 
 Completed so far in this milestone:
 
@@ -53,6 +55,7 @@ Completed so far in this milestone:
 - `-trace_rtt` style RTD dump files via sibling `*_rtt.log` CSV output
 - richer cumulative vs periodic counters in `-trace_stat` via interval delta columns
 - broader call-failure classification in exported stats via summary and `-trace_stat` failure-class counters
+- SIPp-like latency / repartition style reporting via latency stddev fields and bucketed distributions in summary JSON
 
 Deliverables:
 

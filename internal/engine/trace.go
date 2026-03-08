@@ -123,7 +123,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 		}
 		logger.statsFile = file
 		logger.statsPath = statsPath
-		if _, err := file.WriteString("timestamp,elapsed_ms,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,retransmits,timeouts,avg_call_ms,avg_invite_ms,rtp_packets_sent,rtp_packets_received,rtcp_sender_reports,rtcp_receiver_reports,rtcp_packets_received,failure_timeout,failure_unexpected_sip,failure_transport_error,failure_parse_error,failure_scenario_error,failure_cancelled,interval_ms,interval_calls_per_second,delta_total_calls,delta_success_calls,delta_failed_calls,delta_retransmits,delta_timeouts,delta_rtp_packets_sent,delta_rtp_packets_received,delta_rtcp_sender_reports,delta_rtcp_receiver_reports,delta_rtcp_packets_received,delta_failure_timeout,delta_failure_unexpected_sip,delta_failure_transport_error,delta_failure_parse_error,delta_failure_scenario_error,delta_failure_cancelled\n"); err != nil {
+		if _, err := file.WriteString("timestamp,elapsed_ms,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,retransmits,timeouts,avg_call_ms,call_stddev_ms,avg_invite_ms,invite_stddev_ms,rtp_packets_sent,rtp_packets_received,rtcp_sender_reports,rtcp_receiver_reports,rtcp_packets_received,failure_timeout,failure_unexpected_sip,failure_transport_error,failure_parse_error,failure_scenario_error,failure_cancelled,interval_ms,interval_calls_per_second,delta_total_calls,delta_success_calls,delta_failed_calls,delta_retransmits,delta_timeouts,delta_rtp_packets_sent,delta_rtp_packets_received,delta_rtcp_sender_reports,delta_rtcp_receiver_reports,delta_rtcp_packets_received,delta_failure_timeout,delta_failure_unexpected_sip,delta_failure_transport_error,delta_failure_parse_error,delta_failure_scenario_error,delta_failure_cancelled\n"); err != nil {
 			_ = logger.Close()
 			return nil, err
 		}
@@ -437,7 +437,9 @@ func (t *traceLogger) writeStatsSnapshot(summary stats.Summary, previous *stats.
 		strconv.Itoa(summary.Retransmits),
 		strconv.Itoa(summary.Timeouts),
 		strconv.FormatInt(summary.AverageCallLatency.Milliseconds(), 10),
+		strconv.FormatInt(latencyStdDevMS(summary.CallLength), 10),
 		strconv.FormatInt(summary.AverageInviteRTT.Milliseconds(), 10),
+		strconv.FormatInt(latencyStdDevMS(summary.InviteRTT), 10),
 		strconv.FormatUint(uint64(summary.Media.RTPPacketsSent), 10),
 		strconv.FormatUint(uint64(summary.Media.RTPPacketsReceived), 10),
 		strconv.FormatUint(uint64(summary.Media.RTCPSenderReports), 10),
@@ -476,6 +478,13 @@ func failureClassCount(summary stats.Summary, name string) int {
 		return 0
 	}
 	return summary.FailureClasses[name]
+}
+
+func latencyStdDevMS(summary *stats.LatencySummary) int64 {
+	if summary == nil {
+		return 0
+	}
+	return summary.StdDev.Milliseconds()
 }
 
 func buildShortTraceRecord(direction string, callNumber int, raw string) []string {

@@ -2,7 +2,9 @@ package stats
 
 import (
 	"encoding/json"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +23,10 @@ type Collector struct {
 	timeouts        int
 	totalDuration   time.Duration
 	inviteLatencies []time.Duration
+	callLatency     latencyAccumulator
+	inviteLatency   latencyAccumulator
 	media           MediaSummary
-	rtds            map[string]rtdAccumulator
+	rtds            map[string]latencyAccumulator
 	counters        map[string]int
 	displays        map[string]int
 	failureClasses  map[string]int
@@ -37,39 +41,50 @@ type MediaSummary struct {
 	RTCPPacketsReceived uint32 `json:"rtcp_packets_received"`
 }
 
-type RTDSummary struct {
-	Count   int           `json:"count"`
-	Average time.Duration `json:"average"`
-	Min     time.Duration `json:"min"`
-	Max     time.Duration `json:"max"`
-	Last    time.Duration `json:"last"`
+type LatencyBucket struct {
+	Label string `json:"label"`
+	Count int    `json:"count"`
+}
+
+type LatencySummary struct {
+	Count   int             `json:"count"`
+	Average time.Duration   `json:"average"`
+	Min     time.Duration   `json:"min"`
+	Max     time.Duration   `json:"max"`
+	Last    time.Duration   `json:"last"`
+	StdDev  time.Duration   `json:"stddev"`
+	Buckets []LatencyBucket `json:"buckets,omitempty"`
 }
 
 type Summary struct {
-	StartedAt          time.Time             `json:"started_at"`
-	FinishedAt         time.Time             `json:"finished_at"`
-	Duration           time.Duration         `json:"duration"`
-	TotalCalls         int                   `json:"total_calls"`
-	SuccessCalls       int                   `json:"success_calls"`
-	FailedCalls        int                   `json:"failed_calls"`
-	ActiveCalls        int                   `json:"active_calls"`
-	SuccessRatio       float64               `json:"success_ratio"`
-	CallsPerSecond     float64               `json:"calls_per_second"`
-	Retransmits        int                   `json:"retransmits"`
-	Timeouts           int                   `json:"timeouts"`
-	AverageCallLatency time.Duration         `json:"average_call_latency"`
-	AverageInviteRTT   time.Duration         `json:"average_invite_rtt"`
-	Media              MediaSummary          `json:"media"`
-	RTD                map[string]RTDSummary `json:"rtd,omitempty"`
-	Counters           map[string]int        `json:"counters,omitempty"`
-	Displays           map[string]int        `json:"displays,omitempty"`
-	FailureClasses     map[string]int        `json:"failure_classes,omitempty"`
+	StartedAt          time.Time                 `json:"started_at"`
+	FinishedAt         time.Time                 `json:"finished_at"`
+	Duration           time.Duration             `json:"duration"`
+	TotalCalls         int                       `json:"total_calls"`
+	SuccessCalls       int                       `json:"success_calls"`
+	FailedCalls        int                       `json:"failed_calls"`
+	ActiveCalls        int                       `json:"active_calls"`
+	SuccessRatio       float64                   `json:"success_ratio"`
+	CallsPerSecond     float64                   `json:"calls_per_second"`
+	Retransmits        int                       `json:"retransmits"`
+	Timeouts           int                       `json:"timeouts"`
+	AverageCallLatency time.Duration             `json:"average_call_latency"`
+	AverageInviteRTT   time.Duration             `json:"average_invite_rtt"`
+	CallLength         *LatencySummary           `json:"call_length,omitempty"`
+	InviteRTT          *LatencySummary           `json:"invite_rtt,omitempty"`
+	Media              MediaSummary              `json:"media"`
+	RTD                map[string]LatencySummary `json:"rtd,omitempty"`
+	Counters           map[string]int            `json:"counters,omitempty"`
+	Displays           map[string]int            `json:"displays,omitempty"`
+	FailureClasses     map[string]int            `json:"failure_classes,omitempty"`
 }
+
+var latencyBucketBoundsMS = []int64{10, 20, 50, 100, 200, 500, 1000, 2000, 5000}
 
 func New() *Collector {
 	return &Collector{
 		startedAt:      time.Now(),
-		rtds:           make(map[string]rtdAccumulator),
+		rtds:           make(map[string]latencyAccumulator),
 		counters:       make(map[string]int),
 		displays:       make(map[string]int),
 		failureClasses: make(map[string]int),
@@ -93,12 +108,14 @@ func (c *Collector) FinishCall(success bool, duration time.Duration) {
 		c.failedCalls++
 	}
 	c.totalDuration += duration
+	c.callLatency.add(duration)
 }
 
 func (c *Collector) AddInviteLatency(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.inviteLatencies = append(c.inviteLatencies, d)
+	c.inviteLatency.add(d)
 }
 
 func (c *Collector) AddRetransmit() {
@@ -131,15 +148,7 @@ func (c *Collector) AddRTD(name string, value time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	acc := c.rtds[name]
-	acc.count++
-	acc.total += value
-	acc.last = value
-	if acc.count == 1 || value < acc.min {
-		acc.min = value
-	}
-	if value > acc.max {
-		acc.max = value
-	}
+	acc.add(value)
 	c.rtds[name] = acc
 }
 
@@ -202,19 +211,12 @@ func (c *Collector) Snapshot() Summary {
 		avgInvite = time.Duration(int64(total) / int64(len(c.inviteLatencies)))
 	}
 
-	var rtdSummary map[string]RTDSummary
+	var rtdSummary map[string]LatencySummary
 	if len(c.rtds) > 0 {
-		rtdSummary = make(map[string]RTDSummary, len(c.rtds))
+		rtdSummary = make(map[string]LatencySummary, len(c.rtds))
 		for name, acc := range c.rtds {
-			if acc.count == 0 {
-				continue
-			}
-			rtdSummary[name] = RTDSummary{
-				Count:   acc.count,
-				Average: time.Duration(int64(acc.total) / int64(acc.count)),
-				Min:     acc.min,
-				Max:     acc.max,
-				Last:    acc.last,
+			if summary, ok := acc.snapshot(); ok {
+				rtdSummary[name] = summary
 			}
 		}
 	}
@@ -243,6 +245,9 @@ func (c *Collector) Snapshot() Summary {
 		}
 	}
 
+	callLength, callLengthOK := c.callLatency.snapshot()
+	inviteRTT, inviteRTTOK := c.inviteLatency.snapshot()
+
 	return Summary{
 		StartedAt:          c.startedAt,
 		FinishedAt:         now,
@@ -257,6 +262,8 @@ func (c *Collector) Snapshot() Summary {
 		Timeouts:           c.timeouts,
 		AverageCallLatency: avgCall,
 		AverageInviteRTT:   avgInvite,
+		CallLength:         latencySummaryOrNil(callLength, callLengthOK),
+		InviteRTT:          latencySummaryOrNil(inviteRTT, inviteRTTOK),
 		Media:              c.media,
 		RTD:                rtdSummary,
 		Counters:           counters,
@@ -265,12 +272,88 @@ func (c *Collector) Snapshot() Summary {
 	}
 }
 
-type rtdAccumulator struct {
-	count int
-	total time.Duration
-	min   time.Duration
-	max   time.Duration
-	last  time.Duration
+type latencyAccumulator struct {
+	count   int
+	total   time.Duration
+	min     time.Duration
+	max     time.Duration
+	last    time.Duration
+	mean    float64
+	m2      float64
+	buckets [10]int
+}
+
+func (a *latencyAccumulator) add(value time.Duration) {
+	a.count++
+	a.total += value
+	a.last = value
+	if a.count == 1 || value < a.min {
+		a.min = value
+	}
+	if value > a.max {
+		a.max = value
+	}
+	valueFloat := float64(value)
+	delta := valueFloat - a.mean
+	a.mean += delta / float64(a.count)
+	delta2 := valueFloat - a.mean
+	a.m2 += delta * delta2
+	a.buckets[latencyBucketIndex(value)]++
+}
+
+func (a latencyAccumulator) snapshot() (LatencySummary, bool) {
+	if a.count == 0 {
+		return LatencySummary{}, false
+	}
+	average := time.Duration(int64(a.total) / int64(a.count))
+	stdDev := time.Duration(0)
+	if a.count > 0 {
+		stdDev = time.Duration(math.Sqrt(a.m2 / float64(a.count)))
+	}
+	return LatencySummary{
+		Count:   a.count,
+		Average: average,
+		Min:     a.min,
+		Max:     a.max,
+		Last:    a.last,
+		StdDev:  stdDev,
+		Buckets: buildLatencyBuckets(a.buckets),
+	}, true
+}
+
+func latencyBucketIndex(value time.Duration) int {
+	ms := value.Milliseconds()
+	for i, upper := range latencyBucketBoundsMS {
+		if ms <= upper {
+			return i
+		}
+	}
+	return len(latencyBucketBoundsMS)
+}
+
+func buildLatencyBuckets(counts [10]int) []LatencyBucket {
+	buckets := make([]LatencyBucket, 0, len(counts))
+	for i, count := range counts {
+		label := ""
+		if i < len(latencyBucketBoundsMS) {
+			label = "le_" + strconv.FormatInt(latencyBucketBoundsMS[i], 10) + "ms"
+		} else {
+			label = "gt_" + strconv.FormatInt(latencyBucketBoundsMS[len(latencyBucketBoundsMS)-1], 10) + "ms"
+		}
+		buckets = append(buckets, LatencyBucket{
+			Label: label,
+			Count: count,
+		})
+	}
+	return buckets
+}
+
+func latencySummaryOrNil(summary LatencySummary, ok bool) *LatencySummary {
+	if !ok {
+		return nil
+	}
+	copy := summary
+	return &copy
 }
 
 func (c *Collector) WriteJSON(path string) error {

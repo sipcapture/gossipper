@@ -136,6 +136,8 @@ This document defines the currently supported SIPp subset in `gossipper`.
 | --- | --- | --- |
 | summary JSON failure classes | supported | Exports failure class counters such as `timeout`, `unexpected_sip`, `transport_error`, `parse_error`, `scenario_error`, and `cancelled` |
 | `-trace_stat` failure class columns | supported | Periodic stats CSV includes cumulative and delta columns for the same failure classes |
+| summary JSON latency repartition | supported | Exports `call_length`, `invite_rtt`, and named `rtd` summaries with stddev and repartition buckets |
+| `-trace_stat` latency stddev columns | supported | Periodic stats CSV includes call and invite latency standard deviation columns |
 
 ## HEP CLI workflow
 
