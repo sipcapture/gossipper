@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="3pcc-master">
+  <sendCmd dest="s1"><![CDATA[
+Call-ID: [call_id]
+From: m
+X-Phase: invite
+
+]]></sendCmd>
+  <recvCmd src="s1">
+    <action>
+      <ereg regexp="X-Reply:\s*(.*)" search_in="msg" assign_to="0,1"/>
+    </action>
+  </recvCmd>
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: master <sip:master@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+X-3PCC: [$1]
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+  <send><![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: master <sip:master@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>

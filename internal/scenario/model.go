@@ -1,0 +1,100 @@
+package scenario
+
+import "time"
+
+type CommandType string
+
+const (
+	CommandSend     CommandType = "send"
+	CommandRecv     CommandType = "recv"
+	CommandSendCmd  CommandType = "sendCmd"
+	CommandRecvCmd  CommandType = "recvCmd"
+	CommandPause    CommandType = "pause"
+	CommandNop      CommandType = "nop"
+	CommandLabel    CommandType = "label"
+	CommandTimeWait CommandType = "timewait"
+)
+
+type Mode string
+
+const (
+	ModeClient Mode = "client"
+	ModeServer Mode = "server"
+)
+
+type Scenario struct {
+	Name            string
+	BasePath        string
+	Mode            Mode
+	Commands        []Command
+	InitCommands    []Command
+	Labels          map[string]int
+	InitLabels      map[string]int
+	GlobalVariables []string
+	UserVariables   []string
+	References      []string
+}
+
+type ActionType string
+
+const (
+	ActionEReg      ActionType = "ereg"
+	ActionAssignStr ActionType = "assignstr"
+	ActionTest      ActionType = "test"
+	ActionLog       ActionType = "log"
+	ActionExec      ActionType = "exec"
+)
+
+type Action struct {
+	Type           ActionType
+	Regexp         string
+	SearchIn       string
+	Header         string
+	Variable       string
+	AssignTo       []string
+	CheckIt        bool
+	CheckItInverse bool
+	Value          string
+	Compare        string
+	Message        string
+	Command        string
+	IntCmd         string
+	RTPStream      string
+	PlayPCAPAudio  string
+}
+
+type Command struct {
+	Type            CommandType
+	Index           int
+	Display         string
+	Counter         string
+	StartRTD        string
+	StopRTD         string
+	NextLabel       string
+	NextIndex       int
+	Test            string
+	Chance          float64
+	CondExec        string
+	CondExecInverse bool
+
+	SendText string
+	Retrans  time.Duration
+	RecvReq  string
+	RecvResp string
+	CmdDest  string
+	CmdSrc   string
+	Optional bool
+	Timeout  time.Duration
+	Pause    time.Duration
+	LabelID  string
+	TimeWait bool
+	Actions  []Action
+}
+
+func (c Command) IsReceive() bool {
+	return c.Type == CommandRecv || c.Type == CommandRecvCmd
+}
+
+func (c Command) IsSend() bool {
+	return c.Type == CommandSend || c.Type == CommandSendCmd
+}

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="options-server">
+  <recv request="OPTIONS"/>
+  <send><![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]OptionsTag[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Allow: OPTIONS
+Content-Length: 0
+
+]]></send>
+</scenario>

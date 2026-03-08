@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="3pcc-slave">
+  <recvCmd src="m">
+    <action>
+      <ereg regexp="X-Phase:\s*(.*)" search_in="msg" assign_to="0,1"/>
+    </action>
+  </recvCmd>
+  <sendCmd dest="m"><![CDATA[
+Call-ID: [call_id]
+From: s1
+X-Reply: [$1]-ok
+
+]]></sendCmd>
+</scenario>

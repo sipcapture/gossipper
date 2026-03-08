@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="Actions UAC">
+  <send>
+    <![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Contact: <sip:test@[local_ip]:[local_port]>
+Content-Length: 0
+
+]]>
+  </send>
+  <recv response="200">
+    <action>
+      <ereg regexp="&lt;sip:([^&gt;]+)&gt;" search_in="hdr" header="To:" check_it="true" assign_to="to_header,to_uri"/>
+      <assignstr assign_to="seen" value="1"/>
+      <test assign_to="has_seen" variable="seen" compare="equal" value="1"/>
+    </action>
+  </recv>
+  <send next="bye" test="has_seen">
+    <![CDATA[
+ACK sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 1 ACK
+X-Extracted-URI: [$to_uri]
+Content-Length: 0
+
+]]>
+  </send>
+  <label id="bye"/>
+  <send>
+    <![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+X-Extracted-URI: [$to_uri]
+Content-Length: 0
+
+]]>
+  </send>
+  <recv response="200"/>
+</scenario>

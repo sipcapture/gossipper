@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="Init and Injection UAC">
+  <Global variables="GREETING,CSV_FIELD"/>
+  <User variables="SEEN"/>
+  <Reference variables="GREETING,CSV_FIELD,SEEN"/>
+
+  <init>
+    <nop>
+      <action>
+        <assignstr assign_to="GREETING" value="hello-from-file"/>
+        <assignstr assign_to="CSV_FIELD" value="[field2 file=../injection/inject.csv line=2]"/>
+      </action>
+    </nop>
+  </init>
+
+  <send>
+    <![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+X-Greeting: [$GREETING]
+X-CSV-Field: [$CSV_FIELD]
+X-User-State: [$SEEN]
+Content-Length: 0
+
+]]>
+  </send>
+  <recv response="200">
+    <action>
+      <assignstr assign_to="SEEN" value="persisted"/>
+    </action>
+  </recv>
+  <send>
+    <![CDATA[
+ACK sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 1 ACK
+Content-Length: 0
+
+]]>
+  </send>
+  <pause milliseconds="10"/>
+  <send>
+    <![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+X-User-State: [$SEEN]
+Content-Length: 0
+
+]]>
+  </send>
+  <recv response="200"/>
+</scenario>
