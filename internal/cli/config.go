@@ -60,8 +60,8 @@ type Config struct {
 	CommandRole     string
 }
 
-func Parse(args []string) (Config, error) {
-	cfg := Config{
+func DefaultConfig() Config {
+	return Config{
 		ScenarioName:  "uac",
 		Service:       "service",
 		Transport:     DefaultTransport,
@@ -75,6 +75,10 @@ func Parse(args []string) (Config, error) {
 		DefaultRecvTO: DefaultRecvTimeout,
 		TLSSkipVerify: true,
 	}
+}
+
+func Parse(args []string) (Config, error) {
+	cfg := DefaultConfig()
 
 	fs := flag.NewFlagSet("gossipper", flag.ContinueOnError)
 	fs.StringVar(&cfg.ScenarioFile, "sf", "", "path to XML scenario file")

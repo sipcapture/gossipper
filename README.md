@@ -24,6 +24,7 @@ The current MVP implements:
 - Global and per-user variable scopes
 - SIPp-style auth credentials via `-au` / `-ap` for challenged `401` / `407` request retries, inline `[authentication username=... password=...]`, and server-side `verifyauth`
 - Concurrent call generation with rate limiting
+- Interactive terminal UI via `gossipper tui` / `gossipper -interactive` for launch presets and live runtime control
 - Basic statistics and JSON summary export
 - Named per-step RTD timers via `start_rtd` / `rtd`, aggregated into summary JSON
 - XML `counter` / `display` attributes aggregated into summary JSON as execution counts
@@ -59,6 +60,7 @@ The current MVP implements:
 - `docs/media-roadmap.md`: media-related scope, next steps, and deferred items
 - `docs/compatibility-testing.md`: testing approach for compatibility work and regression coverage
 - `docs/statistics-mapping.md`: mapping between current `gossipper` stats exports and SIPp-style counters
+- `docs/tui.md`: interactive TUI usage guide with launcher and runtime screen examples
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
 - `milestone.md`: prioritized roadmap for SIPp features that are still missing in `gossipper`
 
@@ -74,6 +76,18 @@ Print build version information:
 
 ```bash
 go run ./cmd/gossip -version
+```
+
+Launch the interactive TUI:
+
+```bash
+go run ./cmd/gossip tui
+```
+
+or:
+
+```bash
+go run ./cmd/gossip -interactive
 ```
 
 Run a custom XML scenario:
@@ -105,6 +119,13 @@ Write periodic CSV stats snapshots:
 ```bash
 go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_stat -message_file ./messages.log
 ```
+
+Interactive controls during a TUI run:
+
+- `+` / `-`: increase or decrease target CPS
+- `p`: pause or resume new call scheduling
+- `q`: stop the run like SIPp by draining active calls in client mode
+- `Esc`: return to the launch screen after the run finishes
 
 Write RTD CSV samples:
 

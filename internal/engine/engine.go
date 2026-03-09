@@ -72,6 +72,7 @@ type Config struct {
 type Engine struct {
 	cfg      Config
 	sched    scheduler.Scheduler
+	rate     *scheduler.RateController
 	stats    *stats.Collector
 	randomMu sync.Mutex
 	random   *mrand.Rand
@@ -86,6 +87,7 @@ func New(cfg Config) *Engine {
 	return &Engine{
 		cfg:      cfg,
 		sched:    scheduler.New(),
+		rate:     scheduler.NewRateController(cfg.Rate),
 		stats:    stats.New(),
 		random:   mrand.New(mrand.NewSource(time.Now().UnixNano())),
 		scopes:   newScopedVars(),
@@ -95,6 +97,34 @@ func New(cfg Config) *Engine {
 
 func (e *Engine) Stats() *stats.Collector {
 	return e.stats
+}
+
+func (e *Engine) Rate() float64 {
+	return e.rate.Rate()
+}
+
+func (e *Engine) SetRate(rate float64) float64 {
+	return e.rate.SetRate(rate)
+}
+
+func (e *Engine) AdjustRate(delta float64) float64 {
+	return e.rate.AdjustRate(delta)
+}
+
+func (e *Engine) Pause() {
+	e.rate.Pause()
+}
+
+func (e *Engine) Resume() {
+	e.rate.Resume()
+}
+
+func (e *Engine) Paused() bool {
+	return e.rate.Paused()
+}
+
+func (e *Engine) StopScheduling() {
+	e.rate.Stop()
 }
 
 func (e *Engine) Run(ctx context.Context) (runErr error) {
@@ -154,16 +184,16 @@ func (e *Engine) runClient(ctx context.Context) error {
 
 func (e *Engine) runClientCommandOnly(ctx context.Context) error {
 	sem := make(chan struct{}, e.cfg.MaxConcurrent)
-	ticker := e.sched.Interval(e.cfg.Rate)
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
 
 	for i := 1; i <= e.cfg.TotalCalls; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker:
+		if err := e.waitForNextCall(ctx); err != nil {
+			if errors.Is(err, scheduler.ErrStopped) {
+				break
+			}
+			return err
 		}
 
 		sem <- struct{}{}
@@ -220,16 +250,16 @@ func (e *Engine) runClientShared(ctx context.Context) error {
 	go registry.dispatch(shared.Receive())
 
 	sem := make(chan struct{}, e.cfg.MaxConcurrent)
-	ticker := e.sched.Interval(e.cfg.Rate)
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
 
 	for i := 1; i <= e.cfg.TotalCalls; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker:
+		if err := e.waitForNextCall(ctx); err != nil {
+			if errors.Is(err, scheduler.ErrStopped) {
+				break
+			}
+			return err
 		}
 
 		sem <- struct{}{}
@@ -276,16 +306,16 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 	}
 
 	sem := make(chan struct{}, e.cfg.MaxConcurrent)
-	ticker := e.sched.Interval(e.cfg.Rate)
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
 
 	for i := 1; i <= e.cfg.TotalCalls; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker:
+		if err := e.waitForNextCall(ctx); err != nil {
+			if errors.Is(err, scheduler.ErrStopped) {
+				break
+			}
+			return err
 		}
 
 		sem <- struct{}{}
@@ -347,16 +377,16 @@ func (e *Engine) runClientSharedTCP(ctx context.Context) error {
 	go registry.dispatchMessages(shared.Receive())
 
 	sem := make(chan struct{}, e.cfg.MaxConcurrent)
-	ticker := e.sched.Interval(e.cfg.Rate)
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
 
 	for i := 1; i <= e.cfg.TotalCalls; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker:
+		if err := e.waitForNextCall(ctx); err != nil {
+			if errors.Is(err, scheduler.ErrStopped) {
+				break
+			}
+			return err
 		}
 
 		sem <- struct{}{}
@@ -398,16 +428,16 @@ func (e *Engine) runClientPerCallTCP(ctx context.Context) error {
 	remoteAddr := fmt.Sprintf("%s:%d", e.cfg.RemoteHost, e.cfg.RemotePort)
 
 	sem := make(chan struct{}, e.cfg.MaxConcurrent)
-	ticker := e.sched.Interval(e.cfg.Rate)
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
 
 	for i := 1; i <= e.cfg.TotalCalls; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker:
+		if err := e.waitForNextCall(ctx); err != nil {
+			if errors.Is(err, scheduler.ErrStopped) {
+				break
+			}
+			return err
 		}
 
 		sem <- struct{}{}
@@ -450,6 +480,10 @@ func (e *Engine) runClientPerCallTCP(ctx context.Context) error {
 
 	wg.Wait()
 	return runErr
+}
+
+func (e *Engine) waitForNextCall(ctx context.Context) error {
+	return e.rate.Wait(ctx)
 }
 
 func (e *Engine) runServer(ctx context.Context) error {

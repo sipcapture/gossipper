@@ -135,6 +135,15 @@ Deliverables:
 
 Priority: medium
 
+Status: in progress
+
+Completed so far in this milestone:
+
+- built-in interactive terminal UI via `gossipper tui` and `-interactive`
+- launch-time parameter selection for mode/profile, transport, remote/local addressing, CPS, concurrency, auth, and trace toggles
+- SIPp-style live runtime dashboard with total/active/success/failed calls, average call duration, invite RTT, timeout and cancellation counters
+- operator controls for increasing or decreasing load during the run, plus pause/resume and graceful client-side stop
+
 Target gaps from SIPp:
 
 - broader CLI flag parity beyond the currently implemented core

@@ -141,6 +141,31 @@ func TestRunPrintsVersion(t *testing.T) {
 	}
 }
 
+func TestShouldRunTUI(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "subcommand", args: []string{"tui"}, want: true},
+		{name: "interactive flag", args: []string{"-interactive"}, want: true},
+		{name: "interactive long flag", args: []string{"--interactive"}, want: true},
+		{name: "regular cli", args: []string{"-sn", "uac"}, want: false},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := shouldRunTUI(tc.args); got != tc.want {
+				t.Fatalf("shouldRunTUI(%v) = %v, want %v", tc.args, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRunRejectsSlaveScenarioStartingWithSendCmd(t *testing.T) {
 	t.Parallel()
 
