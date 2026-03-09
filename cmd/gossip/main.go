@@ -21,6 +21,11 @@ func main() {
 }
 
 func run(args []string) error {
+	if shouldPrintVersion(args) {
+		PrintVersion()
+		return nil
+	}
+
 	cfg, err := cli.Parse(args)
 	if err != nil {
 		return err
@@ -112,6 +117,16 @@ func run(args []string) error {
 	)
 
 	return nil
+}
+
+func shouldPrintVersion(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "-version", "--version":
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeTransport(cfg *cli.Config, sc scenario.Scenario) error {

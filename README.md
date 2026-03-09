@@ -70,6 +70,12 @@ Run the built-in UAC scenario against a SIP endpoint:
 go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
+Print build version information:
+
+```bash
+go run ./cmd/gossip -version
+```
+
 Run a custom XML scenario:
 
 ```bash
@@ -194,6 +200,9 @@ VERSION=0.1.0 ARCH=amd64 scripts/build-package.sh rpm
 
 The builder uses local `nfpm` when available and falls back to the
 `goreleaser/nfpm` Docker image otherwise.
+
+By default, package versions are taken from `cmd/gossip/version.go`. You can
+override them by exporting `VERSION=...` for ad-hoc builds.
 
 Package artifacts are written to `dist/` and install the `gossipper` binary
 at `/usr/bin/gossipper`.

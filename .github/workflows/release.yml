@@ -48,11 +48,12 @@ jobs:
 
       - name: Build binary
         env:
+          VERSION: ${{ env.VERSION }}
           OS: ${{ matrix.goos }}
           ARCH: ${{ matrix.goarch }}
         run: |
-          mkdir -p dist
-          GOOS="${OS}" GOARCH="${ARCH}" go build -o "dist/gossipper_${OS}_${ARCH}" ./cmd/gossip
+          make build VERSION="${VERSION}" OS="${OS}" ARCH="${ARCH}"
+          mv "dist/gossipper" "dist/gossipper_${OS}_${ARCH}"
 
       - name: Install nfpm
         if: github.event_name == 'release' || inputs.release

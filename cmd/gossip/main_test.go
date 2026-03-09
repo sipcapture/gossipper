@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -106,6 +108,36 @@ func TestRunSupports3PCCMasterSlaveAliases(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("expected INVITE header derived from slave command reply")
+	}
+}
+
+func TestRunPrintsVersion(t *testing.T) {
+	t.Parallel()
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error = %v", err)
+	}
+	os.Stdout = w
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	if err := run([]string{"-version"}); err != nil {
+		t.Fatalf("run(-version) error = %v", err)
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close(writer) error = %v", err)
+	}
+	var output bytes.Buffer
+	if _, err := io.Copy(&output, r); err != nil {
+		t.Fatalf("io.Copy() error = %v", err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "gossipper ") || !strings.Contains(text, "commit ") {
+		t.Fatalf("unexpected version output %q", text)
 	}
 }
 

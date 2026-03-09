@@ -25,7 +25,11 @@ if ! command -v nfpm >/dev/null 2>&1; then
   fi
 fi
 
-VERSION="${VERSION:-$(git -C "${ROOT_DIR}" describe --tags --always --dirty 2>/dev/null || git -C "${ROOT_DIR}" rev-parse --short HEAD)}"
+VERSION="${VERSION:-$(grep '^[[:space:]]*Version[[:space:]]*=' "${ROOT_DIR}/cmd/gossip/version.go" | head -1 | cut -d'"' -f2)}"
+BUILD_DATE="${BUILD_DATE:-$(date +%Y-%m-%d)}"
+BUILD_TIME="${BUILD_TIME:-$(date +%H:%M:%S)}"
+GIT_COMMIT="${GIT_COMMIT:-$(git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null || echo "unknown")}"
+GO_VERSION="${GO_VERSION:-$(go version | cut -d' ' -f3)}"
 OS="${OS:-linux}"
 ARCH="${ARCH:-$(go env GOARCH)}"
 
@@ -33,7 +37,9 @@ mkdir -p "${DIST_DIR}"
 
 (
   cd "${ROOT_DIR}"
-  GOOS="${OS}" GOARCH="${ARCH}" go build -o "${DIST_DIR}/${BIN_NAME}" "${CMD_PATH}"
+  GOOS="${OS}" GOARCH="${ARCH}" go build \
+    -ldflags "-X main.Version=${VERSION} -X main.BuildDate=${BUILD_DATE} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT} -X main.GoVersion=${GO_VERSION} -X main.BuildOS=${OS} -X main.BuildArch=${ARCH}" \
+    -o "${DIST_DIR}/${BIN_NAME}" "${CMD_PATH}"
   if command -v nfpm >/dev/null 2>&1; then
     nfpm package \
       --config "${ROOT_DIR}/nfpm.yaml" \
