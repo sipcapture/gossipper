@@ -38,11 +38,25 @@ type Scenario struct {
 type ActionType string
 
 const (
-	ActionEReg      ActionType = "ereg"
-	ActionAssignStr ActionType = "assignstr"
-	ActionTest      ActionType = "test"
-	ActionLog       ActionType = "log"
-	ActionExec      ActionType = "exec"
+	ActionEReg         ActionType = "ereg"
+	ActionAssignStr    ActionType = "assignstr"
+	ActionAssign       ActionType = "assign"
+	ActionToDouble     ActionType = "todouble"
+	ActionAdd          ActionType = "add"
+	ActionSubtract     ActionType = "subtract"
+	ActionMultiply     ActionType = "multiply"
+	ActionDivide       ActionType = "divide"
+	ActionStrCmp       ActionType = "strcmp"
+	ActionTest         ActionType = "test"
+	ActionLog          ActionType = "log"
+	ActionWarning      ActionType = "warning"
+	ActionLookup       ActionType = "lookup"
+	ActionJump         ActionType = "jump"
+	ActionGetTimeOfDay ActionType = "gettimeofday"
+	ActionURLEncode    ActionType = "urlencode"
+	ActionURLDecode    ActionType = "urldecode"
+	ActionVerifyAuth   ActionType = "verifyauth"
+	ActionExec         ActionType = "exec"
 )
 
 type Action struct {
@@ -51,12 +65,17 @@ type Action struct {
 	SearchIn       string
 	Header         string
 	Variable       string
+	Variable2      string
 	AssignTo       []string
 	CheckIt        bool
 	CheckItInverse bool
 	Value          string
 	Compare        string
 	Message        string
+	File           string
+	Key            string
+	Username       string
+	Password       string
 	Command        string
 	IntCmd         string
 	RTPStream      string

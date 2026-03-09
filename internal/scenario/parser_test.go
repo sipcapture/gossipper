@@ -44,6 +44,100 @@ func TestParseScenarioActions(t *testing.T) {
 	}
 }
 
+func TestParseScenarioLookupAction(t *testing.T) {
+	t.Parallel()
+
+	sc, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="lookup">
+  <nop>
+    <action>
+      <lookup assign_to="line" file="../injection/inject.csv" key="2"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if len(sc.Commands) != 1 || len(sc.Commands[0].Actions) != 1 {
+		t.Fatalf("unexpected parsed scenario: %+v", sc.Commands)
+	}
+	action := sc.Commands[0].Actions[0]
+	if action.Type != ActionLookup || action.File != "../injection/inject.csv" || action.Key != "2" || len(action.AssignTo) != 1 || action.AssignTo[0] != "line" {
+		t.Fatalf("unexpected lookup action: %+v", action)
+	}
+}
+
+func TestParseScenarioStrCmpAction(t *testing.T) {
+	t.Parallel()
+
+	sc, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="strcmp">
+  <nop>
+    <action>
+      <strcmp assign_to="cmp" variable="left" variable2="right"/>
+      <test assign_to="ok" variable="cmp" compare="greater_than_equal" value="0"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if len(sc.Commands) != 1 || len(sc.Commands[0].Actions) != 2 {
+		t.Fatalf("unexpected parsed scenario: %+v", sc.Commands)
+	}
+	if sc.Commands[0].Actions[0].Type != ActionStrCmp || sc.Commands[0].Actions[0].Variable != "left" || sc.Commands[0].Actions[0].Variable2 != "right" {
+		t.Fatalf("unexpected strcmp action: %+v", sc.Commands[0].Actions[0])
+	}
+	if sc.Commands[0].Actions[1].Type != ActionTest || sc.Commands[0].Actions[1].Compare != "greater_than_equal" {
+		t.Fatalf("unexpected test action: %+v", sc.Commands[0].Actions[1])
+	}
+}
+
+func TestParseScenarioArithmeticAndVerifyAuthActions(t *testing.T) {
+	t.Parallel()
+
+	sc, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="math-auth">
+  <nop>
+    <action>
+      <assign assign_to="n" value="1"/>
+      <todouble assign_to="m" variable="n"/>
+      <add assign_to="m" value="2"/>
+      <subtract assign_to="m" value="1"/>
+      <multiply assign_to="m" value="4"/>
+      <divide assign_to="m" value="2"/>
+      <jump value="3"/>
+      <gettimeofday assign_to="sec,usec"/>
+      <urlencode variable="uri"/>
+      <urldecode variable="uri"/>
+      <verifyauth assign_to="ok" username="alice" password="secret"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if len(sc.Commands) != 1 || len(sc.Commands[0].Actions) != 11 {
+		t.Fatalf("unexpected parsed scenario: %+v", sc.Commands)
+	}
+}
+
+func TestParseScenarioRejectsUnsupportedAction(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="bad">
+  <nop>
+    <action>
+      <frobnicate assign_to="1"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err == nil {
+		t.Fatal("expected unsupported action error")
+	}
+}
+
 func TestParseScenarioInitAndScopes(t *testing.T) {
 	t.Parallel()
 
@@ -106,5 +200,27 @@ func TestParseScenarioPlayPCAPAudioAction(t *testing.T) {
 	}
 	if sc.Commands[0].Actions[0].Type != ActionExec || sc.Commands[0].Actions[0].PlayPCAPAudio != "pcap/g711a.pcap" {
 		t.Fatalf("unexpected play_pcap_audio action: %+v", sc.Commands[0].Actions[0])
+	}
+}
+
+func TestParseScenarioWarningAction(t *testing.T) {
+	t.Parallel()
+
+	sc, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="warning">
+  <nop>
+    <action>
+      <warning message="call [$1] needs attention"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if len(sc.Commands) != 1 || len(sc.Commands[0].Actions) != 1 {
+		t.Fatalf("unexpected parsed scenario: %+v", sc.Commands)
+	}
+	if sc.Commands[0].Actions[0].Type != ActionWarning || sc.Commands[0].Actions[0].Message != "call [$1] needs attention" {
+		t.Fatalf("unexpected warning action: %+v", sc.Commands[0].Actions[0])
 	}
 }

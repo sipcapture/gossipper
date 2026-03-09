@@ -32,6 +32,7 @@ import (
 
 	"github.com/adubovikov/gossipper/internal/scenario"
 	"github.com/adubovikov/gossipper/internal/sip"
+	templ "github.com/adubovikov/gossipper/internal/template"
 )
 
 func TestEngineRunsBasicUACScenario(t *testing.T) {
@@ -512,6 +513,54 @@ Content-Length: 0
 	summary := app.Stats().Snapshot()
 	if summary.FailureClasses["unexpected_sip"] != 1 {
 		t.Fatalf("expected unexpected_sip failure classification, got %+v", summary.FailureClasses)
+	}
+}
+
+func TestEngineWarningActionWritesErrorTrace(t *testing.T) {
+	t.Parallel()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="warning">
+  <nop>
+    <action>
+      <assignstr assign_to="warn_value" value="watch-me"/>
+      <warning message="custom warning [$warn_value]"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	errorPath := filepath.Join(t.TempDir(), "errors.log")
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    5060,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+		TraceErrors:   true,
+		ErrorFile:     errorPath,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(errorPath)
+	if err != nil {
+		t.Fatalf("ReadFile(error trace) error = %v", err)
+	}
+	if !strings.Contains(string(raw), "warning[1] custom warning watch-me") {
+		t.Fatalf("unexpected warning trace contents: %q", string(raw))
 	}
 }
 
@@ -1000,6 +1049,492 @@ func TestEngineAppliesActionsAndVariables(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected extracted URI to propagate, got %v", values)
+	}
+}
+
+func TestEngineLookupActionFeedsFieldToken(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+	defer serverConn.Close()
+
+	seenLookup := make(chan string, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg, err := sip.Parse(buffer[:n])
+			if err != nil {
+				return
+			}
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			via, _ := sip.Header(msg.Headers, "Via")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+
+			switch strings.ToUpper(msg.Method) {
+			case "INVITE":
+				if header, ok := sip.Header(msg.Headers, "X-Lookup-Name"); ok {
+					seenLookup <- header
+				}
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			case "BYE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				return
+			}
+		}
+	}()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="lookup-uac">
+  <nop>
+    <action>
+      <assignstr assign_to="lookup_key" value="2"/>
+      <lookup assign_to="lookup_line" file="../../testdata/injection/inject.csv" key="[$lookup_key]"/>
+    </action>
+  </nop>
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+X-Lookup-Name: [field2 file=../../testdata/injection/inject.csv line=$lookup_line]
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+  <send><![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	<-done
+	close(seenLookup)
+
+	var got []string
+	for value := range seenLookup {
+		got = append(got, value)
+	}
+	if len(got) != 1 || got[0] != "bob" {
+		t.Fatalf("expected lookup header to be bob, got %v", got)
+	}
+}
+
+func TestEngineAppliesStrCmpAndExtendedTestComparisons(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+	defer serverConn.Close()
+
+	seenCmp := make(chan string, 1)
+	seenFlag := make(chan string, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg, err := sip.Parse(buffer[:n])
+			if err != nil {
+				return
+			}
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			via, _ := sip.Header(msg.Headers, "Via")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+
+			switch strings.ToUpper(msg.Method) {
+			case "INVITE":
+				if header, ok := sip.Header(msg.Headers, "X-StrCmp"); ok {
+					seenCmp <- header
+				}
+				if header, ok := sip.Header(msg.Headers, "X-Test-Pass"); ok {
+					seenFlag <- header
+				}
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			case "BYE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				return
+			}
+		}
+	}()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="strcmp-uac">
+  <nop>
+    <action>
+      <assignstr assign_to="left" value="20"/>
+      <assignstr assign_to="right" value="3"/>
+      <strcmp assign_to="cmp" variable="left" value="3"/>
+      <test assign_to="is_greater" variable="left" compare="greater_than" variable2="right"/>
+    </action>
+  </nop>
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+X-StrCmp: [$cmp]
+X-Test-Pass: [$is_greater]
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+  <send><![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	<-done
+	close(seenCmp)
+	close(seenFlag)
+
+	var cmpValues []string
+	for value := range seenCmp {
+		cmpValues = append(cmpValues, value)
+	}
+	var flagValues []string
+	for value := range seenFlag {
+		flagValues = append(flagValues, value)
+	}
+	if len(cmpValues) != 1 || cmpValues[0] != "-1" {
+		t.Fatalf("expected strcmp result -1, got %v", cmpValues)
+	}
+	if len(flagValues) != 1 || flagValues[0] != "1" {
+		t.Fatalf("expected greater_than test result 1, got %v", flagValues)
+	}
+}
+
+func TestEngineSupportsArithmeticJumpAndHelperActions(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+	defer serverConn.Close()
+
+	seenNum := make(chan string, 1)
+	seenText := make(chan string, 1)
+	seenUserID := make(chan string, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg, err := sip.Parse(buffer[:n])
+			if err != nil {
+				return
+			}
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			via, _ := sip.Header(msg.Headers, "Via")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+
+			switch strings.ToUpper(msg.Method) {
+			case "INVITE":
+				if header, ok := sip.Header(msg.Headers, "X-Number"); ok {
+					seenNum <- header
+				}
+				if header, ok := sip.Header(msg.Headers, "X-Text"); ok {
+					seenText <- header
+				}
+				if header, ok := sip.Header(msg.Headers, "X-UserID"); ok {
+					seenUserID <- header
+				}
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			case "BYE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				return
+			}
+		}
+	}()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="math-uac">
+  <nop>
+    <action>
+      <assign assign_to="num" value="1"/>
+      <add assign_to="num" value="2"/>
+      <multiply assign_to="num" value="4"/>
+      <divide assign_to="num" value="2"/>
+      <assignstr assign_to="text" value="hello world"/>
+      <urlencode variable="text"/>
+      <urldecode variable="text"/>
+      <jump value="2"/>
+    </action>
+  </nop>
+  <pause milliseconds="1500"/>
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+X-Number: [$num]
+X-Text: [$text]
+X-UserID: [userid]
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+  <send><![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	startedAt := time.Now()
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		Users:         4,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if time.Since(startedAt) >= time.Second {
+		t.Fatalf("expected jump to skip long pause, elapsed=%v", time.Since(startedAt))
+	}
+	<-done
+
+	select {
+	case got := <-seenNum:
+		if got != "6" {
+			t.Fatalf("expected arithmetic result 6, got %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected X-Number header")
+	}
+	select {
+	case got := <-seenText:
+		if got != "hello world" {
+			t.Fatalf("expected decoded text, got %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected X-Text header")
+	}
+	select {
+	case got := <-seenUserID:
+		if got != "0" {
+			t.Fatalf("expected userid 0, got %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected X-UserID header")
+	}
+}
+
+func TestRenderSIPMessageSupportsInlineAuthenticationAndVerifyAuth(t *testing.T) {
+	t.Parallel()
+
+	app := New(Config{
+		Service:      "service",
+		AuthUsername: "default-user",
+		AuthPassword: "default-pass",
+	})
+	ctx := templ.Context{
+		LastMessage: "SIP/2.0 401 Unauthorized\r\nWWW-Authenticate: Digest realm=\"test.example.com\", nonce=\"abc123\", algorithm=SHA-256, qop=\"auth\"\r\nContent-Length: 0\r\n\r\n",
+	}
+
+	rendered, err := app.renderSIPMessage("REGISTER sip:test.example.com SIP/2.0\r\n[authentication username=alice password=secret]\r\nContent-Length: 0\r\n\r\n", ctx)
+	if err != nil {
+		t.Fatalf("renderSIPMessage() error = %v", err)
+	}
+	if !strings.Contains(rendered, "Authorization: Digest username=\"alice\"") {
+		t.Fatalf("expected inline auth username, got %q", rendered)
+	}
+	valid, err := verifyAuthHeader(rendered, "alice", "secret")
+	if err != nil {
+		t.Fatalf("verifyAuthHeader() error = %v", err)
+	}
+	if !valid {
+		t.Fatal("expected verifyAuthHeader to accept rendered authorization")
+	}
+}
+
+func TestEngineFailsOnUnsupportedKeyword(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+	defer serverConn.Close()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="bad-keyword">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+X-Bad: [not_supported_anymore]
+Content-Length: 0
+
+]]></send>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = app.Run(ctx)
+	if err == nil || !strings.Contains(err.Error(), "unsupported scenario keyword") {
+		t.Fatalf("expected unsupported keyword error, got %v", err)
 	}
 }
 

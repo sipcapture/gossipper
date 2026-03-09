@@ -20,6 +20,7 @@ type Context struct {
 	RemoteIP      string
 	RemotePort    int
 	LocalIP       string
+	ServerIP      string
 	LocalIPType   string
 	LocalPort     int
 	MediaIP       string
@@ -30,6 +31,8 @@ type Context struct {
 	CallNumber    int
 	MessageIndex  int
 	PID           int
+	Users         int
+	UserID        int
 	BranchBase    string
 	LastMessage   string
 	LastHeaders   map[string][]string
@@ -58,6 +61,15 @@ func RenderMessage(raw string, ctx Context) string {
 	return ctx.Render(raw)
 }
 
+func RenderMessageStrict(raw string, ctx Context) (string, error) {
+	first, err := ctx.RenderStrict(raw)
+	if err != nil {
+		return "", err
+	}
+	ctx.BodyLength = computeBodyLength(first)
+	return ctx.RenderStrict(raw)
+}
+
 func (c Context) renderLine(line string) (string, bool) {
 	dropLine := false
 	value := tokenPattern.ReplaceAllStringFunc(line, func(token string) string {
@@ -77,13 +89,55 @@ func (c Context) renderLine(line string) (string, bool) {
 	return value, true
 }
 
+func (c Context) RenderStrict(raw string) (string, error) {
+	lines := splitLines(raw)
+	rendered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		value, keep, err := c.renderLineStrict(line)
+		if err != nil {
+			return "", err
+		}
+		if !keep {
+			continue
+		}
+		rendered = append(rendered, value)
+	}
+	return strings.Join(rendered, "\r\n"), nil
+}
+
+func (c Context) renderLineStrict(line string) (string, bool, error) {
+	dropLine := false
+	var firstErr error
+	value := tokenPattern.ReplaceAllStringFunc(line, func(token string) string {
+		replacement, drop, err := c.resolveTokenStrict(token)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			return ""
+		}
+		if drop {
+			dropLine = true
+			return ""
+		}
+		return replacement
+	})
+	if firstErr != nil {
+		return "", false, firstErr
+	}
+	if dropLine {
+		return "", false, nil
+	}
+	return value, true, nil
+}
+
 func (c Context) resolveToken(token string) (string, bool, bool) {
 	key := strings.TrimSuffix(strings.TrimPrefix(token, "["), "]")
 	if strings.HasPrefix(strings.ToLower(key), "file ") {
 		value, ok := renderFileToken(key, c.BasePath)
 		return value, ok, false
 	}
-	if field, ok := renderFieldToken(key, c.BasePath, c.CallNumber); ok {
+	if field, ok := renderFieldTokenWithVariables(key, c.BasePath, c.CallNumber, c.Variables); ok {
 		return field, true, false
 	}
 	if strings.HasPrefix(strings.ToLower(key), "last_") {
@@ -170,6 +224,122 @@ func (c Context) resolveToken(token string) (string, bool, bool) {
 		}
 		v, ok := c.ExtraKeywords[key]
 		return v, ok, false
+	}
+}
+
+func (c Context) resolveTokenStrict(token string) (string, bool, error) {
+	key := strings.TrimSuffix(strings.TrimPrefix(token, "["), "]")
+	lower := strings.ToLower(key)
+	if strings.HasPrefix(lower, "file ") {
+		value, ok := renderFileToken(key, c.BasePath)
+		if !ok {
+			return "", false, fmt.Errorf("unable to resolve file token %q", token)
+		}
+		return value, false, nil
+	}
+	if strings.HasPrefix(lower, "field") {
+		value, ok := renderFieldTokenWithVariables(key, c.BasePath, c.CallNumber, c.Variables)
+		if !ok {
+			return "", false, fmt.Errorf("unable to resolve field token %q", token)
+		}
+		return value, false, nil
+	}
+	if strings.HasPrefix(lower, "last_") {
+		header := strings.TrimPrefix(key, "last_")
+		if strings.EqualFold(header, "message") {
+			return c.LastMessage, false, nil
+		}
+		if strings.EqualFold(header, "Request_URI") {
+			return extractLastRequestURI(c.LastMessage, c.LastHeaders), false, nil
+		}
+		includeName := strings.HasSuffix(header, ":")
+		header = strings.TrimSuffix(header, ":")
+		values, ok := lookupHeader(c.LastHeaders, header)
+		if !ok {
+			return "", true, nil
+		}
+		return renderLastHeader(header, values, includeName), false, nil
+	}
+
+	base, delta := parseArithmetic(key)
+	switch strings.ToLower(base) {
+	case "service":
+		return c.Service, false, nil
+	case "server_ip":
+		if c.ServerIP != "" {
+			return c.ServerIP, false, nil
+		}
+		return c.LocalIP, false, nil
+	case "remote_host":
+		return c.RemoteHost, false, nil
+	case "remote_ip":
+		return c.RemoteIP, false, nil
+	case "remote_port":
+		return strconv.Itoa(c.RemotePort + delta), false, nil
+	case "local_ip":
+		return c.LocalIP, false, nil
+	case "local_ip_type":
+		return c.LocalIPType, false, nil
+	case "local_port":
+		return strconv.Itoa(c.LocalPort + delta), false, nil
+	case "transport":
+		return strings.ToUpper(transportName(c.Transport)), false, nil
+	case "media_ip":
+		return c.MediaIP, false, nil
+	case "media_ip_type":
+		return c.MediaIPType, false, nil
+	case "media_port":
+		return strconv.Itoa(c.MediaPort + delta), false, nil
+	case "call_id":
+		return c.CallID, false, nil
+	case "cseq":
+		return strconv.Itoa(c.CSeq + delta), false, nil
+	case "call_number":
+		return strconv.Itoa(c.CallNumber), false, nil
+	case "msg_index":
+		return strconv.Itoa(c.MessageIndex), false, nil
+	case "pid":
+		return strconv.Itoa(c.PID), false, nil
+	case "users":
+		return strconv.Itoa(c.Users), false, nil
+	case "userid":
+		return strconv.Itoa(c.UserID), false, nil
+	case "branch":
+		if delta == 0 {
+			return c.BranchBase, false, nil
+		}
+		return fmt.Sprintf("%s-%d", c.BranchBase, delta), false, nil
+	case "len":
+		return strconv.Itoa(c.BodyLength + delta), false, nil
+	case "last_message":
+		return c.LastMessage, false, nil
+	case "timestamp":
+		return time.Now().Format("2006-01-02 15:04:05"), false, nil
+	case "date":
+		return time.Now().UTC().Format(time.RFC1123), false, nil
+	case "last_cseq_number":
+		return extractCSeqNumber(c.LastHeaders), false, nil
+	case "next_url":
+		return extractContactURI(c.LastHeaders), false, nil
+	case "peer_tag_param":
+		tag := extractPeerTag(c.LastHeaders)
+		if tag == "" {
+			return "", false, nil
+		}
+		return ";tag=" + tag, false, nil
+	default:
+		if strings.HasPrefix(base, "$") {
+			if c.Variables == nil {
+				return "", false, nil
+			}
+			return c.Variables[strings.TrimPrefix(base, "$")], false, nil
+		}
+		if c.ExtraKeywords != nil {
+			if v, ok := c.ExtraKeywords[key]; ok {
+				return v, false, nil
+			}
+		}
+		return "", false, fmt.Errorf("unsupported scenario keyword %q", token)
 	}
 }
 
@@ -286,6 +456,29 @@ func extractContactURI(headers map[string][]string) string {
 	return value
 }
 
+func extractLastRequestURI(lastMessage string, headers map[string][]string) string {
+	if strings.TrimSpace(lastMessage) != "" {
+		lines := splitLines(lastMessage)
+		if len(lines) > 0 {
+			parts := strings.Fields(strings.TrimSpace(lines[0]))
+			if len(parts) >= 2 && !strings.HasPrefix(strings.ToUpper(parts[0]), "SIP/2.0") {
+				return parts[1]
+			}
+		}
+	}
+	values, ok := lookupHeader(headers, "To")
+	if !ok || len(values) == 0 {
+		return ""
+	}
+	value := values[0]
+	start := strings.Index(value, "<")
+	end := strings.Index(value, ">")
+	if start >= 0 && end > start {
+		return value[start+1 : end]
+	}
+	return value
+}
+
 func renderFileToken(key, basePath string) (string, bool) {
 	params := parseKeyParams(key)
 	name := params["name"]
@@ -300,6 +493,10 @@ func renderFileToken(key, basePath string) (string, bool) {
 }
 
 func renderFieldToken(key, basePath string, callNumber int) (string, bool) {
+	return renderFieldTokenWithVariables(key, basePath, callNumber, nil)
+}
+
+func renderFieldTokenWithVariables(key, basePath string, callNumber int, variables map[string]string) (string, bool) {
 	lower := strings.ToLower(key)
 	if !strings.HasPrefix(lower, "field") {
 		return "", false
@@ -321,17 +518,52 @@ func renderFieldToken(key, basePath string, callNumber int) (string, bool) {
 	}
 	lineNumber := callNumber
 	if rawLine := parsed["line"]; rawLine != "" {
-		if value, err := strconv.Atoi(rawLine); err == nil {
-			lineNumber = value
+		resolved, ok := resolveLineNumber(rawLine, variables)
+		if !ok {
+			return "", false
 		}
-	}
-	if lineNumber <= 0 {
-		lineNumber = 1
+		lineNumber = resolved
 	}
 
+	record, ok, err := csvRecordAt(basePath, name, lineNumber)
+	if err != nil || !ok {
+		return "", false
+	}
+	if fieldIndex < 0 || fieldIndex >= len(record) {
+		return "", false
+	}
+	return record[fieldIndex], true
+}
+
+func resolveLineNumber(raw string, variables map[string]string) (int, bool) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, false
+	}
+	if strings.HasPrefix(value, "$") {
+		if variables == nil {
+			return 0, false
+		}
+		resolved, ok := variables[strings.TrimPrefix(value, "$")]
+		if !ok {
+			return 0, false
+		}
+		value = strings.TrimSpace(resolved)
+	}
+	lineNumber, err := strconv.Atoi(value)
+	if err != nil || lineNumber <= 0 {
+		return 0, false
+	}
+	return lineNumber, true
+}
+
+func csvRecordAt(basePath, name string, lineNumber int) ([]string, bool, error) {
+	if lineNumber <= 0 {
+		return nil, false, nil
+	}
 	file, err := os.Open(resolvePath(basePath, name))
 	if err != nil {
-		return "", false
+		return nil, false, err
 	}
 	defer file.Close()
 
@@ -339,13 +571,33 @@ func renderFieldToken(key, basePath string, callNumber int) (string, bool) {
 	reader.FieldsPerRecord = -1
 	records, err := reader.ReadAll()
 	if err != nil || len(records) < lineNumber {
-		return "", false
+		return nil, false, err
 	}
-	record := records[lineNumber-1]
-	if fieldIndex < 0 || fieldIndex >= len(record) {
-		return "", false
+	return records[lineNumber-1], true, nil
+}
+
+func LookupCSVLine(basePath, name, key string) (int, bool, error) {
+	file, err := os.Open(resolvePath(basePath, name))
+	if err != nil {
+		return 0, false, err
 	}
-	return record[fieldIndex], true
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.FieldsPerRecord = -1
+	records, err := reader.ReadAll()
+	if err != nil {
+		return 0, false, err
+	}
+	for idx, record := range records {
+		if len(record) == 0 {
+			continue
+		}
+		if record[0] == key {
+			return idx + 1, true, nil
+		}
+	}
+	return 0, false, nil
 }
 
 func parseKeyParams(value string) map[string]string {

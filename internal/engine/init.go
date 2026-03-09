@@ -24,12 +24,15 @@ func (e *Engine) runInit(ctx context.Context) error {
 		RemoteIP:    e.cfg.RemoteHost,
 		RemotePort:  e.cfg.RemotePort,
 		LocalIP:     e.cfg.LocalIP,
+		ServerIP:    e.cfg.LocalIP,
 		LocalIPType: ipType(e.cfg.LocalIP),
 		LocalPort:   e.cfg.LocalPort,
 		MediaIP:     e.cfg.LocalIP,
 		MediaIPType: ipType(e.cfg.LocalIP),
 		MediaPort:   e.cfg.LocalPort + 2,
 		CallID:      newCallID(0),
+		Users:       e.cfg.Users,
+		UserID:      0,
 		Variables:   store.Snapshot(),
 		BasePath:    e.cfg.Scenario.BasePath,
 	}
@@ -45,14 +48,23 @@ func (e *Engine) runInit(ctx context.Context) error {
 		renderCtx.MessageIndex = cmd.Index
 		switch cmd.Type {
 		case scenario.CommandNop, scenario.CommandLabel:
-			if err := e.applyActions(ctx, cmd.Actions, renderCtx, store, mediaSession); err != nil {
+			actionResult, err := e.applyActions(ctx, 0, cmd.Actions, renderCtx, store, mediaSession)
+			if err != nil {
 				if err == errStopCall {
 					return nil
 				}
 				return err
 			}
+			if actionResult.hasJump {
+				index = actionResult.jumpIndex
+				continue
+			}
 		case scenario.CommandSendCmd:
-			commandPayload := ensureMessageTerminator(templ.RenderMessage(cmd.SendText, renderCtx))
+			commandPayload, err := templ.RenderMessageStrict(cmd.SendText, renderCtx)
+			if err != nil {
+				return err
+			}
+			commandPayload = ensureMessageTerminator(commandPayload)
 			if e.cfg.TraceMessages {
 				e.traceEvent("init sendCmd", 0, commandPayload)
 			}
@@ -93,11 +105,16 @@ func (e *Engine) runInit(ctx context.Context) error {
 				e.traceEvent("init recvCmd", 0, msg.raw)
 			}
 			renderCtx.Variables = store.Snapshot()
-			if err := e.applyActions(ctx, cmd.Actions, renderCtx, store, mediaSession); err != nil {
+			actionResult, err := e.applyActions(ctx, 0, cmd.Actions, renderCtx, store, mediaSession)
+			if err != nil {
 				if err == errStopCall {
 					return nil
 				}
 				return err
+			}
+			if actionResult.hasJump {
+				index = actionResult.jumpIndex
+				continue
 			}
 		case scenario.CommandPause, scenario.CommandTimeWait:
 			pause := cmd.Pause

@@ -105,3 +105,72 @@ func TestRenderFileAndFieldTokens(t *testing.T) {
 		t.Fatalf("expected field token to render, got %q", got)
 	}
 }
+
+func TestRenderFieldTokenWithVariableLine(t *testing.T) {
+	t.Parallel()
+
+	ctx := Context{
+		BasePath:   "../../testdata/injection",
+		CallNumber: 1,
+		Variables:  map[string]string{"line": "3"},
+	}
+
+	raw := "X-Field: [field2 file=inject.csv line=$line]\r\n\r\n"
+	got := RenderMessage(raw, ctx)
+	if !strings.Contains(got, "X-Field: bob") {
+		t.Fatalf("expected variable-based line lookup, got %q", got)
+	}
+}
+
+func TestLookupCSVLine(t *testing.T) {
+	t.Parallel()
+
+	line, found, err := LookupCSVLine("../../testdata/injection", "inject.csv", "2")
+	if err != nil {
+		t.Fatalf("LookupCSVLine() error = %v", err)
+	}
+	if !found {
+		t.Fatal("expected key to be found")
+	}
+	if line != 3 {
+		t.Fatalf("expected line 3, got %d", line)
+	}
+}
+
+func TestRenderMessageStrictRejectsUnsupportedKeyword(t *testing.T) {
+	t.Parallel()
+
+	_, err := RenderMessageStrict("X-Test: [unsupported_helper]\r\n\r\n", Context{})
+	if err == nil {
+		t.Fatal("expected unsupported keyword error")
+	}
+}
+
+func TestRenderMessageStrictSupportsAdditionalHelpers(t *testing.T) {
+	t.Parallel()
+
+	ctx := Context{
+		LocalIP:      "127.0.0.10",
+		ServerIP:     "127.0.0.20",
+		Users:        7,
+		UserID:       3,
+		LastMessage:  "INVITE sip:alice@example.com SIP/2.0\r\nTo: <sip:bob@example.com>\r\n\r\n",
+		LastHeaders:  map[string][]string{"To": {"<sip:bob@example.com>"}},
+		CallNumber:   1,
+		MessageIndex: 2,
+	}
+
+	got, err := RenderMessageStrict("X-Server-IP: [server_ip]\r\nX-Users: [users]\r\nX-UserID: [userid]\r\nX-URI: [last_Request_URI]\r\n\r\n", ctx)
+	if err != nil {
+		t.Fatalf("RenderMessageStrict() error = %v", err)
+	}
+	if !strings.Contains(got, "X-Server-IP: 127.0.0.20") {
+		t.Fatalf("expected server_ip helper, got %q", got)
+	}
+	if !strings.Contains(got, "X-Users: 7") || !strings.Contains(got, "X-UserID: 3") {
+		t.Fatalf("expected user helpers, got %q", got)
+	}
+	if !strings.Contains(got, "X-URI: sip:alice@example.com") {
+		t.Fatalf("expected last_Request_URI helper, got %q", got)
+	}
+}

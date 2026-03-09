@@ -81,12 +81,17 @@ type rawActionItem struct {
 	SearchIn       string `xml:"search_in,attr"`
 	Header         string `xml:"header,attr"`
 	Variable       string `xml:"variable,attr"`
+	Variable2      string `xml:"variable2,attr"`
 	AssignTo       string `xml:"assign_to,attr"`
 	CheckIt        string `xml:"check_it,attr"`
 	CheckItInverse string `xml:"check_it_inverse,attr"`
 	Value          string `xml:"value,attr"`
 	Compare        string `xml:"compare,attr"`
 	Message        string `xml:"message,attr"`
+	File           string `xml:"file,attr"`
+	Key            string `xml:"key,attr"`
+	Username       string `xml:"username,attr"`
+	Password       string `xml:"password,attr"`
 	Command        string `xml:"command,attr"`
 	IntCmd         string `xml:"int_cmd,attr"`
 	RTPStream      string `xml:"rtp_stream,attr"`
@@ -265,7 +270,11 @@ func rawElementToCommand(elem rawElement, index int) (Command, error) {
 	cmd.StopRTD = strings.TrimSpace(elem.RTD)
 	cmd.CondExec = strings.TrimSpace(elem.CondExec)
 	cmd.CondExecInverse = parseBool(elem.CondExecInverse)
-	cmd.Actions = parseActions(elem.Actions)
+	actions, err := parseActions(elem.Actions)
+	if err != nil {
+		return Command{}, err
+	}
+	cmd.Actions = actions
 
 	if chance := strings.TrimSpace(elem.Chance); chance != "" {
 		value, err := strconv.ParseFloat(chance, 64)
@@ -292,21 +301,30 @@ func rawElementToCommand(elem rawElement, index int) (Command, error) {
 	return cmd, nil
 }
 
-func parseActions(raw []rawAction) []Action {
+func parseActions(raw []rawAction) ([]Action, error) {
 	var actions []Action
 	for _, actionBlock := range raw {
 		for _, child := range actionBlock.Children {
+			actionType, ok := parseActionType(child.XMLName.Local)
+			if !ok {
+				return nil, fmt.Errorf("unsupported action %q", child.XMLName.Local)
+			}
 			action := Action{
-				Type:           ActionType(child.XMLName.Local),
+				Type:           actionType,
 				Regexp:         strings.TrimSpace(child.Regexp),
 				SearchIn:       strings.TrimSpace(child.SearchIn),
 				Header:         strings.TrimSpace(child.Header),
 				Variable:       strings.TrimSpace(child.Variable),
+				Variable2:      strings.TrimSpace(child.Variable2),
 				CheckIt:        parseBool(child.CheckIt),
 				CheckItInverse: parseBool(child.CheckItInverse),
 				Value:          strings.TrimSpace(child.Value),
 				Compare:        strings.TrimSpace(child.Compare),
 				Message:        strings.TrimSpace(child.Message),
+				File:           strings.TrimSpace(child.File),
+				Key:            strings.TrimSpace(child.Key),
+				Username:       strings.TrimSpace(child.Username),
+				Password:       strings.TrimSpace(child.Password),
 				Command:        strings.TrimSpace(child.Command),
 				IntCmd:         strings.TrimSpace(child.IntCmd),
 				RTPStream:      strings.TrimSpace(child.RTPStream),
@@ -323,7 +341,34 @@ func parseActions(raw []rawAction) []Action {
 			actions = append(actions, action)
 		}
 	}
-	return actions
+	return actions, nil
+}
+
+func parseActionType(name string) (ActionType, bool) {
+	switch ActionType(strings.TrimSpace(name)) {
+	case ActionEReg,
+		ActionAssignStr,
+		ActionAssign,
+		ActionToDouble,
+		ActionAdd,
+		ActionSubtract,
+		ActionMultiply,
+		ActionDivide,
+		ActionStrCmp,
+		ActionTest,
+		ActionLog,
+		ActionWarning,
+		ActionLookup,
+		ActionJump,
+		ActionGetTimeOfDay,
+		ActionURLEncode,
+		ActionURLDecode,
+		ActionVerifyAuth,
+		ActionExec:
+		return ActionType(strings.TrimSpace(name)), true
+	default:
+		return "", false
+	}
 }
 
 func parseVariablesList(value string) []string {

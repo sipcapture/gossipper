@@ -3,9 +3,11 @@ package engine
 import (
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/adubovikov/gossipper/internal/sip"
@@ -14,28 +16,53 @@ import (
 
 const authPlaceholder = "Authorization: pending"
 
+var authTokenPattern = regexp.MustCompile(`\[(authentication[^\]]*)\]`)
+
+type authKeywordOptions struct {
+	tokenKey string
+	username string
+	password string
+}
+
 func (e *Engine) renderSIPMessage(raw string, ctx templ.Context) (string, error) {
-	if !strings.Contains(raw, "[authentication]") {
-		return ensureMessageTerminator(templ.RenderMessage(raw, ctx)), nil
+	options := extractAuthKeywordOptions(raw)
+	if len(options) == 0 {
+		rendered, err := templ.RenderMessageStrict(raw, ctx)
+		if err != nil {
+			return "", err
+		}
+		return ensureMessageTerminator(rendered), nil
 	}
 
 	provisionalCtx := ctx
 	provisionalCtx.ExtraKeywords = cloneKeywords(ctx.ExtraKeywords)
-	provisionalCtx.ExtraKeywords["authentication"] = authPlaceholder
+	for _, option := range options {
+		provisionalCtx.ExtraKeywords[option.tokenKey] = authPlaceholder
+	}
 
-	provisional := ensureMessageTerminator(templ.RenderMessage(raw, provisionalCtx))
-	authHeader, err := e.buildAuthHeader(provisional, ctx)
+	provisional, err := templ.RenderMessageStrict(raw, provisionalCtx)
 	if err != nil {
 		return "", err
 	}
+	provisional = ensureMessageTerminator(provisional)
 
 	finalCtx := ctx
 	finalCtx.ExtraKeywords = cloneKeywords(ctx.ExtraKeywords)
-	finalCtx.ExtraKeywords["authentication"] = authHeader
-	return ensureMessageTerminator(templ.RenderMessage(raw, finalCtx)), nil
+	for _, option := range options {
+		authHeader, err := e.buildAuthHeader(provisional, ctx, option)
+		if err != nil {
+			return "", err
+		}
+		finalCtx.ExtraKeywords[option.tokenKey] = authHeader
+	}
+	rendered, err := templ.RenderMessageStrict(raw, finalCtx)
+	if err != nil {
+		return "", err
+	}
+	return ensureMessageTerminator(rendered), nil
 }
 
-func (e *Engine) buildAuthHeader(outgoing string, ctx templ.Context) (string, error) {
+func (e *Engine) buildAuthHeader(outgoing string, ctx templ.Context, option authKeywordOptions) (string, error) {
 	if ctx.LastMessage == "" {
 		return "", errors.New("authentication keyword requires a previous 401 or 407 challenge")
 	}
@@ -75,8 +102,8 @@ func (e *Engine) buildAuthHeader(outgoing string, ctx templ.Context) (string, er
 		outgoingMsg.Method,
 		outgoingMsg.RequestURI,
 		outgoingMsg.Body,
-		e.cfg.AuthUsername,
-		e.cfg.AuthPassword,
+		resolveAuthKeywordUsername(option.username, e.cfg.AuthUsername),
+		resolveAuthKeywordPassword(option.password, e.cfg.AuthPassword),
 	)
 }
 
@@ -93,9 +120,6 @@ func buildDigestAuthHeader(headerName, challenge, method, uri, body, username, p
 	if algorithm == "" {
 		algorithm = "MD5"
 	}
-	if !strings.EqualFold(algorithm, "MD5") {
-		return "", fmt.Errorf("unsupported digest algorithm %q", algorithm)
-	}
 
 	qop := ""
 	if params.qop != "" {
@@ -110,21 +134,25 @@ func buildDigestAuthHeader(headerName, challenge, method, uri, body, username, p
 		}
 	}
 
-	ha1 := md5Hex(fmt.Sprintf("%s:%s:%s", username, params.realm, password))
-	ha2 := md5Hex(fmt.Sprintf("%s:%s", method, uri))
+	ha1 := digestHex(algorithm, fmt.Sprintf("%s:%s:%s", username, params.realm, password))
+	if ha1 == "" {
+		return "", fmt.Errorf("unsupported digest algorithm %q", algorithm)
+	}
+	ha2Input := fmt.Sprintf("%s:%s", method, uri)
+	ha2 := digestHex(algorithm, ha2Input)
 	response := ""
 	nc := ""
 	cnonce := ""
 
 	if qop == "" {
-		response = md5Hex(fmt.Sprintf("%s:%s:%s", ha1, params.nonce, ha2))
+		response = digestHex(algorithm, fmt.Sprintf("%s:%s:%s", ha1, params.nonce, ha2))
 	} else {
 		nc = "00000001"
 		cnonce, err = randomHex(8)
 		if err != nil {
 			return "", err
 		}
-		response = md5Hex(fmt.Sprintf("%s:%s:%s:%s:%s:%s", ha1, params.nonce, nc, cnonce, qop, ha2))
+		response = digestHex(algorithm, fmt.Sprintf("%s:%s:%s:%s:%s:%s", ha1, params.nonce, nc, cnonce, qop, ha2))
 	}
 
 	parts := []string{
@@ -153,6 +181,19 @@ type digestChallenge struct {
 	opaque    string
 	algorithm string
 	qop       string
+}
+
+type digestAuthorization struct {
+	username  string
+	realm     string
+	nonce     string
+	uri       string
+	response  string
+	algorithm string
+	qop       string
+	nc        string
+	cnonce    string
+	opaque    string
 }
 
 func parseDigestChallenge(value string) (digestChallenge, error) {
@@ -220,6 +261,22 @@ func md5Hex(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func sha256Hex(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func digestHex(algorithm, value string) string {
+	switch strings.ToUpper(strings.TrimSpace(algorithm)) {
+	case "", "MD5":
+		return md5Hex(value)
+	case "SHA-256":
+		return sha256Hex(value)
+	default:
+		return ""
+	}
+}
+
 func randomHex(size int) (string, error) {
 	buf := make([]byte, size)
 	if _, err := rand.Read(buf); err != nil {
@@ -234,4 +291,132 @@ func cloneKeywords(in map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
+}
+
+func extractAuthKeywordOptions(raw string) []authKeywordOptions {
+	matches := authTokenPattern.FindAllStringSubmatch(raw, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	options := make([]authKeywordOptions, 0, len(matches))
+	for _, match := range matches {
+		tokenKey := strings.TrimSpace(match[1])
+		params := parseAuthKeywordParams(tokenKey)
+		options = append(options, authKeywordOptions{
+			tokenKey: tokenKey,
+			username: params["username"],
+			password: params["password"],
+		})
+	}
+	return options
+}
+
+func parseAuthKeywordParams(tokenKey string) map[string]string {
+	params := make(map[string]string)
+	fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(tokenKey, "authentication")))
+	for _, field := range fields {
+		key, value, ok := strings.Cut(field, "=")
+		if !ok {
+			continue
+		}
+		params[strings.ToLower(strings.TrimSpace(key))] = strings.Trim(strings.TrimSpace(value), `"`)
+	}
+	return params
+}
+
+func resolveAuthKeywordUsername(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
+}
+
+func resolveAuthKeywordPassword(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
+}
+
+func verifyAuthHeader(raw, username, password string) (bool, error) {
+	msg, err := sip.Parse([]byte(raw))
+	if err != nil {
+		return false, err
+	}
+	headerValue, ok := sip.Header(msg.Headers, "Authorization")
+	if !ok {
+		headerValue, ok = sip.Header(msg.Headers, "Proxy-Authorization")
+	}
+	if !ok {
+		return false, nil
+	}
+	auth, err := parseDigestAuthorization(headerValue)
+	if err != nil {
+		return false, err
+	}
+	if auth.username != username {
+		return false, nil
+	}
+	algorithm := auth.algorithm
+	if algorithm == "" {
+		algorithm = "MD5"
+	}
+	ha1 := digestHex(algorithm, fmt.Sprintf("%s:%s:%s", username, auth.realm, password))
+	if ha1 == "" {
+		return false, fmt.Errorf("unsupported digest algorithm %q", algorithm)
+	}
+	ha2 := digestHex(algorithm, fmt.Sprintf("%s:%s", msg.Method, auth.uri))
+	expected := ""
+	if auth.qop == "" {
+		expected = digestHex(algorithm, fmt.Sprintf("%s:%s:%s", ha1, auth.nonce, ha2))
+	} else {
+		if !strings.EqualFold(auth.qop, "auth") {
+			return false, fmt.Errorf("unsupported digest qop %q", auth.qop)
+		}
+		expected = digestHex(algorithm, fmt.Sprintf("%s:%s:%s:%s:%s:%s", ha1, auth.nonce, auth.nc, auth.cnonce, auth.qop, ha2))
+	}
+	return strings.EqualFold(expected, auth.response), nil
+}
+
+func parseDigestAuthorization(value string) (digestAuthorization, error) {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(strings.ToLower(value), "digest ") {
+		return digestAuthorization{}, errors.New("only Digest authorization is supported")
+	}
+	params := splitAuthParams(strings.TrimSpace(value[len("Digest "):]))
+	out := digestAuthorization{}
+	for _, param := range params {
+		key, rawValue, ok := strings.Cut(param, "=")
+		if !ok {
+			continue
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		rawValue = strings.Trim(strings.TrimSpace(rawValue), `"`)
+		switch key {
+		case "username":
+			out.username = rawValue
+		case "realm":
+			out.realm = rawValue
+		case "nonce":
+			out.nonce = rawValue
+		case "uri":
+			out.uri = rawValue
+		case "response":
+			out.response = rawValue
+		case "algorithm":
+			out.algorithm = rawValue
+		case "qop":
+			out.qop = rawValue
+		case "nc":
+			out.nc = rawValue
+		case "cnonce":
+			out.cnonce = rawValue
+		case "opaque":
+			out.opaque = rawValue
+		}
+	}
+	if out.realm == "" || out.nonce == "" || out.uri == "" || out.response == "" || out.username == "" {
+		return digestAuthorization{}, errors.New("invalid Digest authorization header")
+	}
+	return out, nil
 }

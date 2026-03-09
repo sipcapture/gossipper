@@ -25,7 +25,10 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 	}
 
 	if action.Command != "" {
-		command := templ.RenderMessage(action.Command, renderCtx)
+		command, err := templ.RenderMessageStrict(action.Command, renderCtx)
+		if err != nil {
+			return err
+		}
 		cmd := exec.CommandContext(ctx, "sh", "-c", command)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -38,7 +41,11 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		if mediaSession == nil {
 			return fmt.Errorf("rtp_stream is not available in this context")
 		}
-		command, cfg, err := media.ParseRTPStreamSpec(templ.RenderMessage(action.RTPStream, renderCtx), renderCtx.BasePath)
+		streamSpec, err := templ.RenderMessageStrict(action.RTPStream, renderCtx)
+		if err != nil {
+			return err
+		}
+		command, cfg, err := media.ParseRTPStreamSpec(streamSpec, renderCtx.BasePath)
 		if err != nil {
 			return err
 		}
@@ -78,7 +85,10 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		if err != nil {
 			return err
 		}
-		path := templ.RenderMessage(action.PlayPCAPAudio, renderCtx)
+		path, err := templ.RenderMessageStrict(action.PlayPCAPAudio, renderCtx)
+		if err != nil {
+			return err
+		}
 		if e.cfg.TraceMessages {
 			fmt.Fprintf(os.Stdout, "play_pcap_audio start %s -> %s:%d\n", path, endpoint.IP, endpoint.Port)
 		}

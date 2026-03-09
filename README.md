@@ -14,15 +14,15 @@ The current MVP implements:
 - SIPp-style 3PCC CLI aliases `-master`, `-slave`, and `-slave_cfg` on top of the external command transport
 - Out-of-call SIP scenarios such as stateless `OPTIONS` ping/pong
 - Command-only 3PCC/out-of-call flows can run without a SIP remote address
-- Basic XML actions: `ereg`, `assignstr`, `test`, `log`, and `exec`
+- Expanded XML actions: `ereg`, `assign`, `assignstr`, `todouble`, `add`, `subtract`, `multiply`, `divide`, `strcmp`, `test`, `log`, `warning`, `lookup`, `jump`, `gettimeofday`, `urlencode`, `urldecode`, `verifyauth`, and `exec`
 - Basic SIPp-style keywords such as `[call_id]`, `[cseq]`, `[branch]`,
-  `[remote_ip]`, `[local_ip]`, `[len]`, `[last_*]`, `[$var]`, `[file ...]`, `[fieldN ...]`, and Digest `[authentication]`
+  `[remote_ip]`, `[local_ip]`, `[server_ip]`, `[len]`, `[last_*]`, `[last_Request_URI]`, `[users]`, `[userid]`, `[$var]`, `[file ...]`, `[fieldN ...]`, and Digest `[authentication]`
 - UDP transports `u1` and `un`
 - Server-side UDP aliases `s1` and `sn` for UAS-style scenarios
 - TCP transports `t1` and `tn`
 - TLS transports `l1` and `ln`
 - Global and per-user variable scopes
-- SIPp-style auth credentials via `-au` / `-ap` for challenged `401` / `407` request retries
+- SIPp-style auth credentials via `-au` / `-ap` for challenged `401` / `407` request retries, inline `[authentication username=... password=...]`, and server-side `verifyauth`
 - Concurrent call generation with rate limiting
 - Basic statistics and JSON summary export
 - Named per-step RTD timers via `start_rtd` / `rtd`, aggregated into summary JSON
@@ -58,6 +58,7 @@ The current MVP implements:
 - `docs/architecture.md`: package-level architecture and execution model
 - `docs/media-roadmap.md`: media-related scope, next steps, and deferred items
 - `docs/compatibility-testing.md`: testing approach for compatibility work and regression coverage
+- `docs/statistics-mapping.md`: mapping between current `gossipper` stats exports and SIPp-style counters
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
 - `milestone.md`: prioritized roadmap for SIPp features that are still missing in `gossipper`
 
@@ -202,6 +203,7 @@ at `/usr/bin/gossipper`.
 - This is a behavior-oriented rewrite, not a literal source port of SIPp.
 - For a narrative overview of current capabilities and trade-offs versus SIPp, see `docs/gossipper-vs-sipp.md`.
 - XML compatibility is intentionally incremental. See `docs/compatibility.md`.
+- For stats/export mapping against SIPp terminology, see `docs/statistics-mapping.md`.
 - External `sendCmd` / `recvCmd` uses a simple TCP peer map in `name;host:port` format via either `-cmd_name` / `-cmd_peers` or the SIPp-like aliases `-master` / `-slave` / `-slave_cfg`.
 - If a scenario only uses `sendCmd` / `recvCmd` plus control commands, it can run without `-rsa`.
 - Regular out-of-call SIP request/response scenarios are supported too, for example `OPTIONS` healthcheck flows without dialog teardown.

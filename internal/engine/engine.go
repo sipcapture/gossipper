@@ -9,8 +9,10 @@ import (
 	"io"
 	mrand "math/rand"
 	"net"
+	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -789,7 +791,11 @@ func (e *Engine) executeCall(
 		commandCallKey   = renderCtx.CallID
 		rtdStarts        = make(map[string]time.Time)
 	)
-	store := newVarStore(e.scopes, e.cfg.Scenario.GlobalVariables, e.cfg.Scenario.UserVariables, userID(callNumber, e.cfg.Users))
+	currentUserID := userID(callNumber, e.cfg.Users)
+	renderCtx.Users = e.cfg.Users
+	renderCtx.UserID = currentUserID
+	renderCtx.ServerIP = localIP
+	store := newVarStore(e.scopes, e.cfg.Scenario.GlobalVariables, e.cfg.Scenario.UserVariables, currentUserID)
 	renderCtx.Variables = store.Snapshot()
 	finishRTD := func(name string) {
 		name = strings.TrimSpace(name)
@@ -827,7 +833,8 @@ func (e *Engine) executeCall(
 		switch cmd.Type {
 		case scenario.CommandLabel:
 		case scenario.CommandNop:
-			if err := e.applyActions(ctx, cmd.Actions, renderCtx, store, mediaSession); err != nil {
+			actionResult, err := e.applyActions(ctx, callNumber, cmd.Actions, renderCtx, store, mediaSession)
+			if err != nil {
 				if errors.Is(err, errStopCall) {
 					recordCommandStats(cmd)
 					finishRTD(cmd.StopRTD)
@@ -835,6 +842,12 @@ func (e *Engine) executeCall(
 					return nil
 				}
 				return err
+			}
+			if actionResult.hasJump {
+				recordCommandStats(cmd)
+				finishRTD(cmd.StopRTD)
+				index = actionResult.jumpIndex
+				continue
 			}
 		case scenario.CommandPause, scenario.CommandTimeWait:
 			pause := cmd.Pause
@@ -861,7 +874,11 @@ func (e *Engine) executeCall(
 				inviteStartedAt = time.Now()
 			}
 		case scenario.CommandSendCmd:
-			commandPayload := ensureMessageTerminator(templ.RenderMessage(cmd.SendText, renderCtx))
+			commandPayload, err := templ.RenderMessageStrict(cmd.SendText, renderCtx)
+			if err != nil {
+				return err
+			}
+			commandPayload = ensureMessageTerminator(commandPayload)
 			if e.cfg.TraceMessages || e.cfg.TraceShortMsg {
 				e.traceEvent("sendCmd", callNumber, commandPayload)
 			}
@@ -909,7 +926,8 @@ func (e *Engine) executeCall(
 			renderCtx.LastMessage = msg.Raw
 			renderCtx.LastHeaders = msg.Headers
 			renderCtx.Variables = store.Snapshot()
-			if err := e.applyActions(ctx, cmd.Actions, renderCtx, store, mediaSession); err != nil {
+			actionResult, err := e.applyActions(ctx, callNumber, cmd.Actions, renderCtx, store, mediaSession)
+			if err != nil {
 				if errors.Is(err, errStopCall) {
 					recordCommandStats(cmd)
 					finishRTD(cmd.StopRTD)
@@ -917,6 +935,12 @@ func (e *Engine) executeCall(
 					return nil
 				}
 				return err
+			}
+			if actionResult.hasJump {
+				recordCommandStats(cmd)
+				finishRTD(cmd.StopRTD)
+				index = actionResult.jumpIndex
+				continue
 			}
 			if !inviteLatencySet && msg.StatusCode == 200 && !inviteStartedAt.IsZero() {
 				e.stats.AddInviteLatency(time.Since(inviteStartedAt))
@@ -959,7 +983,8 @@ func (e *Engine) executeCall(
 				e.traceEvent("recvCmd", callNumber, msg.raw)
 			}
 			renderCtx.Variables = store.Snapshot()
-			if err := e.applyActions(ctx, cmd.Actions, renderCtx, store, mediaSession); err != nil {
+			actionResult, err := e.applyActions(ctx, callNumber, cmd.Actions, renderCtx, store, mediaSession)
+			if err != nil {
 				if errors.Is(err, errStopCall) {
 					recordCommandStats(cmd)
 					finishRTD(cmd.StopRTD)
@@ -967,6 +992,12 @@ func (e *Engine) executeCall(
 					return nil
 				}
 				return err
+			}
+			if actionResult.hasJump {
+				recordCommandStats(cmd)
+				finishRTD(cmd.StopRTD)
+				index = actionResult.jumpIndex
+				continue
 			}
 		}
 
@@ -1243,28 +1274,118 @@ func variableTruthy(value string) bool {
 	}
 }
 
-func (e *Engine) applyActions(ctx context.Context, actions []scenario.Action, renderCtx templ.Context, vars *varStore, mediaSession *media.Session) error {
+type actionResult struct {
+	jumpIndex int
+	hasJump   bool
+}
+
+func (e *Engine) applyActions(ctx context.Context, callNumber int, actions []scenario.Action, renderCtx templ.Context, vars *varStore, mediaSession *media.Session) (actionResult, error) {
 	renderCtx.Variables = vars.Snapshot()
+	result := actionResult{}
 	for _, action := range actions {
 		switch action.Type {
 		case scenario.ActionAssignStr:
 			if len(action.AssignTo) == 0 {
 				continue
 			}
-			value := templ.RenderMessage(action.Value, renderCtx)
+			value, err := templ.RenderMessageStrict(action.Value, renderCtx)
+			if err != nil {
+				return actionResult{}, err
+			}
 			for _, name := range action.AssignTo {
 				vars.Set(name, value)
 			}
+		case scenario.ActionAssign:
+			value, err := renderNumericActionValue(action, renderCtx, vars)
+			if err != nil {
+				return actionResult{}, err
+			}
+			assignActionValue(action.AssignTo, value, vars)
+		case scenario.ActionToDouble:
+			value, err := parseActionFloat(vars.Get(action.Variable))
+			if err != nil {
+				return actionResult{}, err
+			}
+			assignActionValue(action.AssignTo, formatActionFloat(value), vars)
+		case scenario.ActionAdd, scenario.ActionSubtract, scenario.ActionMultiply, scenario.ActionDivide:
+			current, err := parseActionFloat(vars.Get(firstAssignTarget(action.AssignTo)))
+			if err != nil {
+				return actionResult{}, err
+			}
+			operand, err := actionNumericOperand(action, renderCtx, vars)
+			if err != nil {
+				return actionResult{}, err
+			}
+			value, err := applyArithmeticAction(action.Type, current, operand)
+			if err != nil {
+				return actionResult{}, err
+			}
+			assignActionValue(action.AssignTo, formatActionFloat(value), vars)
 		case scenario.ActionLog:
 			if e.cfg.TraceLogs {
-				e.traceActionLog(templ.RenderMessage(action.Message, renderCtx))
+				message, err := templ.RenderMessageStrict(action.Message, renderCtx)
+				if err != nil {
+					return actionResult{}, err
+				}
+				e.traceActionLog(message)
+			}
+		case scenario.ActionWarning:
+			if e.cfg.TraceErrors {
+				message, err := templ.RenderMessageStrict(action.Message, renderCtx)
+				if err != nil {
+					return actionResult{}, err
+				}
+				e.traceError("warning", callNumber, message)
+			}
+		case scenario.ActionLookup:
+			if len(action.AssignTo) == 0 {
+				continue
+			}
+			if strings.TrimSpace(action.File) == "" {
+				return actionResult{}, errors.New("lookup action requires file")
+			}
+			fileName, err := templ.RenderMessageStrict(action.File, renderCtx)
+			if err != nil {
+				return actionResult{}, err
+			}
+			key, err := templ.RenderMessageStrict(action.Key, renderCtx)
+			if err != nil {
+				return actionResult{}, err
+			}
+			line, found, err := templ.LookupCSVLine(renderCtx.BasePath, fileName, key)
+			if err != nil {
+				return actionResult{}, err
+			}
+			value := "0"
+			if found {
+				value = strconv.Itoa(line)
+			}
+			for _, name := range action.AssignTo {
+				vars.Set(name, value)
+			}
+		case scenario.ActionStrCmp:
+			if len(action.AssignTo) == 0 {
+				continue
+			}
+			left := vars.Get(action.Variable)
+			right, err := resolveActionOperand(action, renderCtx, vars)
+			if err != nil {
+				return actionResult{}, err
+			}
+			result := strings.Compare(left, right)
+			value := strconv.Itoa(result)
+			for _, name := range action.AssignTo {
+				vars.Set(name, value)
 			}
 		case scenario.ActionTest:
 			if len(action.AssignTo) == 0 {
 				continue
 			}
 			left := vars.Get(action.Variable)
-			right := templ.RenderMessage(action.Value, renderCtx)
+			right, err := resolveActionOperand(action, renderCtx, vars)
+			if err != nil {
+				return actionResult{}, err
+			}
 			result := compareValues(left, right, action.Compare)
 			value := "0"
 			if result {
@@ -1273,18 +1394,62 @@ func (e *Engine) applyActions(ctx context.Context, actions []scenario.Action, re
 			for _, name := range action.AssignTo {
 				vars.Set(name, value)
 			}
+		case scenario.ActionJump:
+			jumpIndex, err := resolveJumpTarget(action, renderCtx, vars)
+			if err != nil {
+				return actionResult{}, err
+			}
+			result.jumpIndex = jumpIndex
+			result.hasJump = true
+		case scenario.ActionGetTimeOfDay:
+			seconds, micros := currentEpochParts()
+			if len(action.AssignTo) > 0 {
+				vars.Set(action.AssignTo[0], strconv.FormatInt(seconds, 10))
+			}
+			if len(action.AssignTo) > 1 {
+				vars.Set(action.AssignTo[1], strconv.FormatInt(micros, 10))
+			}
+		case scenario.ActionURLEncode:
+			vars.Set(action.Variable, url.QueryEscape(vars.Get(action.Variable)))
+		case scenario.ActionURLDecode:
+			decoded, err := url.QueryUnescape(vars.Get(action.Variable))
+			if err != nil {
+				return actionResult{}, err
+			}
+			vars.Set(action.Variable, decoded)
+		case scenario.ActionVerifyAuth:
+			if len(action.AssignTo) == 0 {
+				continue
+			}
+			username, err := templ.RenderMessageStrict(action.Username, renderCtx)
+			if err != nil {
+				return actionResult{}, err
+			}
+			password, err := templ.RenderMessageStrict(action.Password, renderCtx)
+			if err != nil {
+				return actionResult{}, err
+			}
+			valid, err := verifyAuthHeader(renderCtx.LastMessage, username, password)
+			if err != nil {
+				return actionResult{}, err
+			}
+			value := "0"
+			if valid {
+				value = "1"
+			}
+			assignActionValue(action.AssignTo, value, vars)
 		case scenario.ActionEReg:
 			if err := applyERegAction(action, renderCtx, vars); err != nil {
-				return err
+				return actionResult{}, err
 			}
 		case scenario.ActionExec:
 			if err := e.applyExecAction(ctx, action, renderCtx, vars, mediaSession); err != nil {
-				return err
+				return actionResult{}, err
 			}
 		}
 		renderCtx.Variables = vars.Snapshot()
 	}
-	return nil
+	return result, nil
 }
 
 func applyERegAction(action scenario.Action, renderCtx templ.Context, vars *varStore) error {
@@ -1330,14 +1495,147 @@ func applyERegAction(action scenario.Action, renderCtx templ.Context, vars *varS
 }
 
 func compareValues(left, right, compare string) bool {
+	if leftNum, rightNum, ok := parseComparableNumbers(left, right); ok {
+		switch strings.ToLower(strings.TrimSpace(compare)) {
+		case "", "equal", "eq":
+			return leftNum == rightNum
+		case "not_equal", "ne":
+			return leftNum != rightNum
+		case "greater_than", "gt":
+			return leftNum > rightNum
+		case "less_than", "lt":
+			return leftNum < rightNum
+		case "greater_than_equal", "greater_than_or_equal", "ge", "gte":
+			return leftNum >= rightNum
+		case "less_than_equal", "less_than_or_equal", "le", "lte":
+			return leftNum <= rightNum
+		default:
+			return leftNum == rightNum
+		}
+	}
+
+	order := strings.Compare(left, right)
 	switch strings.ToLower(strings.TrimSpace(compare)) {
 	case "", "equal", "eq":
-		return left == right
+		return order == 0
 	case "not_equal", "ne":
-		return left != right
+		return order != 0
+	case "greater_than", "gt":
+		return order > 0
+	case "less_than", "lt":
+		return order < 0
+	case "greater_than_equal", "greater_than_or_equal", "ge", "gte":
+		return order >= 0
+	case "less_than_equal", "less_than_or_equal", "le", "lte":
+		return order <= 0
 	default:
-		return left == right
+		return order == 0
 	}
+}
+
+func resolveActionOperand(action scenario.Action, renderCtx templ.Context, vars *varStore) (string, error) {
+	if strings.TrimSpace(action.Variable2) != "" {
+		return vars.Get(action.Variable2), nil
+	}
+	value, err := templ.RenderMessageStrict(action.Value, renderCtx)
+	if err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func parseComparableNumbers(left, right string) (float64, float64, bool) {
+	leftNum, err := strconv.ParseFloat(strings.TrimSpace(left), 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	rightNum, err := strconv.ParseFloat(strings.TrimSpace(right), 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return leftNum, rightNum, true
+}
+
+func firstAssignTarget(assignTo []string) string {
+	if len(assignTo) == 0 {
+		return ""
+	}
+	return assignTo[0]
+}
+
+func assignActionValue(assignTo []string, value string, vars *varStore) {
+	for _, name := range assignTo {
+		vars.Set(name, value)
+	}
+}
+
+func renderNumericActionValue(action scenario.Action, renderCtx templ.Context, vars *varStore) (string, error) {
+	if strings.TrimSpace(action.Variable) != "" {
+		return vars.Get(action.Variable), nil
+	}
+	return templ.RenderMessageStrict(action.Value, renderCtx)
+}
+
+func actionNumericOperand(action scenario.Action, renderCtx templ.Context, vars *varStore) (float64, error) {
+	operandValue, err := renderNumericActionValue(action, renderCtx, vars)
+	if err != nil {
+		return 0, err
+	}
+	return parseActionFloat(operandValue)
+}
+
+func parseActionFloat(value string) (float64, error) {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid numeric value %q", value)
+	}
+	return parsed, nil
+}
+
+func formatActionFloat(value float64) string {
+	return strconv.FormatFloat(value, 'f', -1, 64)
+}
+
+func applyArithmeticAction(actionType scenario.ActionType, left, right float64) (float64, error) {
+	switch actionType {
+	case scenario.ActionAdd:
+		return left + right, nil
+	case scenario.ActionSubtract:
+		return left - right, nil
+	case scenario.ActionMultiply:
+		return left * right, nil
+	case scenario.ActionDivide:
+		if right == 0 {
+			return 0, errors.New("divide by zero")
+		}
+		return left / right, nil
+	default:
+		return 0, fmt.Errorf("unsupported arithmetic action %q", actionType)
+	}
+}
+
+func resolveJumpTarget(action scenario.Action, renderCtx templ.Context, vars *varStore) (int, error) {
+	target := strings.TrimSpace(action.Value)
+	if target == "" && strings.TrimSpace(action.Variable) != "" {
+		target = strings.TrimSpace(vars.Get(action.Variable))
+	}
+	if target == "" {
+		return 0, errors.New("jump action requires value or variable")
+	}
+	value, err := strconv.Atoi(target)
+	if err != nil {
+		return 0, fmt.Errorf("invalid jump target %q", target)
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("invalid jump target %q", target)
+	}
+	_ = renderCtx
+	return value, nil
+}
+
+func currentEpochParts() (int64, int64) {
+	now := time.Now()
+	return now.Unix(), int64(now.Nanosecond() / 1000)
 }
 
 func lookupHeaderCI(headers map[string][]string, name string) ([]string, bool) {

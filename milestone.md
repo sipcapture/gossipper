@@ -35,7 +35,7 @@ The milestones below are based on the gaps visible in:
 
 Priority: high
 
-Status: mostly completed
+Status: completed
 
 Why first:
 
@@ -45,9 +45,7 @@ Why first:
 
 Target gaps from SIPp:
 
-Remaining gap:
-
-- documented field mapping between current `gossipper` JSON and SIPp-style counters
+This milestone is now complete for the currently intended MVP scope.
 
 Completed so far in this milestone:
 
@@ -60,19 +58,35 @@ Completed so far in this milestone:
 Deliverables:
 
 - documented field mapping between current `gossipper` JSON and SIPp-style counters
+  completed in `docs/statistics-mapping.md`
 
 ## Milestone 2: XML action and scenario parity
 
 Priority: high
 
+Status: completed
+
+Completed so far in this milestone:
+
+- `warning` action, mapped to the existing error trace flow with parser and engine coverage
+- `lookup` action for CSV-backed injection data, plus variable-driven `[fieldN ... line=$var]`
+- `strcmp` action plus broader `test` compare semantics with `variable2` support
+- explicit parser/runtime failures for unsupported XML actions and scenario keywords
+- arithmetic/action helpers: `assign`, `todouble`, `add`, `subtract`, `multiply`, `divide`
+- control/helper actions: `jump`, `gettimeofday`, `urlencode`, `urldecode`, `verifyauth`
+- broader scenario keyword support including `[server_ip]`, `[last_Request_URI]`, `[users]`, and `[userid]`
+
 Target gaps from SIPp:
 
-- `warning` action
-- `lookup` action and adjacent data-lookup behavior from SIPp scenario docs
-- broader action surface and legacy scenario semantics beyond the currently
-  implemented `ereg` / `assignstr` / `test` / `log` / `exec`
-- wider keyword catalog where SIPp still exposes scenario helpers not yet in
-  `gossipper`
+This milestone is now complete for the intended XML/helper scope.
+
+Explicitly deferred beyond Milestone 2:
+
+- `sample`, `insert`, and `replace` action families
+- `setdest` because it overlaps transport/addressing work in Milestone 3
+- `play_pcap_video` because it overlaps broader media parity in Milestone 4
+- keyword families such as `[routes]`, `[dynamic_id]`, `[clock_tick]`, `[sipp_version]`, `[tdmmap]`, and `[fill]`
+- full SIPp injection/CLI parity beyond the current CSV helper subset
 
 Deliverables:
 

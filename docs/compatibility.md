@@ -2,6 +2,10 @@
 
 This document defines the currently supported SIPp subset in `gossipper`.
 
+Unsupported XML actions now fail during scenario parsing, and unsupported
+scenario keywords fail during template rendering instead of silently degrading
+into no-ops or empty strings.
+
 ## Commands
 
 | SIPp command | Status | Notes |
@@ -45,10 +49,29 @@ This document defines the currently supported SIPp subset in `gossipper`.
 | Action | Status | Notes |
 | --- | --- | --- |
 | `ereg` | supported | `msg`, `hdr`, `body`, and `var` search scopes |
+| `assign` | supported | Assigns a floating-point value from `value` or `variable` |
 | `assignstr` | supported | Assigns rendered string values to variables |
-| `test` | supported | Stores boolean result as `1` or `0` |
+| `todouble` | supported | Converts a string variable into a floating-point variable |
+| `add` | supported | Floating-point arithmetic against `assign_to` using `value` or `variable` |
+| `subtract` | supported | Floating-point arithmetic against `assign_to` using `value` or `variable` |
+| `multiply` | supported | Floating-point arithmetic against `assign_to` using `value` or `variable` |
+| `divide` | supported | Floating-point arithmetic against `assign_to` using `value` or `variable`; divide-by-zero fails the call |
+| `strcmp` | supported | Lexicographic compare for `variable` against `value` or `variable2`; stores `-1`, `0`, or `1` |
+| `test` | supported | Stores boolean result as `1` or `0`; supports `value` or `variable2` with `equal`, `not_equal`, `greater_than`, `less_than`, `greater_than_equal`, and `less_than_equal` |
 | `log` | supported | Emits message when tracing is enabled |
+| `warning` | supported | Emits message into the error trace when `-trace_err` / `-error_file` is enabled |
+| `lookup` | partial | Looks up the first CSV column and stores a 1-based physical file line number; integrates with `[fieldN ... line=$var]` |
+| `jump` | supported | Jumps to an absolute scenario command index via `value` or `variable` |
+| `gettimeofday` | supported | Stores epoch seconds and microseconds in `assign_to` targets |
+| `urlencode` | supported | URL-encodes the referenced variable in place |
+| `urldecode` | supported | URL-decodes the referenced variable in place |
+| `verifyauth` | supported | Validates incoming Digest `Authorization` / `Proxy-Authorization` headers for `MD5` and `SHA-256` with `qop=auth` |
 | `exec` | supported | Supports `command`, `int_cmd`, `rtp_stream` `start` / `pause` / `resume` / `stop` / `echo`, and `play_pcap_audio`; audio PCAP replay preserves packet timing and reuses the SDP audio endpoint |
+| `sample` | deferred | Statistical variable sampling is not implemented yet |
+| `insert` | deferred | In-memory injection file mutation is not implemented yet |
+| `replace` | deferred | In-memory injection file mutation is not implemented yet |
+| `setdest` | deferred | Deferred to transport/addressing parity work in Milestone 3 |
+| `play_pcap_video` | deferred | Deferred to broader media parity work |
 
 ## Keywords
 
@@ -71,7 +94,9 @@ This document defines the currently supported SIPp subset in `gossipper`.
 | `[pid]` | supported | Current process ID |
 | `[last_message]` | supported | Last received SIP message |
 | `[last_*]` | supported | Missing header drops the whole line, matching SIPp semantics |
+| `[last_Request_URI]` | supported | Uses the last received request URI when available, otherwise falls back to the URI in the last `To` header |
 | `[last_cseq_number]` | supported | Extracted from the last `CSeq` header |
+| `[server_ip]` | supported | Currently resolves to the local/server bind IP; multi-IP semantics are deferred to Milestone 3 |
 | `[next_url]` | supported | Extracted from the last `Contact` header |
 | `[peer_tag_param]` | supported | Extracted from the last `To` header |
 | `[media_ip]` | supported | Mirrors local IP for now |
@@ -79,10 +104,18 @@ This document defines the currently supported SIPp subset in `gossipper`.
 | `[media_port]` | supported | Derived from local SIP port with per-call offset |
 | `[date]` | supported | Current UTC date in RFC1123 format |
 | `[timestamp]` | supported | Current local timestamp |
-| `[authentication]` | supported | Digest auth for `401`/`407` challenges with CLI credentials from `-au` / `-ap`; currently supports `MD5` and `qop=auth` |
-| `[fieldN ...]` | supported | CSV injection with `file=` and optional `line=` |
+| `[authentication]` | supported | Digest auth for `401`/`407` challenges with CLI credentials from `-au` / `-ap` or inline `username=` / `password=` params; supports `MD5` and `SHA-256` with `qop=auth` |
+| `[fieldN ...]` | partial | CSV injection with `file=` and optional `line=`; variable-driven form currently uses `line=$var`, and line numbers are physical 1-based CSV rows |
 | `[file ...]` | supported | Inlines file contents from scenario-relative or absolute path |
+| `[users]` | supported | Number of configured logical users from `-users` |
+| `[userid]` | supported | Zero-based logical user identifier for the current call |
 | `[$n]` / `[$name]` | supported | Action and string variables |
+| `[dynamic_id]` | deferred | Not implemented yet |
+| `[routes]` | deferred | Record-Route capture / replay semantics are not implemented yet |
+| `[clock_tick]` | deferred | Internal SIPp clock tick helper is not implemented yet |
+| `[sipp_version]` | deferred | Not implemented yet |
+| `[tdmmap]` | deferred | Not implemented yet |
+| `[fill]` | deferred | Not implemented yet |
 
 ## Transport modes
 
@@ -138,6 +171,7 @@ This document defines the currently supported SIPp subset in `gossipper`.
 | `-trace_stat` failure class columns | supported | Periodic stats CSV includes cumulative and delta columns for the same failure classes |
 | summary JSON latency repartition | supported | Exports `call_length`, `invite_rtt`, and named `rtd` summaries with stddev and repartition buckets |
 | `-trace_stat` latency stddev columns | supported | Periodic stats CSV includes call and invite latency standard deviation columns |
+| SIPp stats field mapping doc | supported | See `docs/statistics-mapping.md` for the current field-by-field correspondence and gaps |
 
 ## HEP CLI workflow
 
@@ -158,6 +192,10 @@ This document defines the currently supported SIPp subset in `gossipper`.
 
 ## Deliberately deferred
 
+- `sample`, `insert`, and `replace` action families
+- `setdest` and broader per-call addressing changes
 - `play_pcap_video` / `play_pcap_image`
+- full `-inf` / indexed injection parity beyond the current CSV helper subset
+- keyword helpers such as `[routes]`, `[dynamic_id]`, `[clock_tick]`, `[sipp_version]`, `[tdmmap]`, and `[fill]`
 - SRTP / rtpcheck
 - full CLI parity with SIPp
