@@ -10,18 +10,24 @@ testing.
 
 - Runs SIP XML scenarios with `send`, `recv`, `pause`, `nop`, `timewait`,
   `label`, and `init`
-- Supports SIPp-like actions such as `ereg`, `assignstr`, `test`, `log`, and
-  `exec`
+- Supports a broad SIPp-like XML action subset including `ereg`, `assign`,
+  `assignstr`, `todouble`, `add`, `subtract`, `multiply`, `divide`, `strcmp`,
+  `test`, `log`, `warning`, `lookup`, `jump`, `gettimeofday`, `urlencode`,
+  `urldecode`, `verifyauth`, and `exec`
 - Handles UDP, TCP, TLS, and server-side UDP aliases `s1` / `sn`
 - Supports 3PCC-style `sendCmd` / `recvCmd` flows, including external peer
   communication between multiple `gossipper` instances
 - Handles out-of-call SIP exchanges such as stateless `OPTIONS`
-- Supports Digest auth retries with `[authentication]` plus SIPp-style
-  credentials from `-au` / `-ap`
+- Supports Digest auth retries with `[authentication]`, inline auth params,
+  CLI credentials from `-au` / `-ap`, and server-side auth validation through
+  `verifyauth`
+- Supports Homer/HEP export for SIP signaling via `-hep_addr`,
+  `-hep_capture_id`, and `-hep_password`
 - Provides media helpers for `rtp_stream`, RTP echo, RTCP counters, and audio
   PCAP replay through `play_pcap_audio`
-- Exposes JSON summary output, named RTD metrics, execution counters, and
-  message / error / action tracing
+- Exposes JSON summary output, named RTD metrics, execution counters,
+  failure-class reporting, latency repartition buckets, periodic CSV stats,
+  RTD CSV dumps, and message / error / action tracing
 
 ## Comparison summary
 
@@ -32,9 +38,10 @@ testing.
 | XML execution model | Supported subset with growing parity | Broad and battle-tested |
 | SIP transports | UDP, TCP, TLS, server aliases | Broad and mature |
 | 3PCC command flows | Supported | Supported |
-| Digest auth | Supported for common `401` / `407` flows | Supported |
+| Digest auth | Supported for common `401` / `407` flows plus `verifyauth` | Supported |
+| HEP / Homer export | SIP signaling export over HEP3 | Mature capture/export ecosystem |
 | RTP helpers | `rtp_stream`, echo, RTCP counters, audio PCAP replay | More mature media feature set |
-| Reporting | JSON summary, RTD, counters, tracing | Rich CLI stats and long-standing reporting model |
+| Reporting | JSON summary, RTD, failure classes, CSV stats, RTT dumps, tracing | Rich CLI stats and long-standing reporting model |
 | Compatibility scope | Explicit and documented | De facto full reference behavior |
 
 ## Where `gossipper` is intentionally different
@@ -78,8 +85,9 @@ Today, `gossipper` is a strong fit for:
 - targeted SIP regression scenarios
 - 3PCC and command-orchestrated test flows
 - auth challenge / response coverage
+- Homer-compatible SIP mirroring over HEP3
 - lightweight media and RTP validation
-- CI-friendly scenario execution with structured output
+- CI-friendly scenario execution with structured JSON/CSV output
 
 It is not yet a drop-in replacement for every SIPp installation or every SIPp
 scenario ever written.

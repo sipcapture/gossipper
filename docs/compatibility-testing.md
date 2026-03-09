@@ -1,6 +1,6 @@
 # Compatibility testing strategy
 
-The most valuable tests for `gossip` are behavior-level compatibility checks,
+The most valuable tests for `gossipper` are behavior-level compatibility checks,
 not only unit tests.
 
 ## Layers
@@ -9,11 +9,15 @@ not only unit tests.
    - XML parser
    - template rendering
    - SIP parsing
+   - auth / HEP helpers
    - RTP packet generation
 
 2. Integration tests
-   - run `gossip` against a lightweight UDP SIP stub
-   - verify sent request order, response matching, retransmit behavior, and summary stats
+   - run `gossipper` against a lightweight SIP stub over UDP/TCP/TLS as needed
+   - verify sent request order, response matching, retransmit behavior, XML
+     actions, and summary stats
+   - verify trace outputs such as `-trace_stat`, `-trace_rtt`, `-trace_logs`,
+     `-trace_err`, and HEP export
 
 3. Side-by-side compatibility tests
    - execute representative SIPp scenarios from `sipp/docs`
@@ -25,9 +29,15 @@ not only unit tests.
 - basic UAS responder
 - optional provisional responses
 - label-based branching
+- action-heavy XML flows (`ereg`, `lookup`, arithmetic, auth validation)
+- HEP export smoke coverage
 - timeout and retransmit cases
 
 ## Golden artifacts
 
 Keep expected SIP exchanges under `testdata/` as plain text golden fixtures so
 both the parser and engine can be regression-tested deterministically.
+
+For CSV/JSON/HEP outputs, prefer assertions on stable semantic fields rather
+than byte-for-byte full-file snapshots, so the tests stay resilient when new
+columns or metadata are added intentionally.
