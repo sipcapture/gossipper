@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestParseCommandPeers(t *testing.T) {
@@ -131,6 +133,22 @@ func TestParseEnablesTraceErrorAndLogFiles(t *testing.T) {
 	}
 }
 
+func TestParseEnablesTraceScreenForScreenFile(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-screen_file", filepath.Join(t.TempDir(), "screen.log"),
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !cfg.TraceScreen {
+		t.Fatal("expected screen_file to enable trace_screen")
+	}
+}
+
 func TestParseAcceptsTraceErrorCodes(t *testing.T) {
 	t.Parallel()
 
@@ -160,6 +178,122 @@ func TestParseAcceptsTraceRTT(t *testing.T) {
 	}
 	if !cfg.TraceRTT {
 		t.Fatal("expected trace_rtt to be enabled")
+	}
+}
+
+func TestParseAcceptsTraceCounts(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-trace_counts",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !cfg.TraceCounts {
+		t.Fatal("expected trace_counts to be enabled")
+	}
+}
+
+func TestParseAcceptsTraceScreen(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-trace_screen",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !cfg.TraceScreen {
+		t.Fatal("expected trace_screen to be enabled")
+	}
+}
+
+func TestParseAcceptsRTTDumpFrequency(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-rtt_freq", "50",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.RTTDumpFrequency != 50 {
+		t.Fatalf("expected rtt dump frequency 50, got %d", cfg.RTTDumpFrequency)
+	}
+}
+
+func TestParseAcceptsStatsDumpFrequency(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-fd", "2",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.StatsDumpPeriod != 2*time.Second {
+		t.Fatalf("expected stats dump period 2s, got %v", cfg.StatsDumpPeriod)
+	}
+}
+
+func TestParseAcceptsTimeoutGlobal(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-timeout_global", "3",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.GlobalTimeout != 3*time.Second {
+		t.Fatalf("expected timeout_global 3s, got %v", cfg.GlobalTimeout)
+	}
+}
+
+func TestParseRejectsInvalidStatsDumpFrequency(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-fd", "0",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject fd <= 0")
+	}
+}
+
+func TestParseRejectsInvalidRTTDumpFrequency(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-rtt_freq", "0",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject rtt_freq <= 0")
+	}
+}
+
+func TestParseRejectsInvalidTimeoutGlobal(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-timeout_global", "-1",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject timeout_global < 0")
 	}
 }
 
@@ -216,5 +350,210 @@ func TestParseAuthCredentials(t *testing.T) {
 	}
 	if cfg.AuthUsername != "alice" || cfg.AuthPassword != "secret" {
 		t.Fatalf("unexpected auth credentials: %+v", cfg)
+	}
+}
+
+func TestParseAcceptsBaseCSeq(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-base_cseq", "42",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.BaseCSeq != 42 {
+		t.Fatalf("expected base_cseq 42, got %d", cfg.BaseCSeq)
+	}
+}
+
+func TestParseAcceptsRatePeriod(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-r", "7",
+		"-rp", "2000",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if math.Abs(cfg.Rate-3.5) > 0.000001 {
+		t.Fatalf("expected effective cps 3.5, got %f", cfg.Rate)
+	}
+}
+
+func TestParseAcceptsRateScale(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-rate_scale", "2.5",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.RateScale != 2.5 {
+		t.Fatalf("expected rate_scale 2.5, got %f", cfg.RateScale)
+	}
+}
+
+func TestParseAcceptsRateRampFlags(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-rate_increase", "0.5",
+		"-rate_interval", "250",
+		"-rate_max", "30",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.RateIncrease != 0.5 {
+		t.Fatalf("expected rate_increase 0.5, got %f", cfg.RateIncrease)
+	}
+	if cfg.RateIncreaseStep != 250*time.Millisecond {
+		t.Fatalf("expected rate_interval 250ms, got %v", cfg.RateIncreaseStep)
+	}
+	if cfg.RateMax != 30 {
+		t.Fatalf("expected rate_max 30, got %f", cfg.RateMax)
+	}
+}
+
+func TestParseAcceptsReconnectFlags(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-max_reconnect", "3",
+		"-reconnect_sleep", "150",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.MaxReconnect != 3 {
+		t.Fatalf("expected max_reconnect 3, got %d", cfg.MaxReconnect)
+	}
+	if cfg.ReconnectSleep != 150*time.Millisecond {
+		t.Fatalf("expected reconnect_sleep 150ms, got %v", cfg.ReconnectSleep)
+	}
+}
+
+func TestParseAcceptsMaxSocket(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-max_socket", "32",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.MaxSockets != 32 {
+		t.Fatalf("expected max_socket 32, got %d", cfg.MaxSockets)
+	}
+}
+
+func TestParseRejectsInvalidBaseCSeq(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-base_cseq", "0",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject base_cseq <= 0")
+	}
+}
+
+func TestParseRejectsInvalidRatePeriod(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-rp", "0",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject rp <= 0")
+	}
+}
+
+func TestParseRejectsInvalidRateScale(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-rate_scale", "0",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject rate_scale <= 0")
+	}
+}
+
+func TestParseRejectsInvalidRateInterval(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-rate_interval", "0",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject rate_interval <= 0")
+	}
+}
+
+func TestParseRejectsInvalidRateMax(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-rate_max", "-1",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject rate_max < 0")
+	}
+}
+
+func TestParseRejectsInvalidMaxSocket(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-max_socket", "-1",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject max_socket < 0")
+	}
+}
+
+func TestParseRejectsInvalidMaxReconnect(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-max_reconnect", "-1",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject max_reconnect < 0")
+	}
+}
+
+func TestParseRejectsInvalidReconnectSleep(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-reconnect_sleep", "-1",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject reconnect_sleep < 0")
 	}
 }

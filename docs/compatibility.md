@@ -148,6 +148,16 @@ into no-ops or empty strings.
 | stateless server `recv request` + `send` response | supported | Works for responder scenarios such as `OPTIONS` pong |
 | example scenarios | supported | `testdata/scenarios/options_client.xml` and `testdata/scenarios/options_server.xml` |
 
+## Run control CLI workflow
+
+| CLI surface | Status | Notes |
+| --- | --- | --- |
+| `-timeout_global` | supported | Exits after N seconds of total runtime for deterministic CI/load runs |
+| `-rate_scale` | supported | Sets interactive CPS step size used by runtime TUI controls (`+/-` for 1x step and `*`/`/` for 10x step) |
+| `-rate_increase` + `-rate_interval` + `-rate_max` | supported | Applies periodic CPS ramp-up/ramp-down during run; `-rate_max` caps upper bound when set |
+| `-max_socket` | partial | Caps per-call transport concurrency (`un`, `tn`, `ln`) by limiting simultaneously open call sockets |
+| `-max_reconnect` + `-reconnect_sleep` | partial | Shared client TCP/TLS transports (`t1`, `l1`) retry reconnects on read/write failures |
+
 ## Trace CLI workflow
 
 | CLI surface | Status | Notes |
@@ -155,11 +165,19 @@ into no-ops or empty strings.
 | `-trace_msg` | supported | Writes full sent/received messages to the configured file |
 | `-message_file` | supported | Explicit path for the full message trace log; also enables `-trace_msg` |
 | `-trace_shortmsg` | supported | Writes a compact CSV sibling log with timestamp, direction, protocol, summary, and `Call-ID` |
+| `-trace_counts` | supported | Writes periodic CSV snapshots with per-scenario SIP command counters (`sent`, `recv`, `unexp`); additional per-message detail is intentionally deferred to keep schema stable in M5 |
 | `-trace_stat` | supported | Writes periodic and final CSV stats snapshots to a sibling `_stats` trace file with both cumulative totals and per-interval delta fields |
+| `-fd` | supported | Controls `-trace_stat` snapshot frequency in seconds (SIPp-compatible naming) |
 | `-trace_rtt` | supported | Writes each completed named RTD sample to a sibling `_rtt` CSV trace file |
+| `-rtt_freq` | supported | Controls `-trace_rtt` flush cadence in completed calls (default `200`) |
+| CSV schema contract | supported | Stable `-trace_stat` / `-trace_rtt` / `-trace_screen` header contract is documented in `docs/trace-schema-contract.md` |
+| legacy trace CSV alias columns | deferred | Not emitted by design; migration should use explicit parser adapters, see `docs/trace-schema-contract.md` |
 | `-trace_err` | supported | Writes unexpected SIP messages and runtime failures to the configured error file |
 | `-error_file` | supported | Explicit path for the error trace log; also enables `-trace_err` |
 | `-trace_error_codes` | supported | Writes a compact sibling CSV file with unexpected SIP response codes, reasons, `Call-ID`, and expected match |
+| `-trace_screen` | supported | Writes periodic non-interactive runtime summary snapshots to a screen CSV log with success ratio, interval throughput, and key failure counters |
+| `-screen_file` | supported | Explicit path for the screen snapshot log; also enables `-trace_screen` |
+| `SIGUSR1` screen dump trigger | supported | Forces an immediate runtime screen snapshot when `-trace_screen` is enabled |
 | `-trace_logs` | supported | Writes XML action `<log>` output to a dedicated file |
 | `-log_file` | supported | Explicit path for the action log trace file; also enables `-trace_logs` |
 
@@ -188,6 +206,10 @@ into no-ops or empty strings.
 | --- | --- | --- |
 | `-au` | supported | Authorization username; defaults to `-s` value like SIPp |
 | `-ap` | supported | Authorization password; defaults to `password` like SIPp |
+| `-base_cseq` | supported | Sets the base value used by `[cseq]` token rendering |
+| `-rp` | supported | SIPp-style rate period for `-r` (`n` calls per `rp` milliseconds) |
+| runtime interactive rate keys (`+`, `-`, `*`, `/`) | supported | TUI adjusts target CPS by `-rate_scale` (`+/-`: `1x`, `*`/`/`: `10x`) |
+| `-reconnect_close` | deferred | Not implemented yet; reconnect behavior currently covers retry count and sleep only |
 | challenged request retry via `[authentication]` | supported | Works for Digest `401` / `407` flows when the scenario explicitly places `[authentication]` in the retried request |
 
 ## Deliberately deferred

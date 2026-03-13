@@ -33,40 +33,53 @@ var (
 )
 
 type Config struct {
-	Scenario        scenario.Scenario
-	Transport       string
-	LocalIP         string
-	LocalPort       int
-	RemoteHost      string
-	RemotePort      int
-	Service         string
-	AuthUsername    string
-	AuthPassword    string
-	Rate            float64
-	TotalCalls      int
-	MaxConcurrent   int
-	Users           int
-	DefaultPause    time.Duration
-	DefaultRecvTO   time.Duration
-	TraceMessages   bool
-	TraceShortMsg   bool
-	MessageFile     string
-	TraceErrors     bool
-	ErrorFile       string
-	TraceErrorCodes bool
-	TraceLogs       bool
-	LogFile         string
-	TraceStats      bool
-	TraceRTT        bool
-	HEPAddr         string
-	HEPCaptureID    uint32
-	HEPPassword     string
-	TLSCertFile     string
-	TLSKeyFile      string
-	TLSCAFile       string
-	TLSSkipVerify   bool
-	CommandName     string
-	CommandPeers    map[string]string
+	Scenario         scenario.Scenario
+	Transport        string
+	LocalIP          string
+	LocalPort        int
+	RemoteHost       string
+	RemotePort       int
+	Service          string
+	AuthUsername     string
+	AuthPassword     string
+	Rate             float64
+	RateScale        float64
+	RateIncrease     float64
+	RateIncreaseStep time.Duration
+	RateMax          float64
+	MaxReconnect     int
+	ReconnectSleep   time.Duration
+	BaseCSeq         int
+	TotalCalls       int
+	MaxConcurrent    int
+	MaxSockets       int
+	Users            int
+	DefaultPause     time.Duration
+	DefaultRecvTO    time.Duration
+	TraceMessages    bool
+	TraceShortMsg    bool
+	TraceCounts      bool
+	MessageFile      string
+	TraceErrors      bool
+	ErrorFile        string
+	TraceErrorCodes  bool
+	TraceLogs        bool
+	LogFile          string
+	TraceStats       bool
+	TraceRTT         bool
+	TraceScreen      bool
+	StatsDumpPeriod  time.Duration
+	RTTDumpFrequency int
+	ScreenFile       string
+	HEPAddr          string
+	HEPCaptureID     uint32
+	HEPPassword      string
+	TLSCertFile      string
+	TLSKeyFile       string
+	TLSCAFile        string
+	TLSSkipVerify    bool
+	CommandName      string
+	CommandPeers     map[string]string
 }
 
 type Engine struct {
@@ -97,6 +110,13 @@ func New(cfg Config) *Engine {
 
 func (e *Engine) Stats() *stats.Collector {
 	return e.stats
+}
+
+func (e *Engine) DumpScreenSnapshot() {
+	if e.trace == nil || e.stats == nil {
+		return
+	}
+	e.trace.writeScreenSnapshot(e.stats.Snapshot())
 }
 
 func (e *Engine) Rate() float64 {
@@ -148,11 +168,50 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 	if err := e.runInit(ctx); err != nil {
 		return err
 	}
+	stopRateRamp := e.startRateRampLoop(ctx)
+	defer stopRateRamp()
 	switch e.cfg.Scenario.Mode {
 	case scenario.ModeServer:
 		return e.runServer(ctx)
 	default:
 		return e.runClient(ctx)
+	}
+}
+
+func (e *Engine) startRateRampLoop(ctx context.Context) func() {
+	if e.cfg.Scenario.Mode == scenario.ModeServer || e.cfg.RateIncrease == 0 {
+		return func() {}
+	}
+	interval := e.cfg.RateIncreaseStep
+	if interval <= 0 {
+		interval = time.Second
+	}
+
+	stopCh := make(chan struct{})
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stopCh:
+				return
+			case <-ticker.C:
+				next := e.rate.AdjustRate(e.cfg.RateIncrease)
+				if e.cfg.RateMax > 0 && next > e.cfg.RateMax {
+					e.rate.SetRate(e.cfg.RateMax)
+					return
+				}
+			}
+		}
+	}()
+
+	return func() {
+		close(stopCh)
+		<-doneCh
 	}
 }
 
@@ -183,7 +242,7 @@ func (e *Engine) runClient(ctx context.Context) error {
 }
 
 func (e *Engine) runClientCommandOnly(ctx context.Context) error {
-	sem := make(chan struct{}, e.cfg.MaxConcurrent)
+	sem := make(chan struct{}, e.callConcurrencyLimit(false))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -249,7 +308,7 @@ func (e *Engine) runClientShared(ctx context.Context) error {
 	registry := newMailboxRegistry()
 	go registry.dispatch(shared.Receive())
 
-	sem := make(chan struct{}, e.cfg.MaxConcurrent)
+	sem := make(chan struct{}, e.callConcurrencyLimit(true))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -305,7 +364,7 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 		return err
 	}
 
-	sem := make(chan struct{}, e.cfg.MaxConcurrent)
+	sem := make(chan struct{}, e.callConcurrencyLimit(false))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -367,7 +426,10 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 func (e *Engine) runClientSharedTCP(ctx context.Context) error {
 	localAddr := fmt.Sprintf("%s:%d", e.cfg.LocalIP, e.cfg.LocalPort)
 	remoteAddr := fmt.Sprintf("%s:%d", e.cfg.RemoteHost, e.cfg.RemotePort)
-	shared, err := transport.NewSharedTCP(localAddr, remoteAddr)
+	shared, err := transport.NewSharedTCPWithReconnect(localAddr, remoteAddr, transport.ReconnectOptions{
+		MaxAttempts: e.cfg.MaxReconnect,
+		Sleep:       e.cfg.ReconnectSleep,
+	})
 	if err != nil {
 		return err
 	}
@@ -376,7 +438,7 @@ func (e *Engine) runClientSharedTCP(ctx context.Context) error {
 	registry := newMailboxRegistry()
 	go registry.dispatchMessages(shared.Receive())
 
-	sem := make(chan struct{}, e.cfg.MaxConcurrent)
+	sem := make(chan struct{}, e.callConcurrencyLimit(true))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -484,6 +546,17 @@ func (e *Engine) runClientPerCallTCP(ctx context.Context) error {
 
 func (e *Engine) waitForNextCall(ctx context.Context) error {
 	return e.rate.Wait(ctx)
+}
+
+func (e *Engine) callConcurrencyLimit(perCallSocket bool) int {
+	limit := e.cfg.MaxConcurrent
+	if limit <= 0 {
+		limit = 1
+	}
+	if perCallSocket && e.cfg.MaxSockets > 0 && e.cfg.MaxSockets < limit {
+		return e.cfg.MaxSockets
+	}
+	return limit
 }
 
 func (e *Engine) runServer(ctx context.Context) error {
@@ -794,6 +867,7 @@ func (e *Engine) executeCall(
 		e.stats.AddMediaStats(mediaSession.Snapshot())
 		mediaSession.Stop()
 		e.stats.FinishCall(success, time.Since(startedAt))
+		e.traceCallCompleted()
 	}()
 
 	renderCtx := templ.Context{
@@ -809,7 +883,7 @@ func (e *Engine) executeCall(
 		MediaIPType: ipType(localIP),
 		MediaPort:   localPort + 2 + ((callNumber - 1) * 2),
 		CallID:      callID,
-		CSeq:        1,
+		CSeq:        e.cfg.BaseCSeq,
 		CallNumber:  callNumber,
 		PID:         os.Getpid(),
 		LastHeaders: make(map[string][]string),
@@ -900,6 +974,7 @@ func (e *Engine) executeCall(
 			if err := send([]byte(message)); err != nil {
 				return err
 			}
+			e.traceCountSent(cmd.Index)
 			lastSent = []byte(message)
 			lastRetrans = cmd.Retrans
 
@@ -943,6 +1018,7 @@ func (e *Engine) executeCall(
 			}
 			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, send, retransmit, recvTimeout, func(msg sip.Message) {
 				e.traceUnexpectedSIP(callNumber, cmd, msg)
+				e.traceCountUnexpected(cmd.Index)
 				sawUnexpectedSIP = true
 				pending = append(pending, msg)
 			})
@@ -956,6 +1032,7 @@ func (e *Engine) executeCall(
 				}
 				return err
 			}
+			e.traceCountRecv(cmd.Index)
 
 			renderCtx.LastMessage = msg.Raw
 			renderCtx.LastHeaders = msg.Headers

@@ -19,6 +19,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,15 @@ import (
 
 	"github.com/adubovikov/gossipper/internal/scenario"
 	"github.com/adubovikov/gossipper/internal/sip"
+	"github.com/adubovikov/gossipper/internal/stats"
 	templ "github.com/adubovikov/gossipper/internal/template"
+)
+
+const (
+	expectedTraceStatHeader = "timestamp,elapsed_ms,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,retransmits,timeouts,avg_call_ms,call_stddev_ms,avg_invite_ms,invite_stddev_ms,rtp_packets_sent,rtp_packets_received,rtcp_sender_reports,rtcp_receiver_reports,rtcp_packets_received,failure_timeout,failure_unexpected_sip,failure_transport_error,failure_parse_error,failure_scenario_error,failure_cancelled,interval_ms,interval_calls_per_second,delta_total_calls,delta_success_calls,delta_failed_calls,delta_retransmits,delta_timeouts,delta_rtp_packets_sent,delta_rtp_packets_received,delta_rtcp_sender_reports,delta_rtcp_receiver_reports,delta_rtcp_packets_received,delta_failure_timeout,delta_failure_unexpected_sip,delta_failure_transport_error,delta_failure_parse_error,delta_failure_scenario_error,delta_failure_cancelled"
+	expectedTraceRTTHeader  = "timestamp,call,name,value_ms"
+	expectedTraceErrCodes   = "timestamp,call,code,reason,call_id,expected"
+	expectedTraceScreen     = "timestamp,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,interval_ms,interval_calls_per_second,avg_call_ms,avg_invite_ms,retransmits,timeouts,failure_timeout,failure_unexpected_sip"
 )
 
 func TestEngineRunsBasicUACScenario(t *testing.T) {
@@ -120,6 +129,97 @@ func TestEngineRunsBasicUACScenario(t *testing.T) {
 	}
 	if summary.FailedCalls != 0 {
 		t.Fatalf("expected zero failed calls, got %+v", summary)
+	}
+}
+
+func TestEngineAppliesBaseCSeqToRenderedToken(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+	defer serverConn.Close()
+
+	cseqSeen := make(chan string, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg, err := sip.Parse(buffer[:n])
+			if err != nil {
+				return
+			}
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			via, _ := sip.Header(msg.Headers, "Via")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+			if strings.ToUpper(msg.Method) == "INVITE" {
+				cseqSeen <- cseq
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				return
+			}
+		}
+	}()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="base-cseq-uac">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: [cseq] INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		BaseCSeq:      42,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	<-done
+
+	select {
+	case got := <-cseqSeen:
+		if got != "42 INVITE" {
+			t.Fatalf("expected CSeq '42 INVITE', got %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected to capture INVITE CSeq header")
 	}
 }
 
@@ -409,8 +509,8 @@ Content-Length: 0
 		t.Fatalf("expected header plus periodic/final rows, got %d rows: %q", len(rows), raw)
 	}
 	header := rows[0]
-	if len(header) == 0 || header[0] != "timestamp" {
-		t.Fatalf("unexpected trace_stat header: %v", header)
+	if strings.Join(header, ",") != expectedTraceStatHeader {
+		t.Fatalf("unexpected trace_stat header contract: got=%q", strings.Join(header, ","))
 	}
 	headerIndex := make(map[string]int, len(header))
 	for i, name := range header {
@@ -427,6 +527,148 @@ Content-Length: 0
 	}
 	if last[headerIndex["delta_success_calls"]] != "1" {
 		t.Fatalf("expected final delta_success_calls=1, got %v", last)
+	}
+}
+
+func TestEngineTraceStatHonorsCustomDumpFrequency(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+	defer serverConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg, err := sip.Parse(buffer[:n])
+			if err != nil {
+				return
+			}
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			via, _ := sip.Header(msg.Headers, "Via")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+
+			switch strings.ToUpper(msg.Method) {
+			case "INVITE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			case "BYE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				return
+			}
+		}
+	}()
+
+	scenarioXML := `<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="Trace Stat Frequency UAC">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+  <pause milliseconds="700"/>
+  <send><![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`
+	sc, err := scenario.ParseString(scenarioXML)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	messagePath := filepath.Join(t.TempDir(), "messages.log")
+	app := New(Config{
+		Scenario:        sc,
+		Transport:       "u1",
+		LocalIP:         "127.0.0.1",
+		RemoteHost:      "127.0.0.1",
+		RemotePort:      serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:         "echo",
+		Rate:            100,
+		TotalCalls:      1,
+		MaxConcurrent:   1,
+		DefaultPause:    10 * time.Millisecond,
+		DefaultRecvTO:   time.Second,
+		TraceStats:      true,
+		StatsDumpPeriod: 200 * time.Millisecond,
+		MessageFile:     messagePath,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	<-done
+
+	statsPath := deriveStatsTracePath(messagePath)
+	raw, err := os.ReadFile(statsPath)
+	if err != nil {
+		t.Fatalf("ReadFile(trace_stat) error = %v", err)
+	}
+	rows, err := csv.NewReader(strings.NewReader(string(raw))).ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll(trace_stat) error = %v", err)
+	}
+	if len(rows) < 4 {
+		t.Fatalf("expected header plus multiple periodic rows, got %d rows: %q", len(rows), raw)
+	}
+
+	header := rows[0]
+	headerIndex := make(map[string]int, len(header))
+	for i, name := range header {
+		headerIndex[name] = i
+	}
+	intervalIdx, ok := headerIndex["interval_ms"]
+	if !ok {
+		t.Fatalf("expected interval_ms column in header %v", header)
+	}
+
+	sawShortInterval := false
+	for _, row := range rows[1:] {
+		interval, err := strconv.Atoi(row[intervalIdx])
+		if err != nil {
+			t.Fatalf("invalid interval_ms value %q: %v", row[intervalIdx], err)
+		}
+		if interval > 0 && interval <= 350 {
+			sawShortInterval = true
+			break
+		}
+	}
+	if !sawShortInterval {
+		t.Fatalf("expected at least one interval_ms close to custom period, rows=%v", rows)
 	}
 }
 
@@ -679,12 +921,358 @@ Content-Length: 0
 	if len(rows) < 2 {
 		t.Fatalf("expected header plus RTD row, got %d rows: %q", len(rows), raw)
 	}
-	if rows[0][0] != "timestamp" || rows[0][2] != "name" {
-		t.Fatalf("unexpected trace_rtt header: %v", rows[0])
+	if strings.Join(rows[0], ",") != expectedTraceRTTHeader {
+		t.Fatalf("unexpected trace_rtt header contract: got=%q", strings.Join(rows[0], ","))
 	}
 	last := rows[len(rows)-1]
 	if last[1] != "1" || last[2] != "invite" {
 		t.Fatalf("unexpected trace_rtt row: %v", last)
+	}
+}
+
+func TestEngineTraceErrorCodesWritesCSV(t *testing.T) {
+	t.Parallel()
+
+	errorPath := filepath.Join(t.TempDir(), "errors.log")
+	logger, err := newTraceLogger(Config{
+		TraceErrorCodes: true,
+		ErrorFile:       errorPath,
+	})
+	if err != nil {
+		t.Fatalf("newTraceLogger() error = %v", err)
+	}
+	engine := &Engine{trace: logger}
+	engine.traceErrorCode(1, 486, "Busy Here", "call-1", "200")
+	if err := logger.Close(); err != nil {
+		t.Fatalf("trace logger close error = %v", err)
+	}
+
+	errCodesPath := deriveErrorCodesPath(Config{ErrorFile: errorPath}, "unused.log")
+	raw, err := os.ReadFile(errCodesPath)
+	if err != nil {
+		t.Fatalf("ReadFile(trace_error_codes) error = %v", err)
+	}
+	rows, err := csv.NewReader(strings.NewReader(string(raw))).ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll(trace_error_codes) error = %v", err)
+	}
+	if len(rows) < 2 {
+		t.Fatalf("expected header plus at least one error-code row, got %d rows: %q", len(rows), raw)
+	}
+	if strings.Join(rows[0], ",") != expectedTraceErrCodes {
+		t.Fatalf("unexpected trace_error_codes header: got=%q", strings.Join(rows[0], ","))
+	}
+
+	found := false
+	for _, row := range rows[1:] {
+		if len(row) < 6 {
+			continue
+		}
+		if row[2] == "486" {
+			found = true
+			if row[3] != "Busy Here" {
+				t.Fatalf("expected reason Busy Here, got %q", row[3])
+			}
+			if row[4] != "call-1" {
+				t.Fatalf("expected call_id=call-1, got %q", row[4])
+			}
+			if row[5] != "200" {
+				t.Fatalf("expected expected=200, got %q", row[5])
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected to find trace_error_codes row for 486 response, got %q", raw)
+	}
+}
+
+func TestTraceRTTFlushesByCompletedCallFrequency(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	messagePath := filepath.Join(tempDir, "messages.log")
+	logger, err := newTraceLogger(Config{
+		TraceRTT:         true,
+		MessageFile:      messagePath,
+		RTTDumpFrequency: 2,
+	})
+	if err != nil {
+		t.Fatalf("newTraceLogger() error = %v", err)
+	}
+	defer func() {
+		_ = logger.Close()
+	}()
+
+	engine := &Engine{trace: logger}
+	engine.traceRTD(1, "invite", 25*time.Millisecond)
+
+	rttPath := deriveRTTTracePath(messagePath)
+	raw, err := os.ReadFile(rttPath)
+	if err != nil {
+		t.Fatalf("ReadFile(trace_rtt) error = %v", err)
+	}
+	if rows := strings.Count(string(raw), "\n"); rows != 1 {
+		t.Fatalf("expected only header before call-frequency flush, got %q", string(raw))
+	}
+
+	engine.traceCallCompleted()
+	raw, err = os.ReadFile(rttPath)
+	if err != nil {
+		t.Fatalf("ReadFile(trace_rtt) after first call error = %v", err)
+	}
+	if rows := strings.Count(string(raw), "\n"); rows != 1 {
+		t.Fatalf("expected no RTT row after first call completion with rtt_freq=2, got %q", string(raw))
+	}
+
+	engine.traceRTD(2, "invite", 30*time.Millisecond)
+	engine.traceCallCompleted()
+	raw, err = os.ReadFile(rttPath)
+	if err != nil {
+		t.Fatalf("ReadFile(trace_rtt) after second call error = %v", err)
+	}
+	if rows := strings.Count(string(raw), "\n"); rows < 3 {
+		t.Fatalf("expected header plus flushed RTT rows after second call, got %q", string(raw))
+	}
+}
+
+func TestTraceScreenWritesSnapshots(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	messagePath := filepath.Join(tempDir, "messages.log")
+	logger, err := newTraceLogger(Config{
+		TraceScreen: true,
+		MessageFile: messagePath,
+	})
+	if err != nil {
+		t.Fatalf("newTraceLogger() error = %v", err)
+	}
+
+	collector := stats.New()
+	collector.StartCall()
+	collector.AddTimeout()
+	collector.AddFailureClass("timeout")
+	collector.FinishCall(true, 25*time.Millisecond)
+
+	logger.startScreenLoop(collector, 50*time.Millisecond)
+	time.Sleep(80 * time.Millisecond)
+	if err := logger.Close(); err != nil {
+		t.Fatalf("trace logger close error = %v", err)
+	}
+
+	screenPath := deriveScreenTracePath(messagePath)
+	raw, err := os.ReadFile(screenPath)
+	if err != nil {
+		t.Fatalf("ReadFile(trace_screen) error = %v", err)
+	}
+	rows, err := csv.NewReader(strings.NewReader(string(raw))).ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll(trace_screen) error = %v", err)
+	}
+	if len(rows) < 2 {
+		t.Fatalf("expected header plus at least one screen snapshot row, got %d rows: %q", len(rows), string(raw))
+	}
+	if strings.Join(rows[0], ",") != expectedTraceScreen {
+		t.Fatalf("unexpected trace_screen header: got=%q", strings.Join(rows[0], ","))
+	}
+	last := rows[len(rows)-1]
+	if last[1] != "1" {
+		t.Fatalf("expected total_calls=1 in screen snapshot, got row=%v", last)
+	}
+	if last[12] != "1" {
+		t.Fatalf("expected timeouts=1 in screen snapshot, got row=%v", last)
+	}
+	if last[13] != "1" {
+		t.Fatalf("expected failure_timeout=1 in screen snapshot, got row=%v", last)
+	}
+	if last[7] == "" || last[8] == "" {
+		t.Fatalf("expected interval fields in screen snapshot, got row=%v", last)
+	}
+}
+
+func TestEngineDumpScreenSnapshotWritesRow(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	messagePath := filepath.Join(tempDir, "messages.log")
+	logger, err := newTraceLogger(Config{
+		TraceScreen: true,
+		MessageFile: messagePath,
+	})
+	if err != nil {
+		t.Fatalf("newTraceLogger() error = %v", err)
+	}
+
+	engineStats := stats.New()
+	engineStats.StartCall()
+	engineStats.AddTimeout()
+	engineStats.AddFailureClass("timeout")
+	engineStats.FinishCall(false, 30*time.Millisecond)
+
+	engine := &Engine{
+		trace: logger,
+		stats: engineStats,
+	}
+	engine.DumpScreenSnapshot()
+	if err := logger.Close(); err != nil {
+		t.Fatalf("trace logger close error = %v", err)
+	}
+
+	screenPath := deriveScreenTracePath(messagePath)
+	raw, err := os.ReadFile(screenPath)
+	if err != nil {
+		t.Fatalf("ReadFile(trace_screen) error = %v", err)
+	}
+	rows, err := csv.NewReader(strings.NewReader(string(raw))).ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll(trace_screen) error = %v", err)
+	}
+	if len(rows) < 2 {
+		t.Fatalf("expected header plus screen snapshot row, got %d rows: %q", len(rows), string(raw))
+	}
+	last := rows[len(rows)-1]
+	if last[1] != "1" || last[3] != "1" {
+		t.Fatalf("unexpected calls/failures in screen snapshot: %v", last)
+	}
+	if last[13] != "1" {
+		t.Fatalf("expected failure_timeout=1 in screen snapshot, got row=%v", last)
+	}
+}
+
+func TestEngineTraceCountsWritesPerCommandCSV(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+	defer serverConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg, err := sip.Parse(buffer[:n])
+			if err != nil {
+				return
+			}
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			via, _ := sip.Header(msg.Headers, "Via")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+
+			switch strings.ToUpper(msg.Method) {
+			case "INVITE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			case "BYE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				return
+			}
+		}
+	}()
+
+	scenarioXML := `<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="Trace Counts UAC">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+  <pause milliseconds="700"/>
+  <send><![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`
+	sc, err := scenario.ParseString(scenarioXML)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	messagePath := filepath.Join(t.TempDir(), "messages.log")
+	app := New(Config{
+		Scenario:        sc,
+		Transport:       "u1",
+		LocalIP:         "127.0.0.1",
+		RemoteHost:      "127.0.0.1",
+		RemotePort:      serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:         "echo",
+		Rate:            100,
+		TotalCalls:      1,
+		MaxConcurrent:   1,
+		DefaultPause:    10 * time.Millisecond,
+		DefaultRecvTO:   time.Second,
+		TraceCounts:     true,
+		StatsDumpPeriod: 200 * time.Millisecond,
+		MessageFile:     messagePath,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	<-done
+
+	countsPath := deriveCountsTracePath(messagePath)
+	raw, err := os.ReadFile(countsPath)
+	if err != nil {
+		t.Fatalf("ReadFile(trace_counts) error = %v", err)
+	}
+	rows, err := csv.NewReader(strings.NewReader(string(raw))).ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll(trace_counts) error = %v", err)
+	}
+	if len(rows) < 2 {
+		t.Fatalf("expected header plus at least one snapshot, got %d rows: %q", len(rows), raw)
+	}
+
+	headerIndex := make(map[string]int, len(rows[0]))
+	for i, name := range rows[0] {
+		headerIndex[name] = i
+	}
+	for _, required := range []string{
+		"0_INVITE_sent", "1_RESP_200_recv", "3_BYE_sent", "4_RESP_200_recv",
+	} {
+		if _, ok := headerIndex[required]; !ok {
+			t.Fatalf("expected trace_counts column %q in header %v", required, rows[0])
+		}
+	}
+
+	last := rows[len(rows)-1]
+	if last[headerIndex["0_INVITE_sent"]] != "1" || last[headerIndex["3_BYE_sent"]] != "1" {
+		t.Fatalf("unexpected sent counters in final trace_counts row: %v", last)
+	}
+	if last[headerIndex["1_RESP_200_recv"]] != "1" || last[headerIndex["4_RESP_200_recv"]] != "1" {
+		t.Fatalf("unexpected recv counters in final trace_counts row: %v", last)
 	}
 }
 

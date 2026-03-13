@@ -34,13 +34,39 @@ func run(args []string) error {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx := baseCtx
+	cancelTimeout := func() {}
+	if prepared.CLIConfig.GlobalTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(baseCtx, prepared.CLIConfig.GlobalTimeout)
+		cancelTimeout = cancel
+	}
+	defer cancelTimeout()
 
 	app := engine.New(prepared.EngineConfig)
+	screenDumpSignals := make(chan os.Signal, 1)
+	signal.Notify(screenDumpSignals, syscall.SIGUSR1)
+	defer signal.Stop(screenDumpSignals)
+	dumpDone := make(chan struct{})
+	go func() {
+		defer close(dumpDone)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-screenDumpSignals:
+				app.DumpScreenSnapshot()
+			}
+		}
+	}()
 
 	err = app.Run(ctx)
-	if err != nil && !errors.Is(err, context.Canceled) {
+	stop()
+	cancelTimeout()
+	<-dumpDone
+	if err != nil && !errors.Is(err, context.Canceled) && !(errors.Is(err, context.DeadlineExceeded) && prepared.CLIConfig.GlobalTimeout > 0) {
 		return err
 	}
 

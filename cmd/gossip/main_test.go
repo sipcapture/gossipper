@@ -420,6 +420,31 @@ func TestRunWritesActionLogTraceFile(t *testing.T) {
 	}
 }
 
+func TestRunHonorsTimeoutGlobal(t *testing.T) {
+	t.Parallel()
+
+	scenarioPath := filepath.Join(t.TempDir(), "long_pause.xml")
+	if err := os.WriteFile(scenarioPath, []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="long-pause">
+  <pause milliseconds="5000"/>
+</scenario>`), 0o644); err != nil {
+		t.Fatalf("WriteFile(scenario) error = %v", err)
+	}
+
+	started := time.Now()
+	err := run([]string{
+		"-sf", scenarioPath,
+		"-timeout_global", "1",
+	})
+	if err != nil {
+		t.Fatalf("run(timeout_global) error = %v", err)
+	}
+	elapsed := time.Since(started)
+	if elapsed > 3*time.Second {
+		t.Fatalf("expected timeout_global to stop run quickly, elapsed=%v", elapsed)
+	}
+}
+
 func TestRunWritesUnexpectedResponseToErrorTraceFile(t *testing.T) {
 	t.Parallel()
 

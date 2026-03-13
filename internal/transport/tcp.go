@@ -10,30 +10,42 @@ import (
 	"github.com/adubovikov/gossipper/internal/sip"
 )
 
+type ReconnectOptions struct {
+	MaxAttempts int
+	Sleep       time.Duration
+}
+
 type SharedTCP struct {
-	conn      *net.TCPConn
-	reader    *bufio.Reader
-	incoming  chan sip.Message
-	closeOnce sync.Once
+	localAddr  string
+	remoteAddr string
+	reconnect  ReconnectOptions
+
+	connMu      sync.RWMutex
+	reconnectMu sync.Mutex
+	conn        *net.TCPConn
+	reader      *bufio.Reader
+	incoming    chan sip.Message
+	closeOnce   sync.Once
+	closed      chan struct{}
 }
 
 func NewSharedTCP(localAddr, remoteAddr string) (*SharedTCP, error) {
-	local, err := net.ResolveTCPAddr("tcp", localAddr)
-	if err != nil {
-		return nil, err
-	}
-	remote, err := net.ResolveTCPAddr("tcp", remoteAddr)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := net.DialTCP("tcp", local, remote)
+	return NewSharedTCPWithReconnect(localAddr, remoteAddr, ReconnectOptions{})
+}
+
+func NewSharedTCPWithReconnect(localAddr, remoteAddr string, reconnect ReconnectOptions) (*SharedTCP, error) {
+	conn, err := dialSharedTCP(localAddr, remoteAddr)
 	if err != nil {
 		return nil, err
 	}
 	s := &SharedTCP{
-		conn:     conn,
-		reader:   bufio.NewReader(conn),
-		incoming: make(chan sip.Message, 128),
+		localAddr:  localAddr,
+		remoteAddr: remoteAddr,
+		reconnect:  reconnect,
+		conn:       conn,
+		reader:     bufio.NewReader(conn),
+		incoming:   make(chan sip.Message, 128),
+		closed:     make(chan struct{}),
 	}
 	go s.readLoop()
 	return s, nil
@@ -41,17 +53,55 @@ func NewSharedTCP(localAddr, remoteAddr string) (*SharedTCP, error) {
 
 func (s *SharedTCP) readLoop() {
 	for {
-		msg, err := sip.ReadMessage(s.reader)
-		if err != nil {
+		if s.isClosed() {
 			close(s.incoming)
 			return
 		}
-		s.incoming <- msg
+		s.connMu.RLock()
+		reader := s.reader
+		s.connMu.RUnlock()
+		if reader == nil {
+			close(s.incoming)
+			return
+		}
+		msg, err := sip.ReadMessage(reader)
+		if err != nil {
+			if s.tryReconnect() {
+				continue
+			}
+			close(s.incoming)
+			return
+		}
+		select {
+		case <-s.closed:
+			close(s.incoming)
+			return
+		case s.incoming <- msg:
+		}
 	}
 }
 
 func (s *SharedTCP) Send(payload []byte) error {
-	_, err := s.conn.Write(payload)
+	s.connMu.RLock()
+	conn := s.conn
+	s.connMu.RUnlock()
+	if conn == nil {
+		return net.ErrClosed
+	}
+	_, err := conn.Write(payload)
+	if err == nil {
+		return nil
+	}
+	if !s.tryReconnect() {
+		return err
+	}
+	s.connMu.RLock()
+	conn = s.conn
+	s.connMu.RUnlock()
+	if conn == nil {
+		return net.ErrClosed
+	}
+	_, err = conn.Write(payload)
 	return err
 }
 
@@ -60,7 +110,13 @@ func (s *SharedTCP) Receive() <-chan sip.Message {
 }
 
 func (s *SharedTCP) LocalPort() int {
-	if addr, ok := s.conn.LocalAddr().(*net.TCPAddr); ok {
+	s.connMu.RLock()
+	conn := s.conn
+	s.connMu.RUnlock()
+	if conn == nil {
+		return 0
+	}
+	if addr, ok := conn.LocalAddr().(*net.TCPAddr); ok {
 		return addr.Port
 	}
 	return 0
@@ -69,9 +125,79 @@ func (s *SharedTCP) LocalPort() int {
 func (s *SharedTCP) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
-		err = s.conn.Close()
+		close(s.closed)
+		s.connMu.RLock()
+		conn := s.conn
+		s.connMu.RUnlock()
+		if conn != nil {
+			err = conn.Close()
+		}
 	})
 	return err
+}
+
+func (s *SharedTCP) tryReconnect() bool {
+	if s.reconnect.MaxAttempts <= 0 || s.isClosed() {
+		return false
+	}
+	s.reconnectMu.Lock()
+	defer s.reconnectMu.Unlock()
+	if s.isClosed() {
+		return false
+	}
+	for attempt := 0; attempt < s.reconnect.MaxAttempts; attempt++ {
+		if attempt > 0 && s.reconnect.Sleep > 0 {
+			if !s.sleepUnlessClosed(s.reconnect.Sleep) {
+				return false
+			}
+		}
+		conn, err := dialSharedTCP(s.localAddr, s.remoteAddr)
+		if err != nil {
+			continue
+		}
+		s.connMu.Lock()
+		old := s.conn
+		s.conn = conn
+		s.reader = bufio.NewReader(conn)
+		s.connMu.Unlock()
+		if old != nil {
+			_ = old.Close()
+		}
+		return true
+	}
+	return false
+}
+
+func (s *SharedTCP) isClosed() bool {
+	select {
+	case <-s.closed:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *SharedTCP) sleepUnlessClosed(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-s.closed:
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func dialSharedTCP(localAddr, remoteAddr string) (*net.TCPConn, error) {
+	local, err := net.ResolveTCPAddr("tcp", localAddr)
+	if err != nil {
+		return nil, err
+	}
+	remote, err := net.ResolveTCPAddr("tcp", remoteAddr)
+	if err != nil {
+		return nil, err
+	}
+	return net.DialTCP("tcp", local, remote)
 }
 
 type DialogTCP struct {

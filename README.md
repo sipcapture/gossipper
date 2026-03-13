@@ -30,7 +30,7 @@ The current MVP implements:
 - XML `counter` / `display` attributes aggregated into summary JSON as execution counts
 - Exported stats now include failure-class counters such as `timeout`, `unexpected_sip`, `transport_error`, `parse_error`, `scenario_error`, and `cancelled`
 - Summary JSON now includes latency repartition data and standard deviation for call length, invite RTT, and named RTD timers
-- Full message tracing via `-trace_msg` / `-message_file`, compact CSV tracing via `-trace_shortmsg`, periodic CSV stats snapshots with cumulative and interval delta fields via `-trace_stat`, RTD CSV dumps via `-trace_rtt`, error tracing via `-trace_err`, compact unexpected-response code tracing via `-trace_error_codes`, and action log tracing via `-trace_logs`
+- Full message tracing via `-trace_msg` / `-message_file`, compact CSV tracing via `-trace_shortmsg`, per-scenario SIP command counters via `-trace_counts`, periodic CSV stats snapshots with cumulative and interval delta fields via `-trace_stat` + `-fd`, RTD CSV dumps via `-trace_rtt` + `-rtt_freq`, non-interactive runtime screen snapshots via `-trace_screen` / `-screen_file`, error tracing via `-trace_err`, compact unexpected-response code tracing via `-trace_error_codes`, and action log tracing via `-trace_logs`
 - SIP mirroring to Homer over HEP3 via `-hep_addr`, `-hep_capture_id`, and optional `-hep_password`
 - Summary output now includes aggregated RTP/RTCP counters
 - RTP streaming over `pion/rtp`, including `exec rtp_stream` with SIPp-style params and `start` / `pause` / `resume` / `stop`
@@ -60,6 +60,7 @@ The current MVP implements:
 - `docs/media-roadmap.md`: media-related scope, next steps, and deferred items
 - `docs/compatibility-testing.md`: testing approach for compatibility work and regression coverage
 - `docs/statistics-mapping.md`: mapping between current `gossipper` stats exports and SIPp-style counters
+- `docs/trace-schema-contract.md`: stable CSV header/order contract for `-trace_stat`, `-trace_rtt`, and `-trace_screen`
 - `docs/tui.md`: interactive TUI usage guide with launcher and runtime screen examples
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
 - `milestone.md`: prioritized roadmap for SIPp features that are still missing in `gossipper`
@@ -70,6 +71,24 @@ Run the built-in UAC scenario against a SIP endpoint:
 
 ```bash
 go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
+```
+
+Run SIPp-style rate period scheduling (`-r n -rp m`):
+
+```bash
+go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -r 7 -rp 2000 -m 50
+```
+
+Run with periodic CPS ramping:
+
+```bash
+go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -r 10 -rate_increase 2 -rate_interval 1000 -rate_max 50 -m 1000
+```
+
+Run with a deterministic global timeout (CI-friendly):
+
+```bash
+go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 10000 -r 50 -timeout_global 30
 ```
 
 Print build version information:
@@ -117,12 +136,25 @@ go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -
 Write periodic CSV stats snapshots:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_stat -message_file ./messages.log
+go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_stat -fd 2 -message_file ./messages.log
+```
+
+Write periodic per-command SIP message counters:
+
+```bash
+go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_counts -fd 2 -message_file ./messages.log
+```
+
+Write periodic non-interactive runtime screen snapshots:
+
+```bash
+go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_screen -fd 2 -screen_file ./screen.log
 ```
 
 Interactive controls during a TUI run:
 
 - `+` / `-`: increase or decrease target CPS
+- `*` / `/`: increase or decrease target CPS by 10x step (`-rate_scale` based)
 - `p`: pause or resume new call scheduling
 - `q`: stop the run like SIPp by draining active calls in client mode
 - `Esc`: return to the launch screen after the run finishes
@@ -130,7 +162,7 @@ Interactive controls during a TUI run:
 Write RTD CSV samples:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_rtt -message_file ./messages.log
+go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_rtt -rtt_freq 50 -message_file ./messages.log
 ```
 
 Mirror SIP messages to Homer over HEP3:
@@ -162,6 +194,12 @@ Run a challenged Digest auth scenario with SIPp-style credentials:
 
 ```bash
 go run ./cmd/gossip -sf ./testdata/scenarios/auth_uac.xml -rsa 127.0.0.1:5060 -s alice -au alice -ap secret -m 1 -r 1
+```
+
+Run with an explicit base CSeq for `[cseq]` tokens:
+
+```bash
+go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -base_cseq 42 -m 1 -r 1
 ```
 
 Run a SIPp-style audio PCAP replay action from a scenario:
@@ -242,14 +280,25 @@ at `/usr/bin/gossipper`.
 - `-trace_err` writes unexpected SIP responses and runtime failures to `-error_file`.
 - `-trace_error_codes` writes a sibling compact CSV file with unexpected SIP response codes and expected match criteria.
 - `-trace_logs` writes XML `<log>` action output to `-log_file`.
-- `-trace_stat` writes periodic and final CSV stats snapshots to a sibling `*_stats.log` file; when `-message_file` is set it uses that base path. The CSV now includes cumulative totals, per-interval delta fields, and latency standard deviation columns.
+- `-trace_stat` writes periodic and final CSV stats snapshots to a sibling `*_stats.log` file; when `-message_file` is set it uses that base path. The CSV includes cumulative totals, per-interval delta fields, and latency standard deviation columns. `-fd` controls the snapshot period in seconds.
+- `-trace_counts` writes periodic CSV snapshots to a sibling `*_counts.log` file with per-scenario SIP command counters (`sent`, `recv`, `unexp`) using the same `-fd` cadence.
+- `-trace_screen` writes periodic and final runtime summary snapshots to a sibling `*_screen.log` CSV file; fields include totals, CPS, interval CPS, success ratio, and key failure counters (`failure_timeout`, `failure_unexpected_sip`). `-screen_file` sets the explicit output path, and `-fd` controls snapshot cadence.
+- send `SIGUSR1` to a running process to force an immediate `-trace_screen` snapshot dump without waiting for the next `-fd` tick.
+- `-timeout_global` stops the run after N seconds of total process runtime while still emitting final summaries/artifacts.
+- `-rate_scale` sets the interactive target CPS step used by TUI keys (`+/-` for 1x and `*`/`/` for 10x).
 - Exported stats also include failure-class counters so automation can distinguish timeouts, unexpected SIP, transport errors, parse errors, scenario errors, and cancellations.
-- `-trace_rtt` writes each completed named RTD sample to a sibling `*_rtt.log` CSV file with timestamp, call, RTD name, and duration in milliseconds.
+- `-trace_rtt` writes named RTD samples to a sibling `*_rtt.log` CSV file with timestamp, call, RTD name, and duration in milliseconds. `-rtt_freq` controls flush cadence in completed calls (default `200`).
+- Stable CSV header contracts for `-trace_stat`, `-trace_rtt`, and `-trace_screen` are documented in `docs/trace-schema-contract.md`.
 - Summary JSON now exports repartition buckets for `call_length`, `invite_rtt`, and named `rtd` timers so automation can consume latency distributions without parsing raw RTT dumps.
 - `-hep_addr` mirrors SIP `send` / `recv` traffic to a Homer-compatible HEP3 collector over UDP.
 - `-hep_capture_id` sets the HEP capture node ID; `-hep_password` sets the optional HEP auth key.
 - The current HEP MVP exports SIP signaling only; RTP/RTCP mirroring is not included yet.
 - `[authentication]` currently covers Digest `401` / `407` challenge responses with `MD5` and `qop=auth`; the scenario must explicitly place `[authentication]` into the retried request.
+- `-base_cseq` sets the seed value used by `[cseq]` token rendering.
+- `-rp` sets the SIPp-compatible rate period in milliseconds for `-r` (`n` calls every `rp` ms).
+- `-rate_increase` adjusts target CPS every `-rate_interval` milliseconds during run; `-rate_max` sets an optional upper cap.
+- `-max_socket` limits simultaneously open call sockets for per-call client transports (`un`, `tn`, `ln`).
+- `-max_reconnect` and `-reconnect_sleep` enable reconnect retries for shared client TCP/TLS transports (`t1`, `l1`) on transport failures.
 - `start_rtd` and `rtd` now record named per-step timings into the summary model; they are especially useful for XML flows like `send INVITE` -> `recv 200`.
 - `counter` and `display` are currently exposed as successful-command execution counters in the summary model, which is a practical first step toward richer SIPp-style reporting.
 - In external 3PCC-style flows, the first incoming `recvCmd` can automatically adopt its `Call-ID` into `[call_id]` for later commands.

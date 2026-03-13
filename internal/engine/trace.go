@@ -17,27 +17,54 @@ import (
 )
 
 type traceLogger struct {
-	mu           sync.Mutex
-	full         *os.File
-	short        *os.File
-	errFile      *os.File
-	errCodes     *os.File
-	logFile      *os.File
-	statsFile    *os.File
-	rttFile      *os.File
-	fullPath     string
-	shortPath    string
-	errPath      string
-	errCodesPath string
-	logPath      string
-	statsPath    string
-	rttPath      string
-	statsStop    chan struct{}
-	statsDone    chan struct{}
+	mu                sync.Mutex
+	full              *os.File
+	short             *os.File
+	errFile           *os.File
+	errCodes          *os.File
+	logFile           *os.File
+	statsFile         *os.File
+	rttFile           *os.File
+	screenFile        *os.File
+	countsFile        *os.File
+	fullPath          string
+	shortPath         string
+	errPath           string
+	errCodesPath      string
+	logPath           string
+	statsPath         string
+	rttPath           string
+	screenPath        string
+	countsPath        string
+	statsStop         chan struct{}
+	statsDone         chan struct{}
+	countsStop        chan struct{}
+	countsDone        chan struct{}
+	screenStop        chan struct{}
+	screenDone        chan struct{}
+	screenPrevious    *stats.Summary
+	rttFlushEvery     int
+	rttCompletedCalls int
+	rttPending        [][]string
+	countSpecs        []traceCountSpec
+	countSent         map[int]int
+	countRecv         map[int]int
+	countUnexp        map[int]int
+}
+
+const (
+	traceStatCSVHeader = "timestamp,elapsed_ms,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,retransmits,timeouts,avg_call_ms,call_stddev_ms,avg_invite_ms,invite_stddev_ms,rtp_packets_sent,rtp_packets_received,rtcp_sender_reports,rtcp_receiver_reports,rtcp_packets_received,failure_timeout,failure_unexpected_sip,failure_transport_error,failure_parse_error,failure_scenario_error,failure_cancelled,interval_ms,interval_calls_per_second,delta_total_calls,delta_success_calls,delta_failed_calls,delta_retransmits,delta_timeouts,delta_rtp_packets_sent,delta_rtp_packets_received,delta_rtcp_sender_reports,delta_rtcp_receiver_reports,delta_rtcp_packets_received,delta_failure_timeout,delta_failure_unexpected_sip,delta_failure_transport_error,delta_failure_parse_error,delta_failure_scenario_error,delta_failure_cancelled\n"
+	traceRTTCSVHeader  = "timestamp,call,name,value_ms\n"
+	traceScreenHeader  = "timestamp,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,interval_ms,interval_calls_per_second,avg_call_ms,avg_invite_ms,retransmits,timeouts,failure_timeout,failure_unexpected_sip\n"
+)
+
+type traceCountSpec struct {
+	CommandIndex int
+	Label        string
 }
 
 func newTraceLogger(cfg Config) (*traceLogger, error) {
-	if !cfg.TraceMessages && !cfg.TraceShortMsg && !cfg.TraceErrors && !cfg.TraceErrorCodes && !cfg.TraceLogs && !cfg.TraceStats && !cfg.TraceRTT {
+	if !cfg.TraceMessages && !cfg.TraceShortMsg && !cfg.TraceCounts && !cfg.TraceErrors && !cfg.TraceErrorCodes && !cfg.TraceLogs && !cfg.TraceStats && !cfg.TraceRTT && !cfg.TraceScreen {
 		return nil, nil
 	}
 
@@ -123,7 +150,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 		}
 		logger.statsFile = file
 		logger.statsPath = statsPath
-		if _, err := file.WriteString("timestamp,elapsed_ms,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,retransmits,timeouts,avg_call_ms,call_stddev_ms,avg_invite_ms,invite_stddev_ms,rtp_packets_sent,rtp_packets_received,rtcp_sender_reports,rtcp_receiver_reports,rtcp_packets_received,failure_timeout,failure_unexpected_sip,failure_transport_error,failure_parse_error,failure_scenario_error,failure_cancelled,interval_ms,interval_calls_per_second,delta_total_calls,delta_success_calls,delta_failed_calls,delta_retransmits,delta_timeouts,delta_rtp_packets_sent,delta_rtp_packets_received,delta_rtcp_sender_reports,delta_rtcp_receiver_reports,delta_rtcp_packets_received,delta_failure_timeout,delta_failure_unexpected_sip,delta_failure_transport_error,delta_failure_parse_error,delta_failure_scenario_error,delta_failure_cancelled\n"); err != nil {
+		if _, err := file.WriteString(traceStatCSVHeader); err != nil {
 			_ = logger.Close()
 			return nil, err
 		}
@@ -137,7 +164,47 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 		}
 		logger.rttFile = file
 		logger.rttPath = rttPath
-		if _, err := file.WriteString("timestamp,call,name,value_ms\n"); err != nil {
+		if _, err := file.WriteString(traceRTTCSVHeader); err != nil {
+			_ = logger.Close()
+			return nil, err
+		}
+		logger.rttFlushEvery = cfg.RTTDumpFrequency
+		if logger.rttFlushEvery <= 0 {
+			logger.rttFlushEvery = 200
+		}
+	}
+	if cfg.TraceScreen {
+		screenPath := cfg.ScreenFile
+		if screenPath == "" {
+			screenPath = deriveScreenTracePath(basePath)
+		}
+		file, err := os.Create(screenPath)
+		if err != nil {
+			_ = logger.Close()
+			return nil, err
+		}
+		logger.screenFile = file
+		logger.screenPath = screenPath
+		if _, err := file.WriteString(traceScreenHeader); err != nil {
+			_ = logger.Close()
+			return nil, err
+		}
+	}
+	if cfg.TraceCounts {
+		specs := buildTraceCountSpecs(cfg.Scenario)
+		countsPath := deriveCountsTracePath(basePath)
+		file, err := os.Create(countsPath)
+		if err != nil {
+			_ = logger.Close()
+			return nil, err
+		}
+		logger.countsFile = file
+		logger.countsPath = countsPath
+		logger.countSpecs = specs
+		logger.countSent = make(map[int]int)
+		logger.countRecv = make(map[int]int)
+		logger.countUnexp = make(map[int]int)
+		if _, err := file.WriteString(buildTraceCountsHeader(specs)); err != nil {
 			_ = logger.Close()
 			return nil, err
 		}
@@ -183,13 +250,42 @@ func (t *traceLogger) Close() error {
 		<-t.statsDone
 		t.statsDone = nil
 	}
+	if t.countsStop != nil {
+		close(t.countsStop)
+		t.countsStop = nil
+	}
+	if t.countsDone != nil {
+		<-t.countsDone
+		t.countsDone = nil
+	}
+	if t.screenStop != nil {
+		close(t.screenStop)
+		t.screenStop = nil
+	}
+	if t.screenDone != nil {
+		<-t.screenDone
+		t.screenDone = nil
+	}
 	if t.statsFile != nil {
 		if closeErr := t.statsFile.Close(); closeErr != nil {
 			errs = append(errs, closeErr)
 		}
 	}
 	if t.rttFile != nil {
+		t.mu.Lock()
+		t.flushRTTLocked()
+		t.mu.Unlock()
 		if closeErr := t.rttFile.Close(); closeErr != nil {
+			errs = append(errs, closeErr)
+		}
+	}
+	if t.screenFile != nil {
+		if closeErr := t.screenFile.Close(); closeErr != nil {
+			errs = append(errs, closeErr)
+		}
+	}
+	if t.countsFile != nil {
+		if closeErr := t.countsFile.Close(); closeErr != nil {
 			errs = append(errs, closeErr)
 		}
 	}
@@ -225,6 +321,14 @@ func deriveRTTTracePath(basePath string) string {
 	return deriveNamedTracePath(basePath, "_rtt")
 }
 
+func deriveScreenTracePath(basePath string) string {
+	return deriveNamedTracePath(basePath, "_screen")
+}
+
+func deriveCountsTracePath(basePath string) string {
+	return deriveNamedTracePath(basePath, "_counts")
+}
+
 func (e *Engine) startTrace() error {
 	logger, err := newTraceLogger(e.cfg)
 	if err != nil {
@@ -232,7 +336,9 @@ func (e *Engine) startTrace() error {
 	}
 	e.trace = logger
 	if e.trace != nil {
-		e.trace.startStatsLoop(e.stats)
+		e.trace.startStatsLoop(e.stats, e.cfg.StatsDumpPeriod)
+		e.trace.startCountsLoop(e.cfg.StatsDumpPeriod)
+		e.trace.startScreenLoop(e.stats, e.cfg.StatsDumpPeriod)
 	}
 	return nil
 }
@@ -326,26 +432,79 @@ func (e *Engine) traceRTD(callNumber int, name string, value time.Duration) {
 	}
 	e.trace.mu.Lock()
 	defer e.trace.mu.Unlock()
-	writer := csv.NewWriter(e.trace.rttFile)
-	_ = writer.Write([]string{
+	e.trace.rttPending = append(e.trace.rttPending, []string{
 		time.Now().Format(time.RFC3339Nano),
 		strconv.Itoa(callNumber),
 		name,
 		strconv.FormatInt(value.Milliseconds(), 10),
 	})
-	writer.Flush()
 }
 
-func (t *traceLogger) startStatsLoop(collector *stats.Collector) {
+func (e *Engine) traceCallCompleted() {
+	if e.trace == nil || e.trace.rttFile == nil {
+		return
+	}
+	e.trace.mu.Lock()
+	defer e.trace.mu.Unlock()
+	e.trace.rttCompletedCalls++
+	if e.trace.rttCompletedCalls >= e.trace.rttFlushEvery {
+		e.trace.flushRTTLocked()
+		e.trace.rttCompletedCalls = 0
+	}
+}
+
+func (e *Engine) traceCountSent(commandIndex int) {
+	if e.trace == nil || e.trace.countsFile == nil {
+		return
+	}
+	e.trace.mu.Lock()
+	defer e.trace.mu.Unlock()
+	e.trace.countSent[commandIndex]++
+}
+
+func (e *Engine) traceCountRecv(commandIndex int) {
+	if e.trace == nil || e.trace.countsFile == nil {
+		return
+	}
+	e.trace.mu.Lock()
+	defer e.trace.mu.Unlock()
+	e.trace.countRecv[commandIndex]++
+}
+
+func (e *Engine) traceCountUnexpected(commandIndex int) {
+	if e.trace == nil || e.trace.countsFile == nil {
+		return
+	}
+	e.trace.mu.Lock()
+	defer e.trace.mu.Unlock()
+	e.trace.countUnexp[commandIndex]++
+}
+
+func (t *traceLogger) flushRTTLocked() {
+	if t == nil || t.rttFile == nil || len(t.rttPending) == 0 {
+		return
+	}
+	writer := csv.NewWriter(t.rttFile)
+	for _, row := range t.rttPending {
+		_ = writer.Write(row)
+	}
+	writer.Flush()
+	t.rttPending = t.rttPending[:0]
+}
+
+func (t *traceLogger) startStatsLoop(collector *stats.Collector, period time.Duration) {
 	if t == nil || t.statsFile == nil || collector == nil {
 		return
+	}
+	if period <= 0 {
+		period = time.Second
 	}
 	t.statsStop = make(chan struct{})
 	t.statsDone = make(chan struct{})
 	go func() {
 		defer close(t.statsDone)
 
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(period)
 		defer ticker.Stop()
 		var previous *stats.Summary
 
@@ -363,6 +522,121 @@ func (t *traceLogger) startStatsLoop(collector *stats.Collector) {
 			}
 		}
 	}()
+}
+
+func (t *traceLogger) startCountsLoop(period time.Duration) {
+	if t == nil || t.countsFile == nil {
+		return
+	}
+	if period <= 0 {
+		period = time.Second
+	}
+	t.countsStop = make(chan struct{})
+	t.countsDone = make(chan struct{})
+	go func() {
+		defer close(t.countsDone)
+		ticker := time.NewTicker(period)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				t.writeCountsSnapshot()
+			case <-t.countsStop:
+				t.writeCountsSnapshot()
+				return
+			}
+		}
+	}()
+}
+
+func (t *traceLogger) startScreenLoop(collector *stats.Collector, period time.Duration) {
+	if t == nil || t.screenFile == nil || collector == nil {
+		return
+	}
+	if period <= 0 {
+		period = time.Second
+	}
+	t.screenStop = make(chan struct{})
+	t.screenDone = make(chan struct{})
+	go func() {
+		defer close(t.screenDone)
+		ticker := time.NewTicker(period)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				summary := collector.Snapshot()
+				t.writeScreenSnapshot(summary)
+			case <-t.screenStop:
+				summary := collector.Snapshot()
+				t.writeScreenSnapshot(summary)
+				return
+			}
+		}
+	}()
+}
+
+func (t *traceLogger) writeScreenSnapshot(summary stats.Summary) {
+	if t == nil || t.screenFile == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	intervalMS := summary.Duration.Milliseconds()
+	deltaCalls := summary.TotalCalls
+	if t.screenPrevious != nil {
+		interval := summary.FinishedAt.Sub(t.screenPrevious.FinishedAt)
+		if interval > 0 {
+			intervalMS = interval.Milliseconds()
+		} else {
+			intervalMS = 0
+		}
+		deltaCalls = summary.TotalCalls - t.screenPrevious.TotalCalls
+	}
+	intervalCPS := 0.0
+	if intervalMS > 0 {
+		intervalCPS = float64(deltaCalls) / (float64(intervalMS) / 1000.0)
+	}
+	writer := csv.NewWriter(t.screenFile)
+	_ = writer.Write([]string{
+		summary.FinishedAt.Format(time.RFC3339Nano),
+		strconv.Itoa(summary.TotalCalls),
+		strconv.Itoa(summary.SuccessCalls),
+		strconv.Itoa(summary.FailedCalls),
+		strconv.Itoa(summary.ActiveCalls),
+		strconv.FormatFloat(summary.SuccessRatio, 'f', 6, 64),
+		strconv.FormatFloat(summary.CallsPerSecond, 'f', 6, 64),
+		strconv.FormatInt(intervalMS, 10),
+		strconv.FormatFloat(intervalCPS, 'f', 6, 64),
+		strconv.FormatInt(summary.AverageCallLatency.Milliseconds(), 10),
+		strconv.FormatInt(summary.AverageInviteRTT.Milliseconds(), 10),
+		strconv.Itoa(summary.Retransmits),
+		strconv.Itoa(summary.Timeouts),
+		strconv.Itoa(failureClassCount(summary, "timeout")),
+		strconv.Itoa(failureClassCount(summary, "unexpected_sip")),
+	})
+	writer.Flush()
+	snapshotCopy := summary
+	t.screenPrevious = &snapshotCopy
+}
+
+func (t *traceLogger) writeCountsSnapshot() {
+	if t == nil || t.countsFile == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	row := []string{time.Now().Format(time.RFC3339Nano)}
+	for _, spec := range t.countSpecs {
+		row = append(row,
+			strconv.Itoa(t.countSent[spec.CommandIndex]),
+			strconv.Itoa(t.countRecv[spec.CommandIndex]),
+			strconv.Itoa(t.countUnexp[spec.CommandIndex]),
+		)
+	}
+	writer := csv.NewWriter(t.countsFile)
+	_ = writer.Write(row)
+	writer.Flush()
 }
 
 func (t *traceLogger) writeStatsSnapshot(summary stats.Summary, previous *stats.Summary) {
@@ -511,6 +785,70 @@ func buildShortTraceRecord(direction string, callNumber int, raw string) []strin
 		summary,
 		callID,
 	}
+}
+
+func buildTraceCountSpecs(sc scenario.Scenario) []traceCountSpec {
+	specs := make([]traceCountSpec, 0, len(sc.Commands))
+	for _, cmd := range sc.Commands {
+		switch cmd.Type {
+		case scenario.CommandSend, scenario.CommandRecv:
+			specs = append(specs, traceCountSpec{
+				CommandIndex: cmd.Index,
+				Label:        traceCountLabel(cmd),
+			})
+		}
+	}
+	return specs
+}
+
+func traceCountLabel(cmd scenario.Command) string {
+	switch cmd.Type {
+	case scenario.CommandSend:
+		line := firstLine(cmd.SendText)
+		token := strings.TrimSpace(strings.SplitN(line, " ", 2)[0])
+		if token == "" {
+			token = "SEND"
+		}
+		return sanitizeTraceCountLabel(strings.ToUpper(token))
+	case scenario.CommandRecv:
+		if cmd.RecvReq != "" {
+			return sanitizeTraceCountLabel(strings.ToUpper(cmd.RecvReq))
+		}
+		if cmd.RecvResp != "" {
+			return sanitizeTraceCountLabel("RESP_" + cmd.RecvResp)
+		}
+		return "RECV"
+	default:
+		return "CMD"
+	}
+}
+
+func sanitizeTraceCountLabel(value string) string {
+	if value == "" {
+		return "CMD"
+	}
+	var b strings.Builder
+	for _, r := range value {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	sanitized := strings.Trim(b.String(), "_")
+	if sanitized == "" {
+		return "CMD"
+	}
+	return sanitized
+}
+
+func buildTraceCountsHeader(specs []traceCountSpec) string {
+	columns := []string{"timestamp"}
+	for _, spec := range specs {
+		base := fmt.Sprintf("%d_%s", spec.CommandIndex, spec.Label)
+		columns = append(columns, base+"_sent", base+"_recv", base+"_unexp")
+	}
+	return strings.Join(columns, ",") + "\n"
 }
 
 func firstLine(raw string) string {

@@ -41,3 +41,15 @@ both the parser and engine can be regression-tested deterministically.
 For CSV/JSON/HEP outputs, prefer assertions on stable semantic fields rather
 than byte-for-byte full-file snapshots, so the tests stay resilient when new
 columns or metadata are added intentionally.
+
+For `-trace_stat` / `-trace_rtt` / `-trace_screen`, treat the CSV header as an explicit contract:
+assert exact column names and order against `docs/trace-schema-contract.md`.
+
+For `-trace_error_codes`, keep a smoke assertion that verifies the CSV header
+and at least one expected unexpected-response row in the artifact.
+
+For `-trace_screen`, keep a smoke assertion that verifies the CSV header and at
+least one runtime snapshot row in the artifact.
+
+For parser migrations, prefer an external mapping adapter over adding runtime
+legacy alias columns in generated CSV traces.

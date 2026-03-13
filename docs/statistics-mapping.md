@@ -70,6 +70,8 @@ useful in automation:
 - Prefer `-summary_json` when you need a final machine-readable report.
 - Prefer `-trace_stat` when you need time-series snapshots for dashboards or CI.
 - Prefer `-trace_rtt` when you need raw per-measure latency samples.
+- Treat `docs/trace-schema-contract.md` as the source of truth for stable
+  `-trace_stat` / `-trace_rtt` CSV header and column order guarantees.
 - When porting SIPp-based automation, treat `interval_calls_per_second`,
   `delta_*`, and `failure_classes.*` as the closest modern equivalents to SIPp's
   periodic and split failure counters.

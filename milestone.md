@@ -143,6 +143,24 @@ Completed so far in this milestone:
 - launch-time parameter selection for mode/profile, transport, remote/local addressing, CPS, concurrency, auth, and trace toggles
 - SIPp-style live runtime dashboard with total/active/success/failed calls, average call duration, invite RTT, timeout and cancellation counters
 - operator controls for increasing or decreasing load during the run, plus pause/resume and graceful client-side stop
+- `-fd` parity for `-trace_stat` snapshot frequency control (seconds)
+- `-rtt_freq` parity for `-trace_rtt` flush cadence control (completed calls)
+- stable `-trace_stat` / `-trace_rtt` CSV schema contract with explicit docs and test guardrails
+- `-trace_counts` periodic per-scenario SIP command counter CSV export (`sent` / `recv` / `unexp`)
+- `-base_cseq` parity for explicit `[cseq]` base value control
+- `-rp` parity for SIPp-style call rate period control (`-r n -rp m`)
+- parser migration policy for trace CSV: single canonical contract, no runtime legacy alias columns
+- `-trace_counts` schema stabilization decision for M5: keep `sent` / `recv` / `unexp`; richer per-message detail deferred
+- non-interactive runtime screen CSV snapshots via `-trace_screen` with optional `-screen_file`
+- `-trace_screen` enriched with high-signal triage fields (`success_ratio`, `failure_timeout`, `failure_unexpected_sip`)
+- on-demand runtime screen dump trigger via `SIGUSR1` for live troubleshooting
+- `-trace_screen` now includes interval throughput fields (`interval_ms`, `interval_calls_per_second`) for better non-interactive run triage
+- selected non-interactive runtime reporting subset in M5 is now treated as stable/supported via `-trace_screen` contract
+- `-timeout_global` parity for deterministic global run timeout control
+- `-rate_scale` parity for SIPp-style interactive rate step scaling (used by `+/-/*//` runtime controls)
+- runtime rate ramp controls via `-rate_increase`, `-rate_interval`, and `-rate_max`
+- initial `-max_socket` parity for per-call client transports (`un`, `tn`, `ln`)
+- partial reconnect control parity via `-max_reconnect` and `-reconnect_sleep` for shared client TCP/TLS (`t1`, `l1`)
 
 Target gaps from SIPp:
 

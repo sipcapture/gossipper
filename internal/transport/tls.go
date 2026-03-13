@@ -6,31 +6,44 @@ import (
 	"crypto/tls"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/adubovikov/gossipper/internal/sip"
 )
 
 type SharedTLS struct {
-	conn      *tls.Conn
-	reader    *bufio.Reader
-	incoming  chan sip.Message
-	closeOnce sync.Once
+	localAddr  string
+	remoteAddr string
+	tlsConfig  *tls.Config
+	reconnect  ReconnectOptions
+
+	connMu      sync.RWMutex
+	reconnectMu sync.Mutex
+	conn        *tls.Conn
+	reader      *bufio.Reader
+	incoming    chan sip.Message
+	closeOnce   sync.Once
+	closed      chan struct{}
 }
 
 func NewSharedTLS(localAddr, remoteAddr string, cfg *tls.Config) (*SharedTLS, error) {
-	local, err := net.ResolveTCPAddr("tcp", localAddr)
-	if err != nil {
-		return nil, err
-	}
-	dialer := &net.Dialer{LocalAddr: local}
-	conn, err := tls.DialWithDialer(dialer, "tcp", remoteAddr, cfg)
+	return NewSharedTLSWithReconnect(localAddr, remoteAddr, cfg, ReconnectOptions{})
+}
+
+func NewSharedTLSWithReconnect(localAddr, remoteAddr string, cfg *tls.Config, reconnect ReconnectOptions) (*SharedTLS, error) {
+	conn, err := dialSharedTLS(localAddr, remoteAddr, cfg)
 	if err != nil {
 		return nil, err
 	}
 	s := &SharedTLS{
-		conn:     conn,
-		reader:   bufio.NewReader(conn),
-		incoming: make(chan sip.Message, 128),
+		localAddr:  localAddr,
+		remoteAddr: remoteAddr,
+		tlsConfig:  cfg,
+		reconnect:  reconnect,
+		conn:       conn,
+		reader:     bufio.NewReader(conn),
+		incoming:   make(chan sip.Message, 128),
+		closed:     make(chan struct{}),
 	}
 	go s.readLoop()
 	return s, nil
@@ -38,17 +51,55 @@ func NewSharedTLS(localAddr, remoteAddr string, cfg *tls.Config) (*SharedTLS, er
 
 func (s *SharedTLS) readLoop() {
 	for {
-		msg, err := sip.ReadMessage(s.reader)
-		if err != nil {
+		if s.isClosed() {
 			close(s.incoming)
 			return
 		}
-		s.incoming <- msg
+		s.connMu.RLock()
+		reader := s.reader
+		s.connMu.RUnlock()
+		if reader == nil {
+			close(s.incoming)
+			return
+		}
+		msg, err := sip.ReadMessage(reader)
+		if err != nil {
+			if s.tryReconnect() {
+				continue
+			}
+			close(s.incoming)
+			return
+		}
+		select {
+		case <-s.closed:
+			close(s.incoming)
+			return
+		case s.incoming <- msg:
+		}
 	}
 }
 
 func (s *SharedTLS) Send(payload []byte) error {
-	_, err := s.conn.Write(payload)
+	s.connMu.RLock()
+	conn := s.conn
+	s.connMu.RUnlock()
+	if conn == nil {
+		return net.ErrClosed
+	}
+	_, err := conn.Write(payload)
+	if err == nil {
+		return nil
+	}
+	if !s.tryReconnect() {
+		return err
+	}
+	s.connMu.RLock()
+	conn = s.conn
+	s.connMu.RUnlock()
+	if conn == nil {
+		return net.ErrClosed
+	}
+	_, err = conn.Write(payload)
 	return err
 }
 
@@ -57,7 +108,13 @@ func (s *SharedTLS) Receive() <-chan sip.Message {
 }
 
 func (s *SharedTLS) LocalPort() int {
-	if addr, ok := s.conn.LocalAddr().(*net.TCPAddr); ok {
+	s.connMu.RLock()
+	conn := s.conn
+	s.connMu.RUnlock()
+	if conn == nil {
+		return 0
+	}
+	if addr, ok := conn.LocalAddr().(*net.TCPAddr); ok {
 		return addr.Port
 	}
 	return 0
@@ -66,9 +123,76 @@ func (s *SharedTLS) LocalPort() int {
 func (s *SharedTLS) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
-		err = s.conn.Close()
+		close(s.closed)
+		s.connMu.RLock()
+		conn := s.conn
+		s.connMu.RUnlock()
+		if conn != nil {
+			err = conn.Close()
+		}
 	})
 	return err
+}
+
+func (s *SharedTLS) tryReconnect() bool {
+	if s.reconnect.MaxAttempts <= 0 || s.isClosed() {
+		return false
+	}
+	s.reconnectMu.Lock()
+	defer s.reconnectMu.Unlock()
+	if s.isClosed() {
+		return false
+	}
+	for attempt := 0; attempt < s.reconnect.MaxAttempts; attempt++ {
+		if attempt > 0 && s.reconnect.Sleep > 0 {
+			if !s.sleepUnlessClosed(s.reconnect.Sleep) {
+				return false
+			}
+		}
+		conn, err := dialSharedTLS(s.localAddr, s.remoteAddr, s.tlsConfig)
+		if err != nil {
+			continue
+		}
+		s.connMu.Lock()
+		old := s.conn
+		s.conn = conn
+		s.reader = bufio.NewReader(conn)
+		s.connMu.Unlock()
+		if old != nil {
+			_ = old.Close()
+		}
+		return true
+	}
+	return false
+}
+
+func (s *SharedTLS) isClosed() bool {
+	select {
+	case <-s.closed:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *SharedTLS) sleepUnlessClosed(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-s.closed:
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func dialSharedTLS(localAddr, remoteAddr string, cfg *tls.Config) (*tls.Conn, error) {
+	local, err := net.ResolveTCPAddr("tcp", localAddr)
+	if err != nil {
+		return nil, err
+	}
+	dialer := &net.Dialer{LocalAddr: local}
+	return tls.DialWithDialer(dialer, "tcp", remoteAddr, cfg)
 }
 
 type DialogTLS struct {

@@ -58,6 +58,7 @@ func Run() error {
 	localPortField := tview.NewInputField().SetLabel("Local port: ").SetText(strconv.Itoa(defaults.LocalPort))
 	serviceField := tview.NewInputField().SetLabel("Service: ").SetText(defaults.Service)
 	cpsField := tview.NewInputField().SetLabel("CPS: ").SetText(strconv.FormatFloat(defaults.Rate, 'f', -1, 64))
+	rateScaleField := tview.NewInputField().SetLabel("Rate scale: ").SetText(strconv.FormatFloat(defaults.RateScale, 'f', -1, 64))
 	callsField := tview.NewInputField().SetLabel("Calls: ").SetText(strconv.Itoa(defaults.TotalCalls))
 	concurrencyField := tview.NewInputField().SetLabel("Max concurrent: ").SetText(strconv.Itoa(defaults.MaxConcurrent))
 	usersField := tview.NewInputField().SetLabel("Users: ").SetText(strconv.Itoa(defaults.Users))
@@ -98,6 +99,7 @@ func Run() error {
 		AddFormItem(localPortField).
 		AddFormItem(serviceField).
 		AddFormItem(cpsField).
+		AddFormItem(rateScaleField).
 		AddFormItem(callsField).
 		AddFormItem(concurrencyField).
 		AddFormItem(usersField).
@@ -119,6 +121,7 @@ func Run() error {
 			localPortField.GetText(),
 			serviceField.GetText(),
 			cpsField.GetText(),
+			rateScaleField.GetText(),
 			callsField.GetText(),
 			concurrencyField.GetText(),
 			usersField.GetText(),
@@ -216,7 +219,7 @@ func Run() error {
 		switch event.Rune() {
 		case '+', '=':
 			if eng := state.engine(); eng != nil && state.prepared.Scenario.Mode != scenario.ModeServer {
-				rate := bumpRate(eng.Rate(), +1)
+				rate := bumpRate(eng.Rate(), state.rateScale(), +1)
 				eng.SetRate(rate)
 				state.setStatus(fmt.Sprintf("Target CPS set to %.2f", rate))
 				dashboard.SetText(state.renderDashboard())
@@ -224,7 +227,23 @@ func Run() error {
 			}
 		case '-':
 			if eng := state.engine(); eng != nil && state.prepared.Scenario.Mode != scenario.ModeServer {
-				rate := bumpRate(eng.Rate(), -1)
+				rate := bumpRate(eng.Rate(), state.rateScale(), -1)
+				eng.SetRate(rate)
+				state.setStatus(fmt.Sprintf("Target CPS set to %.2f", rate))
+				dashboard.SetText(state.renderDashboard())
+				return nil
+			}
+		case '*':
+			if eng := state.engine(); eng != nil && state.prepared.Scenario.Mode != scenario.ModeServer {
+				rate := bumpRate(eng.Rate(), state.rateScale(), +10)
+				eng.SetRate(rate)
+				state.setStatus(fmt.Sprintf("Target CPS set to %.2f", rate))
+				dashboard.SetText(state.renderDashboard())
+				return nil
+			}
+		case '/':
+			if eng := state.engine(); eng != nil && state.prepared.Scenario.Mode != scenario.ModeServer {
+				rate := bumpRate(eng.Rate(), state.rateScale(), -10)
 				eng.SetRate(rate)
 				state.setStatus(fmt.Sprintf("Target CPS set to %.2f", rate))
 				dashboard.SetText(state.renderDashboard())
@@ -361,7 +380,7 @@ func (s *runtimeState) renderDashboard() string {
 
 [yellow]Status:[-] %s
 
-[green]Keys[-]: +/- change CPS, p pause/resume, q stop run, Esc back after finish`,
+[green]Keys[-]: +/- step CPS, */ change CPS by 10x step, p pause/resume, q stop run, Esc back after finish`,
 		s.currentProf.Name,
 		s.prepared.Scenario.Mode,
 		s.prepared.EngineConfig.Transport,
@@ -426,6 +445,15 @@ func (s *runtimeState) setStatus(status string) {
 	s.status = status
 }
 
+func (s *runtimeState) rateScale() float64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.prepared.EngineConfig.RateScale <= 0 {
+		return 1.0
+	}
+	return s.prepared.EngineConfig.RateScale
+}
+
 func buildArgs(
 	prof profile,
 	mode string,
@@ -435,6 +463,7 @@ func buildArgs(
 	localPort string,
 	service string,
 	cps string,
+	rateScale string,
 	calls string,
 	concurrency string,
 	users string,
@@ -472,6 +501,7 @@ func buildArgs(
 		"-p", defaultString(localPort, "0"),
 		"-s", defaultString(service, "service"),
 		"-r", defaultString(cps, "1"),
+		"-rate_scale", defaultString(rateScale, "1"),
 		"-m", defaultString(calls, "1"),
 		"-l", defaultString(concurrency, "1"),
 		"-users", defaultString(users, "1"),
@@ -530,20 +560,15 @@ func defaultString(value string, fallback string) string {
 	return value
 }
 
-func bumpRate(current float64, direction int) float64 {
-	if direction > 0 {
-		if current < 1 {
-			return current * 2
-		}
-		return current + 1
+func bumpRate(current, scale float64, steps int) float64 {
+	if scale <= 0 {
+		scale = 1.0
 	}
-	if current > 1 {
-		return current - 1
+	next := current + (scale * float64(steps))
+	if next < 0.1 {
+		return 0.1
 	}
-	if current > 0.2 {
-		return current / 2
-	}
-	return 0.1
+	return next
 }
 
 func failureCount(summary stats.Summary, name string) int {

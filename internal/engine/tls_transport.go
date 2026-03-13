@@ -18,7 +18,10 @@ func (e *Engine) runClientSharedTLS(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	shared, err := transport.NewSharedTLS(localAddr, remoteAddr, tlsCfg)
+	shared, err := transport.NewSharedTLSWithReconnect(localAddr, remoteAddr, tlsCfg, transport.ReconnectOptions{
+		MaxAttempts: e.cfg.MaxReconnect,
+		Sleep:       e.cfg.ReconnectSleep,
+	})
 	if err != nil {
 		return err
 	}
@@ -27,7 +30,7 @@ func (e *Engine) runClientSharedTLS(ctx context.Context) error {
 	registry := newMailboxRegistry()
 	go registry.dispatchMessages(shared.Receive())
 
-	sem := make(chan struct{}, e.cfg.MaxConcurrent)
+	sem := make(chan struct{}, e.callConcurrencyLimit(false))
 	ticker := e.sched.Interval(e.cfg.Rate)
 	var wg sync.WaitGroup
 	var once sync.Once
@@ -74,7 +77,7 @@ func (e *Engine) runClientPerCallTLS(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	sem := make(chan struct{}, e.cfg.MaxConcurrent)
+	sem := make(chan struct{}, e.callConcurrencyLimit(true))
 	ticker := e.sched.Interval(e.cfg.Rate)
 	var wg sync.WaitGroup
 	var once sync.Once

@@ -21,59 +21,77 @@ const (
 )
 
 type Config struct {
-	ScenarioFile    string
-	ScenarioName    string
-	Service         string
-	Transport       string
-	LocalIP         string
-	LocalPort       int
-	RemoteHost      string
-	RemotePort      int
-	AuthUsername    string
-	AuthPassword    string
-	Rate            float64
-	TotalCalls      int
-	MaxConcurrent   int
-	Users           int
-	DefaultPause    time.Duration
-	DefaultRecvTO   time.Duration
-	SummaryJSON     string
-	TraceMessages   bool
-	TraceShortMsg   bool
-	MessageFile     string
-	TraceErrors     bool
-	ErrorFile       string
-	TraceErrorCodes bool
-	TraceLogs       bool
-	LogFile         string
-	TraceStats      bool
-	TraceRTT        bool
-	HEPAddr         string
-	HEPCaptureID    uint32
-	HEPPassword     string
-	TLSCertFile     string
-	TLSKeyFile      string
-	TLSCAFile       string
-	TLSSkipVerify   bool
-	CommandName     string
-	CommandPeers    map[string]string
-	CommandRole     string
+	ScenarioFile     string
+	ScenarioName     string
+	Service          string
+	Transport        string
+	LocalIP          string
+	LocalPort        int
+	RemoteHost       string
+	RemotePort       int
+	AuthUsername     string
+	AuthPassword     string
+	Rate             float64
+	RateScale        float64
+	RateIncrease     float64
+	RateIncreaseStep time.Duration
+	RateMax          float64
+	MaxReconnect     int
+	ReconnectSleep   time.Duration
+	BaseCSeq         int
+	TotalCalls       int
+	MaxConcurrent    int
+	MaxSockets       int
+	Users            int
+	DefaultPause     time.Duration
+	DefaultRecvTO    time.Duration
+	GlobalTimeout    time.Duration
+	SummaryJSON      string
+	TraceMessages    bool
+	TraceShortMsg    bool
+	TraceCounts      bool
+	MessageFile      string
+	TraceErrors      bool
+	ErrorFile        string
+	TraceErrorCodes  bool
+	TraceLogs        bool
+	LogFile          string
+	TraceStats       bool
+	TraceRTT         bool
+	TraceScreen      bool
+	StatsDumpPeriod  time.Duration
+	RTTDumpFrequency int
+	ScreenFile       string
+	HEPAddr          string
+	HEPCaptureID     uint32
+	HEPPassword      string
+	TLSCertFile      string
+	TLSKeyFile       string
+	TLSCAFile        string
+	TLSSkipVerify    bool
+	CommandName      string
+	CommandPeers     map[string]string
+	CommandRole      string
 }
 
 func DefaultConfig() Config {
 	return Config{
-		ScenarioName:  "uac",
-		Service:       "service",
-		Transport:     DefaultTransport,
-		LocalIP:       "0.0.0.0",
-		AuthPassword:  "password",
-		Rate:          DefaultRate,
-		TotalCalls:    DefaultTotalCalls,
-		MaxConcurrent: DefaultMaxConcurrent,
-		Users:         1,
-		DefaultPause:  DefaultPauseDurationMS * time.Millisecond,
-		DefaultRecvTO: DefaultRecvTimeout,
-		TLSSkipVerify: true,
+		ScenarioName:     "uac",
+		Service:          "service",
+		Transport:        DefaultTransport,
+		LocalIP:          "0.0.0.0",
+		AuthPassword:     "password",
+		Rate:             DefaultRate,
+		RateScale:        1.0,
+		BaseCSeq:         1,
+		TotalCalls:       DefaultTotalCalls,
+		MaxConcurrent:    DefaultMaxConcurrent,
+		Users:            1,
+		DefaultPause:     DefaultPauseDurationMS * time.Millisecond,
+		DefaultRecvTO:    DefaultRecvTimeout,
+		StatsDumpPeriod:  time.Second,
+		RTTDumpFrequency: 200,
+		TLSSkipVerify:    true,
 	}
 }
 
@@ -90,12 +108,22 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.AuthUsername, "au", cfg.AuthUsername, "authorization username for authentication challenges")
 	fs.StringVar(&cfg.AuthPassword, "ap", cfg.AuthPassword, "authorization password for authentication challenges")
 	fs.Float64Var(&cfg.Rate, "r", cfg.Rate, "calls per second")
+	fs.Float64Var(&cfg.RateScale, "rate_scale", cfg.RateScale, "interactive rate control step scale (SIPp-compatible)")
+	fs.Float64Var(&cfg.RateIncrease, "rate_increase", 0, "change target cps by this amount every -rate_interval milliseconds")
+	fs.Float64Var(&cfg.RateMax, "rate_max", 0, "maximum target cps when using -rate_increase (0 disables cap)")
+	ratePeriodMS := fs.Int("rp", 1000, "rate period in milliseconds for -r (SIPp-compatible: n calls every rp ms)")
+	rateIntervalMS := fs.Int("rate_interval", 1000, "rate adjustment interval in milliseconds for -rate_increase")
+	maxReconnect := fs.Int("max_reconnect", 0, "retry count for reconnecting shared TCP/TLS client transport")
+	reconnectSleepMS := fs.Int("reconnect_sleep", 0, "sleep in milliseconds between shared TCP/TLS reconnect attempts")
+	fs.IntVar(&cfg.BaseCSeq, "base_cseq", cfg.BaseCSeq, "base CSeq value used by [cseq]")
 	fs.IntVar(&cfg.MaxConcurrent, "l", cfg.MaxConcurrent, "maximum concurrent calls")
+	fs.IntVar(&cfg.MaxSockets, "max_socket", 0, "maximum number of simultaneously open call sockets (per-call transports)")
 	fs.IntVar(&cfg.TotalCalls, "m", cfg.TotalCalls, "total calls to place")
 	fs.IntVar(&cfg.Users, "users", cfg.Users, "number of logical users for user-scoped variables")
 	fs.StringVar(&cfg.SummaryJSON, "summary_json", "", "write final stats to JSON file")
 	fs.BoolVar(&cfg.TraceMessages, "trace_msg", false, "trace sent and received SIP messages")
 	fs.BoolVar(&cfg.TraceShortMsg, "trace_shortmsg", false, "trace sent and received messages as compact CSV")
+	fs.BoolVar(&cfg.TraceCounts, "trace_counts", false, "write periodic SIP message counters as CSV")
 	fs.StringVar(&cfg.MessageFile, "message_file", "", "path to full message trace log file")
 	fs.BoolVar(&cfg.TraceErrors, "trace_err", false, "trace unexpected messages and runtime errors")
 	fs.StringVar(&cfg.ErrorFile, "error_file", "", "path to error trace log file")
@@ -104,6 +132,10 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.LogFile, "log_file", "", "path to action log trace file")
 	fs.BoolVar(&cfg.TraceStats, "trace_stat", false, "trace call statistics")
 	fs.BoolVar(&cfg.TraceRTT, "trace_rtt", false, "write RTD samples to a compact CSV log")
+	fs.BoolVar(&cfg.TraceScreen, "trace_screen", false, "write periodic non-interactive runtime screen snapshots")
+	statsDumpFrequency := fs.Int("fd", 1, "statistics dump frequency in seconds (SIPp-compatible for -trace_stat)")
+	rttDumpFrequency := fs.Int("rtt_freq", 200, "dump RTD samples every N completed calls when -trace_rtt is enabled")
+	fs.StringVar(&cfg.ScreenFile, "screen_file", "", "path to runtime screen trace log file")
 	fs.StringVar(&cfg.HEPAddr, "hep_addr", "", "HEP3 collector address host:port for SIP mirroring to Homer")
 	fs.StringVar(&cfg.HEPPassword, "hep_password", "", "optional HEP3 auth key")
 	fs.StringVar(&cfg.TLSCertFile, "tls_cert", "", "TLS certificate file for server mode or mutual TLS")
@@ -125,6 +157,7 @@ func Parse(args []string) (Config, error) {
 
 	pauseMS := fs.Int("pause_ms", DefaultPauseDurationMS, "default pause duration in milliseconds")
 	recvMS := fs.Int("recv_timeout_ms", int(DefaultRecvTimeout/time.Millisecond), "default receive timeout in milliseconds")
+	timeoutGlobalSec := fs.Int("timeout_global", 0, "exit after N seconds of total runtime (SIPp-compatible)")
 	hepCaptureID := fs.Uint("hep_capture_id", 0, "HEP3 capture node ID")
 
 	if err := fs.Parse(args); err != nil {
@@ -147,18 +180,58 @@ func Parse(args []string) (Config, error) {
 	if cfg.Rate <= 0 {
 		return Config{}, errors.New("rate must be greater than zero")
 	}
+	if cfg.RateScale <= 0 {
+		return Config{}, errors.New("rate_scale must be greater than zero")
+	}
+	if *rateIntervalMS <= 0 {
+		return Config{}, errors.New("rate_interval must be greater than zero")
+	}
+	if cfg.RateMax < 0 {
+		return Config{}, errors.New("rate_max must be greater than or equal to zero")
+	}
+	if *maxReconnect < 0 {
+		return Config{}, errors.New("max_reconnect must be greater than or equal to zero")
+	}
+	if *reconnectSleepMS < 0 {
+		return Config{}, errors.New("reconnect_sleep must be greater than or equal to zero")
+	}
 	if cfg.TotalCalls <= 0 {
 		return Config{}, errors.New("total calls must be greater than zero")
 	}
 	if cfg.MaxConcurrent <= 0 {
 		return Config{}, errors.New("max concurrent calls must be greater than zero")
 	}
+	if cfg.MaxSockets < 0 {
+		return Config{}, errors.New("max_socket must be greater than or equal to zero")
+	}
 	if cfg.Users <= 0 {
 		return Config{}, errors.New("users must be greater than zero")
+	}
+	if *ratePeriodMS <= 0 {
+		return Config{}, errors.New("rp must be greater than zero")
+	}
+	if cfg.BaseCSeq <= 0 {
+		return Config{}, errors.New("base_cseq must be greater than zero")
+	}
+	if *statsDumpFrequency <= 0 {
+		return Config{}, errors.New("fd must be greater than zero")
+	}
+	if *rttDumpFrequency <= 0 {
+		return Config{}, errors.New("rtt_freq must be greater than zero")
+	}
+	if *timeoutGlobalSec < 0 {
+		return Config{}, errors.New("timeout_global must be greater than or equal to zero")
 	}
 
 	cfg.DefaultPause = time.Duration(*pauseMS) * time.Millisecond
 	cfg.DefaultRecvTO = time.Duration(*recvMS) * time.Millisecond
+	cfg.GlobalTimeout = time.Duration(*timeoutGlobalSec) * time.Second
+	cfg.Rate = cfg.Rate * (1000.0 / float64(*ratePeriodMS))
+	cfg.RateIncreaseStep = time.Duration(*rateIntervalMS) * time.Millisecond
+	cfg.MaxReconnect = *maxReconnect
+	cfg.ReconnectSleep = time.Duration(*reconnectSleepMS) * time.Millisecond
+	cfg.StatsDumpPeriod = time.Duration(*statsDumpFrequency) * time.Second
+	cfg.RTTDumpFrequency = *rttDumpFrequency
 	cfg.HEPCaptureID = uint32(*hepCaptureID)
 
 	switch cfg.Transport {
@@ -214,6 +287,9 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.LogFile != "" {
 		cfg.TraceLogs = true
+	}
+	if cfg.ScreenFile != "" {
+		cfg.TraceScreen = true
 	}
 	if cfg.HEPAddr != "" {
 		if _, _, err := splitHostPort(cfg.HEPAddr); err != nil {

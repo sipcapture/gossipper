@@ -41,6 +41,28 @@ func TestPrepareRejectsServerAliasForClientScenario(t *testing.T) {
 	}
 }
 
+func TestPreparePropagatesReconnectSettings(t *testing.T) {
+	t.Parallel()
+
+	cfg := cli.DefaultConfig()
+	cfg.ScenarioName = "uac"
+	cfg.RemoteHost = "127.0.0.1"
+	cfg.RemotePort = 5060
+	cfg.MaxReconnect = 4
+	cfg.ReconnectSleep = 120 * time.Millisecond
+
+	prepared, err := Prepare(cfg)
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	if prepared.EngineConfig.MaxReconnect != 4 {
+		t.Fatalf("expected max reconnect 4, got %d", prepared.EngineConfig.MaxReconnect)
+	}
+	if prepared.EngineConfig.ReconnectSleep != 120*time.Millisecond {
+		t.Fatalf("expected reconnect sleep 120ms, got %v", prepared.EngineConfig.ReconnectSleep)
+	}
+}
+
 func TestSummaryLineFormatsKeyCounters(t *testing.T) {
 	t.Parallel()
 
