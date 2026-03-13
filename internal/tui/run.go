@@ -66,12 +66,14 @@ func Run() error {
 	authPassField := tview.NewInputField().SetLabel("Auth pass: ").SetText(defaults.AuthPassword)
 	customXMLField := tview.NewInputField().SetLabel("Custom XML: ").SetText("")
 	hepAddrField := tview.NewInputField().SetLabel("HEP addr: ").SetText("")
+	infField := tview.NewInputField().SetLabel("UI inf CSV: ").SetText("")
+	ipFieldField := tview.NewInputField().SetLabel("UI ip_field: ").SetText("0")
 	traceStatField := tview.NewCheckbox().SetLabel("trace_stat ")
 	traceRTTField := tview.NewCheckbox().SetLabel("trace_rtt ")
 	traceMsgField := tview.NewCheckbox().SetLabel("trace_msg ")
 	traceErrField := tview.NewCheckbox().SetLabel("trace_err ")
 
-	transports := []string{"u1", "un", "t1", "tn", "l1", "ln", "s1", "sn"}
+	transports := []string{"u1", "un", "ui", "t1", "tn", "l1", "ln", "s1", "sn"}
 	modeField.SetOptions([]string{"client", "server"}, func(text string, _ int) {
 		filteredProfiles = filterProfiles(profiles, text)
 		selectedProfile = filteredProfiles[0]
@@ -107,6 +109,8 @@ func Run() error {
 		AddFormItem(authPassField).
 		AddFormItem(customXMLField).
 		AddFormItem(hepAddrField).
+		AddFormItem(infField).
+		AddFormItem(ipFieldField).
 		AddFormItem(traceStatField).
 		AddFormItem(traceRTTField).
 		AddFormItem(traceMsgField).
@@ -129,6 +133,8 @@ func Run() error {
 			authPassField.GetText(),
 			customXMLField.GetText(),
 			hepAddrField.GetText(),
+			infField.GetText(),
+			ipFieldField.GetText(),
 			traceStatField.IsChecked(),
 			traceRTTField.IsChecked(),
 			traceMsgField.IsChecked(),
@@ -471,6 +477,8 @@ func buildArgs(
 	authPass string,
 	customXML string,
 	hepAddr string,
+	infPath string,
+	ipField string,
 	traceStat bool,
 	traceRTT bool,
 	traceMsg bool,
@@ -492,7 +500,12 @@ func buildArgs(
 	}
 
 	if mode == "server" && strings.HasPrefix(transport, "u") {
-		transport = strings.Replace(transport, "u", "s", 1)
+		switch transport {
+		case "u1":
+			transport = "s1"
+		case "un":
+			transport = "sn"
+		}
 	}
 
 	args = append(args,
@@ -518,6 +531,20 @@ func buildArgs(
 	}
 	if hep := strings.TrimSpace(hepAddr); hep != "" {
 		args = append(args, "-hep_addr", hep)
+	}
+	if transport == "ui" {
+		infPath = strings.TrimSpace(infPath)
+		if infPath == "" {
+			return nil, fmt.Errorf("ui transport requires inf CSV path")
+		}
+		ipField = strings.TrimSpace(ipField)
+		if ipField == "" {
+			return nil, fmt.Errorf("ui transport requires ip_field")
+		}
+		if _, err := strconv.Atoi(ipField); err != nil {
+			return nil, fmt.Errorf("ui ip_field must be an integer")
+		}
+		args = append(args, "-inf", infPath, "-ip_field", ipField)
 	}
 	if traceStat {
 		args = append(args, "-trace_stat")

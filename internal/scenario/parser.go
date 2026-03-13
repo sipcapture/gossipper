@@ -96,6 +96,9 @@ type rawActionItem struct {
 	IntCmd         string `xml:"int_cmd,attr"`
 	RTPStream      string `xml:"rtp_stream,attr"`
 	PlayPCAPAudio  string `xml:"play_pcap_audio,attr"`
+	Host           string `xml:"host,attr"`
+	Port           string `xml:"port,attr"`
+	Protocol       string `xml:"protocol,attr"`
 }
 
 func ParseFile(path string) (Scenario, error) {
@@ -329,6 +332,9 @@ func parseActions(raw []rawAction) ([]Action, error) {
 				IntCmd:         strings.TrimSpace(child.IntCmd),
 				RTPStream:      strings.TrimSpace(child.RTPStream),
 				PlayPCAPAudio:  strings.TrimSpace(child.PlayPCAPAudio),
+				Host:           strings.TrimSpace(child.Host),
+				Port:           strings.TrimSpace(child.Port),
+				Protocol:       strings.TrimSpace(child.Protocol),
 			}
 			if assignTo := strings.TrimSpace(child.AssignTo); assignTo != "" {
 				for _, name := range strings.Split(assignTo, ",") {
@@ -364,7 +370,8 @@ func parseActionType(name string) (ActionType, bool) {
 		ActionURLEncode,
 		ActionURLDecode,
 		ActionVerifyAuth,
-		ActionExec:
+		ActionExec,
+		ActionSetDest:
 		return ActionType(strings.TrimSpace(name)), true
 	default:
 		return "", false

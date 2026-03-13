@@ -3651,6 +3651,585 @@ Content-Length: 0
 	}
 }
 
+func TestEngineUITransportServerUsesListenerIPForServerKeywords(t *testing.T) {
+	t.Parallel()
+
+	reserved, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(reserve) error = %v", err)
+	}
+	port := reserved.LocalAddr().(*net.UDPAddr).Port
+	_ = reserved.Close()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="ui-uas-server-ip">
+  <recv request="INVITE"/>
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]UiServerTag[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Contact: <sip:[server_ip]:[local_port];transport=[transport]>
+Content-Length: 0
+
+]]>
+  </send>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "ui",
+		LocalIP:       "0.0.0.0",
+		LocalPort:     port,
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    5060,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    2,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+		UISourceIPs:   []string{"127.0.0.2", "127.0.0.3"},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- app.Run(ctx)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	sendInvite := func(targetIP string, callNumber int) {
+		t.Helper()
+		clientConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+		if err != nil {
+			t.Fatalf("ListenUDP(client) error = %v", err)
+		}
+		defer clientConn.Close()
+
+		clientAddr := clientConn.LocalAddr().(*net.UDPAddr)
+		callID := fmt.Sprintf("ui-server-%d@test", callNumber)
+		invite := fmt.Sprintf(
+			"INVITE sip:echo@%s:%d SIP/2.0\r\nVia: SIP/2.0/UDP %s:%d;branch=z9hG4bK-%d\r\nFrom: <sip:test@%s>;tag=t%d\r\nTo: <sip:echo@%s>\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+			targetIP, port, clientAddr.IP.String(), clientAddr.Port, callNumber, clientAddr.IP.String(), callNumber, targetIP, callID,
+		)
+		if _, err := clientConn.WriteToUDP([]byte(invite), &net.UDPAddr{IP: net.ParseIP(targetIP), Port: port}); err != nil {
+			t.Fatalf("WriteToUDP() error = %v", err)
+		}
+
+		buffer := make([]byte, 65535)
+		_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		n, addr, err := clientConn.ReadFromUDP(buffer)
+		if err != nil {
+			t.Fatalf("ReadFromUDP() error = %v", err)
+		}
+		if got := addr.IP.String(); got != targetIP {
+			t.Fatalf("expected response from %s, got %s", targetIP, got)
+		}
+		msg, err := sip.Parse(buffer[:n])
+		if err != nil {
+			t.Fatalf("sip.Parse() error = %v", err)
+		}
+		if msg.StatusCode != 200 {
+			t.Fatalf("expected 200 OK, got %d", msg.StatusCode)
+		}
+		contact, _ := sip.Header(msg.Headers, "Contact")
+		if !strings.Contains(contact, targetIP) {
+			t.Fatalf("expected Contact to contain listener IP %s, got %q", targetIP, contact)
+		}
+	}
+
+	sendInvite("127.0.0.2", 1)
+	sendInvite("127.0.0.3", 2)
+
+	if err := <-runErr; err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	summary := app.Stats().Snapshot()
+	if summary.SuccessCalls != 2 || summary.FailedCalls != 0 {
+		t.Fatalf("unexpected summary for ui server transport: %+v", summary)
+	}
+}
+
+func TestSourceIPForCallRoundRobinKeepsDuplicateWeights(t *testing.T) {
+	t.Parallel()
+
+	app := New(Config{
+		LocalIP:     "127.0.0.1",
+		UISourceIPs: []string{"127.0.0.2", "127.0.0.3", "127.0.0.2"},
+	})
+	got := []string{
+		app.sourceIPForCall(1),
+		app.sourceIPForCall(2),
+		app.sourceIPForCall(3),
+		app.sourceIPForCall(4),
+		app.sourceIPForCall(5),
+		app.sourceIPForCall(6),
+	}
+	want := []string{"127.0.0.2", "127.0.0.3", "127.0.0.2", "127.0.0.2", "127.0.0.3", "127.0.0.2"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected source IP rotation at call %d: want %q, got %q (all=%v)", i+1, want[i], got[i], got)
+		}
+	}
+}
+
+func TestEngineUITransportServerAcceptsDuplicateSourceIPs(t *testing.T) {
+	t.Parallel()
+
+	reserved, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(reserve) error = %v", err)
+	}
+	port := reserved.LocalAddr().(*net.UDPAddr).Port
+	_ = reserved.Close()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="ui-uas-dedup-ips">
+  <recv request="INVITE"/>
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]UiServerDupTag[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Contact: <sip:[server_ip]:[local_port];transport=[transport]>
+Content-Length: 0
+
+]]>
+  </send>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "ui",
+		LocalIP:       "0.0.0.0",
+		LocalPort:     port,
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    5060,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    2,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+		UISourceIPs:   []string{"127.0.0.2", "127.0.0.2", "127.0.0.3"},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- app.Run(ctx)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	sendInvite := func(targetIP string, callNumber int) {
+		t.Helper()
+		clientConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+		if err != nil {
+			t.Fatalf("ListenUDP(client) error = %v", err)
+		}
+		defer clientConn.Close()
+
+		clientAddr := clientConn.LocalAddr().(*net.UDPAddr)
+		callID := fmt.Sprintf("ui-server-dup-%d@test", callNumber)
+		invite := fmt.Sprintf(
+			"INVITE sip:echo@%s:%d SIP/2.0\r\nVia: SIP/2.0/UDP %s:%d;branch=z9hG4bK-%d\r\nFrom: <sip:test@%s>;tag=t%d\r\nTo: <sip:echo@%s>\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+			targetIP, port, clientAddr.IP.String(), clientAddr.Port, callNumber, clientAddr.IP.String(), callNumber, targetIP, callID,
+		)
+		if _, err := clientConn.WriteToUDP([]byte(invite), &net.UDPAddr{IP: net.ParseIP(targetIP), Port: port}); err != nil {
+			t.Fatalf("WriteToUDP() error = %v", err)
+		}
+
+		buffer := make([]byte, 65535)
+		_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		n, addr, err := clientConn.ReadFromUDP(buffer)
+		if err != nil {
+			t.Fatalf("ReadFromUDP() error = %v", err)
+		}
+		if got := addr.IP.String(); got != targetIP {
+			t.Fatalf("expected response from %s, got %s", targetIP, got)
+		}
+		msg, err := sip.Parse(buffer[:n])
+		if err != nil {
+			t.Fatalf("sip.Parse() error = %v", err)
+		}
+		if msg.StatusCode != 200 {
+			t.Fatalf("expected 200 OK, got %d", msg.StatusCode)
+		}
+		contact, _ := sip.Header(msg.Headers, "Contact")
+		if !strings.Contains(contact, targetIP) {
+			t.Fatalf("expected Contact to contain listener IP %s, got %q", targetIP, contact)
+		}
+	}
+
+	sendInvite("127.0.0.2", 1)
+	sendInvite("127.0.0.3", 2)
+
+	if err := <-runErr; err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	summary := app.Stats().Snapshot()
+	if summary.SuccessCalls != 2 || summary.FailedCalls != 0 {
+		t.Fatalf("unexpected summary for ui server duplicate IPs: %+v", summary)
+	}
+}
+
+func TestEngineUITransportServerFailsOnConflictingBind(t *testing.T) {
+	t.Parallel()
+
+	reserved, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(reserve) error = %v", err)
+	}
+	defer reserved.Close()
+	port := reserved.LocalAddr().(*net.UDPAddr).Port
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="ui-uas-bind-conflict">
+  <recv request="INVITE"/>
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:]
+[last_Call-ID:]
+[last_CSeq:]
+Content-Length: 0
+
+]]>
+  </send>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "ui",
+		LocalPort:     port,
+		Rate:          10,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: time.Second,
+		UISourceIPs:   []string{"127.0.0.1", "127.0.0.2"},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err == nil {
+		t.Fatal("expected Run() to fail when ui listener port is already in use")
+	} else {
+		if !strings.Contains(err.Error(), "transport ui failed to bind server listener on 127.0.0.1:"+strconv.Itoa(port)) {
+			t.Fatalf("expected bind error to include listener address, got %v", err)
+		}
+	}
+}
+
+func TestEngineUITransportServerFailsOnInvalidSourceIPAddress(t *testing.T) {
+	t.Parallel()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="ui-uas-invalid-ip">
+  <recv request="INVITE"/>
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:]
+[last_Call-ID:]
+[last_CSeq:]
+Content-Length: 0
+
+]]>
+  </send>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "ui",
+		LocalPort:     5060,
+		Rate:          10,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: time.Second,
+		UISourceIPs:   []string{"127.0.0.1:invalid"},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err == nil {
+		t.Fatal("expected Run() to fail when ui source IP is malformed")
+	} else {
+		if !strings.Contains(err.Error(), "transport ui failed to bind server listener on 127.0.0.1:invalid:5060") {
+			t.Fatalf("expected malformed bind address in error, got %v", err)
+		}
+	}
+}
+
+func TestEngineUITransportClientFailsOnConflictingBind(t *testing.T) {
+	t.Parallel()
+
+	reserved, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(reserve) error = %v", err)
+	}
+	defer reserved.Close()
+	port := reserved.LocalAddr().(*net.UDPAddr).Port
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="ui-uac-bind-conflict">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "ui",
+		LocalPort:     port,
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    5060,
+		Service:       "echo",
+		Rate:          10,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: time.Second,
+		UISourceIPs:   []string{"127.0.0.1", "127.0.0.2"},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err == nil {
+		t.Fatal("expected Run() to fail when ui client source bind port is already in use")
+	} else {
+		if !strings.Contains(err.Error(), "transport ui failed to bind client socket on 127.0.0.1:"+strconv.Itoa(port)) {
+			t.Fatalf("expected client bind error to include socket address, got %v", err)
+		}
+	}
+}
+
+func TestEngineUITransportClientFailsOnInvalidSourceIPAddress(t *testing.T) {
+	t.Parallel()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="ui-uac-invalid-ip">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "ui",
+		LocalPort:     5060,
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    5060,
+		Service:       "echo",
+		Rate:          10,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: time.Second,
+		UISourceIPs:   []string{"127.0.0.1:invalid"},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err == nil {
+		t.Fatal("expected Run() to fail when ui client source IP is malformed")
+	} else {
+		if !strings.Contains(err.Error(), "transport ui failed to bind client socket on 127.0.0.1:invalid:5060") {
+			t.Fatalf("expected malformed client bind address in error, got %v", err)
+		}
+	}
+}
+
+func TestEngineSetDestUpdatesUDPDestination(t *testing.T) {
+	t.Parallel()
+
+	listenerA, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(listenerA) error = %v", err)
+	}
+	defer listenerA.Close()
+
+	listenerB, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(listenerB) error = %v", err)
+	}
+	defer listenerB.Close()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 8192)
+		if err := listenerB.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			serverErr <- err
+			return
+		}
+		n, remote, err := listenerB.ReadFromUDP(buffer)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		msg, err := sip.Parse(buffer[:n])
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		via, _ := sip.Header(msg.Headers, "Via")
+		from, _ := sip.Header(msg.Headers, "From")
+		to, _ := sip.Header(msg.Headers, "To")
+		callID, _ := sip.Header(msg.Headers, "Call-ID")
+		resp := fmt.Sprintf(
+			"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=server\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+			via, from, to, callID,
+		)
+		_, err = listenerB.WriteToUDP([]byte(resp), remote)
+		serverErr <- err
+	}()
+
+	scenarioXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="setdest-u1">
+  <nop>
+    <action>
+      <setdest host="127.0.0.1" port="%d" protocol="UDP"/>
+    </action>
+  </nop>
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: client <sip:client@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`, listenerB.LocalAddr().(*net.UDPAddr).Port)
+	sc, err := scenario.ParseString(scenarioXML)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		LocalPort:     0,
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    listenerA.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          1,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("udp responder error = %v", err)
+	}
+}
+
+func TestEngineSetDestRejectsProtocolMismatch(t *testing.T) {
+	t.Parallel()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="setdest-mismatch">
+  <nop>
+    <action>
+      <setdest host="127.0.0.1" port="5070" protocol="TCP"/>
+    </action>
+  </nop>
+  <send><![CDATA[
+OPTIONS sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: client <sip:client@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 OPTIONS
+Content-Length: 0
+
+]]></send>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		LocalPort:     0,
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    5070,
+		Service:       "echo",
+		Rate:          1,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err = app.Run(ctx)
+	if err == nil {
+		t.Fatal("expected protocol mismatch error for setdest")
+	}
+	if !strings.Contains(err.Error(), `setdest protocol "TCP" is incompatible with current transport "udp"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func reserveTCPAddr(t *testing.T) string {
 	t.Helper()
 

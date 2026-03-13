@@ -115,9 +115,6 @@ func NormalizeTransport(cfg *cli.Config, sc scenario.Scenario) error {
 		}
 		cfg.Transport = "un"
 	case "ui":
-		if sc.Mode != scenario.ModeClient {
-			return fmt.Errorf("transport ui requires a client scenario")
-		}
 		if len(cfg.UISourceIPs) == 0 || cfg.InjectionFile == "" || cfg.IPField < 0 {
 			return fmt.Errorf("transport ui requires inf and ip_field with at least one source IP")
 		}

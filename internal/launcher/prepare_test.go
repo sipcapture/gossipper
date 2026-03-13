@@ -41,7 +41,7 @@ func TestPrepareRejectsServerAliasForClientScenario(t *testing.T) {
 	}
 }
 
-func TestPrepareRejectsUITransportForServerScenario(t *testing.T) {
+func TestPrepareAcceptsUITransportForServerScenario(t *testing.T) {
 	t.Parallel()
 
 	cfg := cli.DefaultConfig()
@@ -51,9 +51,12 @@ func TestPrepareRejectsUITransportForServerScenario(t *testing.T) {
 	cfg.IPField = 0
 	cfg.UISourceIPs = []string{"127.0.0.2"}
 
-	_, err := Prepare(cfg)
-	if err == nil || !strings.Contains(err.Error(), "transport ui requires a client scenario") {
-		t.Fatalf("expected ui transport validation error, got %v", err)
+	prepared, err := Prepare(cfg)
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	if prepared.EngineConfig.Transport != "ui" {
+		t.Fatalf("expected ui transport for server scenario, got %q", prepared.EngineConfig.Transport)
 	}
 }
 

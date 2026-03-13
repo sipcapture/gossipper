@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -351,27 +352,29 @@ func loadSourceIPsFromInjection(path string, field int) ([]string, error) {
 
 	reader := csv.NewReader(file)
 	reader.FieldsPerRecord = -1
-	records, err := reader.ReadAll()
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse inf file: %w", err)
-	}
-
-	sourceIPs := make([]string, 0, len(records))
-	for rowIndex, record := range records {
+	sourceIPs := make([]string, 0, 64)
+	for rowIndex := 0; ; rowIndex++ {
+		record, err := reader.Read()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse inf file: %w", err)
+		}
 		if field >= len(record) {
-			return nil, fmt.Errorf("ip_field %d is out of range for inf row %d", field, rowIndex+1)
+			return nil, fmt.Errorf("inf file %q row %d: ip_field %d is out of range", path, rowIndex+1, field)
 		}
 		value := strings.TrimSpace(record[field])
 		if value == "" {
-			return nil, fmt.Errorf("empty source IP in inf row %d field %d", rowIndex+1, field)
+			return nil, fmt.Errorf("inf file %q row %d field %d: empty source IP", path, rowIndex+1, field)
 		}
 		if net.ParseIP(value) == nil {
-			return nil, fmt.Errorf("invalid source IP %q in inf row %d field %d", value, rowIndex+1, field)
+			return nil, fmt.Errorf("inf file %q row %d field %d: invalid source IP %q", path, rowIndex+1, field, value)
 		}
 		sourceIPs = append(sourceIPs, value)
 	}
 	if len(sourceIPs) == 0 {
-		return nil, errors.New("inf file does not contain any source IP rows")
+		return nil, fmt.Errorf("inf file %q: does not contain any source IP rows", path)
 	}
 	return sourceIPs, nil
 }

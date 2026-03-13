@@ -57,6 +57,7 @@ const (
 	ActionURLDecode    ActionType = "urldecode"
 	ActionVerifyAuth   ActionType = "verifyauth"
 	ActionExec         ActionType = "exec"
+	ActionSetDest      ActionType = "setdest"
 )
 
 type Action struct {
@@ -80,6 +81,9 @@ type Action struct {
 	IntCmd         string
 	RTPStream      string
 	PlayPCAPAudio  string
+	Host           string
+	Port           string
+	Protocol       string
 }
 
 type Command struct {

@@ -70,7 +70,7 @@ into no-ops or empty strings.
 | `sample` | deferred | Statistical variable sampling is not implemented yet |
 | `insert` | deferred | In-memory injection file mutation is not implemented yet |
 | `replace` | deferred | In-memory injection file mutation is not implemented yet |
-| `setdest` | deferred | Deferred to transport/addressing parity work in Milestone 3 |
+| `setdest` | partial | Pragmatic M3 runtime support: updates remote destination for shared-socket UDP flows (`u1`, `ui`, server-side UDP aliases), with protocol compatibility validation; non-UDP/per-call transports remain deferred |
 | `play_pcap_video` | deferred | Deferred to broader media parity work |
 
 ## Keywords
@@ -84,7 +84,7 @@ into no-ops or empty strings.
 | `[local_ip]` | supported | Local bind IP |
 | `[local_ip_type]` | supported | `4` or `6` |
 | `[local_port]` | supported | Supports `+/-offset` |
-| `[transport]` | supported | Renders `UDP`, `TCP`, or `TLS` depending on transport |
+| `[transport]` | supported | Renders `UDP`, `TCP`, or `TLS` depending on transport; `ui` explicitly renders as `UDP` |
 | `[call_id]` | supported | Generated per call; in command-only/external 3PCC flows it is adopted from the first incoming `recvCmd` correlation message when needed |
 | `[cseq]` | supported | Basic numeric rendering with offsets |
 | `[branch]` | supported | Deterministic per message |
@@ -96,7 +96,7 @@ into no-ops or empty strings.
 | `[last_*]` | supported | Missing header drops the whole line, matching SIPp semantics |
 | `[last_Request_URI]` | supported | Uses the last received request URI when available, otherwise falls back to the URI in the last `To` header |
 | `[last_cseq_number]` | supported | Extracted from the last `CSeq` header |
-| `[server_ip]` | supported | Currently resolves to the local/server bind IP; multi-IP semantics are deferred to Milestone 3 |
+| `[server_ip]` | supported | Resolves to the active local bind IP for the call/session; in `-t ui` server mode it matches the listener IP that accepted the first request for the session |
 | `[next_url]` | supported | Extracted from the last `Contact` header |
 | `[peer_tag_param]` | supported | Extracted from the last `To` header |
 | `[media_ip]` | supported | Mirrors local IP for now |
@@ -123,7 +123,7 @@ into no-ops or empty strings.
 | --- | --- |
 | `u1` | supported |
 | `un` | supported |
-| `ui` | partial (client-only MVP) |
+| `ui` | partial (pragmatic client+server multi-IP parity) |
 | `s1` | supported as server-side UDP alias |
 | `sn` | supported as server-side UDP alias |
 | `t1` | supported |
@@ -156,8 +156,8 @@ into no-ops or empty strings.
 | `-timeout_global` | supported | Exits after N seconds of total runtime for deterministic CI/load runs |
 | `-rate_scale` | supported | Sets interactive CPS step size used by runtime TUI controls (`+/-` for 1x step and `*`/`/` for 10x step) |
 | `-rate_increase` + `-rate_interval` + `-rate_max` | supported | Applies periodic CPS ramp-up/ramp-down during run; `-rate_max` caps upper bound when set |
-| `-inf` + `-ip_field` | supported (for `-t ui`) | Selects per-call source IP from CSV field (zero-based index) for client UI transport |
-| `-t ui` | partial | Client-only MVP: one UDP shared socket per source IP from injection data; advanced SIPp parity remains in Milestone 3 |
+| `-inf` + `-ip_field` | supported (for `-t ui`) | Selects UI transport bind IPs from a CSV field (zero-based index): client mode preserves CSV row order (including duplicates) for per-call rotation, server mode binds one listener per unique IP |
+| `-t ui` | partial | Pragmatic M3 parity: one UDP shared socket per source IP in client mode and one UDP listener socket per configured IP in server mode; bind failures include failing `ip:port`; TUI launch path supports `ui` + `inf` / `ip_field`; advanced SIPp parity remains deferred |
 | `-infindex` | supported | Generates a CSV injection index (`-infindex <file> <field>`); lookup uses generated index files for faster first-column key resolution |
 | `-max_socket` | partial | Caps per-call transport concurrency (`un`, `tn`, `ln`) by limiting simultaneously open call sockets |
 | `-max_reconnect` + `-reconnect_sleep` + `-reconnect_close` | partial | Shared client TCP/TLS transports (`t1`, `l1`) support reconnect retries and close-on-reconnect behavior |
@@ -219,9 +219,9 @@ into no-ops or empty strings.
 ## Deliberately deferred
 
 - `sample`, `insert`, and `replace` action families
-- `setdest` and broader per-call addressing changes
+- broader per-call addressing changes outside current `setdest` pragmatic scope (for example per-call sockets and non-UDP transports)
 - `play_pcap_video` / `play_pcap_image`
-- advanced `-t ui` parity beyond current client-only MVP (`server` multi-IP semantics, broader SIPp behavior alignment)
+- advanced `-t ui` parity beyond current client+server multi-IP MVP (broader SIPp behavior alignment)
 - keyword helpers such as `[routes]`, `[dynamic_id]`, `[clock_tick]`, `[sipp_version]`, `[tdmmap]`, and `[fill]`
 - SRTP / rtpcheck
 - full CLI parity with SIPp

@@ -373,7 +373,7 @@ func parseArithmetic(value string) (string, int) {
 
 func transportName(mode string) string {
 	switch mode {
-	case "u1", "un":
+	case "u1", "un", "ui":
 		return "udp"
 	case "t1", "tn":
 		return "tcp"

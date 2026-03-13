@@ -43,7 +43,7 @@ It is intentionally pragmatic:
 | `-sf`, `-sn`, `-rsa` (or positional remote address), `-s`, `-i`, `-p` | `supported` | `P0` | core scenario and addressing startup flags |
 | `-t u1`, `-t un`, `-t t1`, `-t tn`, `-t l1`, `-t ln` | `supported` | `P0` | core transport coverage for UDP/TCP/TLS modes |
 | `-t s1`, `-t sn` | `partial` | `P1` | accepted as server-side UDP aliases, not SIPp SCTP semantics |
-| `-t ui`, `-inf`, `-ip_field` | `partial` | `P2` | client-only MVP implemented: per-call source IP selection from CSV and one UDP shared socket per source IP |
+| `-t ui`, `-inf`, `-ip_field` | `partial` | `P2` | pragmatic M3 parity implemented: deterministic client/server behavior, explicit bind diagnostics, and TUI launch support for `ui` + `inf` / `ip_field` |
 | `-r`, `-rp`, `-rate_scale`, `-rate_increase`, `-rate_interval`, `-rate_max`, `-max_socket`, `-max_reconnect`, `-reconnect_sleep`, `-reconnect_close`, `-infindex`, `-m`, `-l`, `-users`, `-pause_ms`, `-recv_timeout_ms`, `-timeout_global` | `supported` | `P0` | basic load/scheduling controls are present, including SIPp-style rate periods, runtime rate ramp controls, socket cap for per-call modes, shared TCP/TLS reconnect knobs, indexed injection lookup generation, interactive rate scale, and global run timeout |
 | `-summary_json` | `supported` | `P0` | structured final stats for automation |
 | `-trace_msg`, `-message_file`, `-trace_shortmsg` | `supported` | `P0` | full and compact message traces |
@@ -67,8 +67,8 @@ It is intentionally pragmatic:
 | selected rate/scheduling knobs beyond `-r/-m/-l` | richer load profile control | `partial` | `P0` | define top missing knobs by automation value and add incrementally | `-rp`, `-rate_scale`, `-rate_increase`/`-rate_interval`/`-rate_max`, `-max_socket`, and `-timeout_global` now supported; keep deterministic behavior first |
 | SIPp-style runtime reporting behavior (selected non-interactive subset) | operator visibility and triage during run | `supported` | `P1` | keep screen CSV contract stable and extend additively only | interactive TUI exists; non-interactive screen CSV snapshots are available via `-trace_screen` / `-screen_file`, plus on-demand dump trigger via `SIGUSR1` |
 | `-base_cseq` | explicit initial CSeq seed | `supported` | `P1` | keep behavior documented and add coverage for offsets via `[cseq+N]` | base CSeq now controls `[cseq]` token rendering |
-| `-t ui` | one UDP socket per source IP from injection data | `partial` | `P2` | continue Milestone 3 parity work | current MVP is client-only and uses one shared UDP socket per selected source IP |
-| `-inf` + `-ip_field` for transport/IP selection | per-call local IP selection in `ui` workflow | `partial` | `P2` | continue Milestone 3 parity work | supports CSV-driven per-call source IP selection for `-t ui` with zero-based field index |
+| `-t ui` | one UDP socket per source IP from injection data | `partial` | `P2` | keep pragmatic behavior stable and defer advanced SIPp tail | supports deterministic client+server multi-IP workflow with session affinity and listener-aware server identity |
+| `-inf` + `-ip_field` for transport/IP selection | per-call local IP selection in `ui` workflow | `partial` | `P2` | keep pragmatic behavior stable and defer advanced SIPp tail | supports CSV-driven UI bind-IP selection with detailed validation/errors and deterministic client/server rules |
 | `-infindex` | indexed CSV injection lookup acceleration | `supported` | `P2` | keep indexed lookup behavior stable for automation | accepts SIPp-style `-infindex <file> <field>` and compact `-infindex file,field`; generated index accelerates `lookup` for field `0` |
 | TCP reconnect controls (`-max_reconnect`, `-reconnect_close`, `-reconnect_sleep`) | reconnection policy tuning | `partial` | `P2` | extend semantics if full SIPp parity is required | supported for shared client TCP/TLS (`t1`, `l1`); `-reconnect_close=true` currently closes active calls by disabling reconnect attempts |
 | `-max_socket` (multi-socket cap) | cap number of active sockets | `partial` | `P2` | evaluate server/shared transport alignment later | currently caps per-call client socket fanout (`un`, `tn`, `ln`) |
@@ -90,5 +90,5 @@ It is intentionally pragmatic:
 
 ## Out-of-scope for Milestone 5
 
-- transport/addressing redesign (`-t ui`, `-inf`, `-ip_field`) from Milestone 3
+- advanced transport/addressing tail beyond pragmatic M3 scope (`-t ui`, `-inf`, `-ip_field`)
 - media parity work (`play_pcap_video`, `play_pcap_image`, broader replay semantics) from Milestone 4

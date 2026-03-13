@@ -14,10 +14,10 @@ The current MVP implements:
 - SIPp-style 3PCC CLI aliases `-master`, `-slave`, and `-slave_cfg` on top of the external command transport
 - Out-of-call SIP scenarios such as stateless `OPTIONS` ping/pong
 - Command-only 3PCC/out-of-call flows can run without a SIP remote address
-- Expanded XML actions: `ereg`, `assign`, `assignstr`, `todouble`, `add`, `subtract`, `multiply`, `divide`, `strcmp`, `test`, `log`, `warning`, `lookup`, `jump`, `gettimeofday`, `urlencode`, `urldecode`, `verifyauth`, and `exec`
+- Expanded XML actions: `ereg`, `assign`, `assignstr`, `todouble`, `add`, `subtract`, `multiply`, `divide`, `strcmp`, `test`, `log`, `warning`, `lookup`, `jump`, `gettimeofday`, `urlencode`, `urldecode`, `verifyauth`, `setdest`, and `exec`
 - Basic SIPp-style keywords such as `[call_id]`, `[cseq]`, `[branch]`,
   `[remote_ip]`, `[local_ip]`, `[server_ip]`, `[len]`, `[last_*]`, `[last_Request_URI]`, `[users]`, `[userid]`, `[$var]`, `[file ...]`, `[fieldN ...]`, and Digest `[authentication]`
-- UDP transports `u1` and `un`
+- UDP transports `u1`, `un`, and `ui` (pragmatic client+server multi-IP mode)
 - Server-side UDP aliases `s1` and `sn` for UAS-style scenarios
 - TCP transports `t1` and `tn`
 - TLS transports `l1` and `ln`
@@ -313,8 +313,11 @@ at `/usr/bin/gossIpper`.
 - `-max_reconnect` and `-reconnect_sleep` enable reconnect retries for shared client TCP/TLS transports (`t1`, `l1`) on transport failures.
 - `-reconnect_close` in shared client `t1`/`l1` closes active calls on socket loss by skipping reconnect attempts.
 - `-infindex <file> <field>` generates an index file next to the CSV (`.gossipper.idx.<field>.json`) so lookup-by-key can avoid full-file scans.
-- `-t ui` currently provides a client-only M3 MVP: one shared UDP socket per selected source IP.
-- `-inf <file>` + `-ip_field <idx>` are required with `-t ui` and select per-call source IP from the CSV field (zero-based index).
+- `-t ui` currently provides an M3 client+server MVP: one shared UDP socket per configured IP (client: per-call source IP rotation, server: one listener per configured IP).
+- `-inf <file>` + `-ip_field <idx>` are required with `-t ui` and select UI bind IPs from the CSV field (zero-based index).
+- In `-t ui` client mode, `-inf` row order is preserved and duplicate IP rows intentionally affect round-robin weighting; in server mode listeners are created per unique IP.
+- XML action `setdest` is supported in the pragmatic M3 scope for UDP shared-socket flows (`u1`, `ui`, and server-side UDP aliases) and enforces protocol compatibility checks.
+- TUI launch form supports `-t ui` with explicit `inf` / `ip_field` inputs and validates them before run start.
 - `start_rtd` and `rtd` now record named per-step timings into the summary model; they are especially useful for XML flows like `send INVITE` -> `recv 200`.
 - `counter` and `display` are currently exposed as successful-command execution counters in the summary model, which is a practical first step toward richer SIPp-style reporting.
 - In external 3PCC-style flows, the first incoming `recvCmd` can automatically adopt its `Call-ID` into `[call_id]` for later commands.

@@ -90,6 +90,15 @@ func TestRenderVariablesAndTCPTransport(t *testing.T) {
 	}
 }
 
+func TestRenderTransportUIIsUDP(t *testing.T) {
+	t.Parallel()
+
+	got := RenderMessage("Via: SIP/2.0/[transport] host\r\n\r\n", Context{Transport: "ui"})
+	if !strings.Contains(got, "SIP/2.0/UDP") {
+		t.Fatalf("expected UDP transport for ui mode, got %q", got)
+	}
+}
+
 func TestRenderFileAndFieldTokens(t *testing.T) {
 	t.Parallel()
 

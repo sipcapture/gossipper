@@ -224,3 +224,26 @@ func TestParseScenarioWarningAction(t *testing.T) {
 		t.Fatalf("unexpected warning action: %+v", sc.Commands[0].Actions[0])
 	}
 }
+
+func TestParseScenarioSetDestAction(t *testing.T) {
+	t.Parallel()
+
+	sc, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="setdest">
+  <nop>
+    <action>
+      <setdest host="[$host]" port="[$port]" protocol="[$transport]"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if len(sc.Commands) != 1 || len(sc.Commands[0].Actions) != 1 {
+		t.Fatalf("unexpected parsed scenario: %+v", sc.Commands)
+	}
+	action := sc.Commands[0].Actions[0]
+	if action.Type != ActionSetDest || action.Host != "[$host]" || action.Port != "[$port]" || action.Protocol != "[$transport]" {
+		t.Fatalf("unexpected setdest action: %+v", action)
+	}
+}

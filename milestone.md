@@ -98,22 +98,27 @@ Deliverables:
 
 Priority: medium-high
 
-Status: in progress
+Status: completed (pragmatic)
 
 Completed so far in this milestone:
 
-- `-t ui` initial client-only MVP with one shared UDP socket per source IP
+- `-t ui` initial client+server MVP with one shared UDP socket per configured source/listener IP
 - `-inf` + `-ip_field` CLI workflow for per-call local IP selection in `ui` mode
 - per-call source IP is now propagated into render context so `[local_ip]` and `[server_ip]` reflect selected `ui` source IP
 - client-side regression coverage for `ui` source-IP socket behavior and keyword rendering semantics
+- server-side multi-IP `ui` listener binding with per-session socket affinity and listener-based `[server_ip]` semantics
+- hardening coverage for `ui` bind failures (conflicting port and malformed bind IP), with explicit runtime errors that include the failing `ip:port`
+- pragmatic `setdest` support in parser/runtime with positive and negative coverage
+- `[transport]` keyword parity for `ui` (`UDP`) with unit coverage
+- deterministic `-inf` / `-ip_field` contract hardened with edge-case tests (empty CSV, empty cell, malformed CSV, out-of-range, IPv6)
+- TUI launcher parity for `ui` via explicit `inf` / `ip_field` inputs and validation
+- docs/compatibility alignment for M3 pragmatic scope and deferred tail
 
-Target gaps from SIPp:
+Target gaps from SIPp (deferred beyond pragmatic M3 close):
 
-- broader SIPp parity for `-t ui` beyond current client-only MVP
-- additional `-inf` + `-ip_field` semantics and edge-case compatibility
-- `[server_ip]` keyword semantics used with multi-IP server binding
-- broader transport-related parity after the current `u1` / `un` / `s1` / `sn`
-  / `t1` / `tn` / `l1` / `ln` coverage
+- broader SIPp parity for `-t ui` beyond current deterministic client+server workflow
+- broader `setdest` semantics for non-UDP and per-call socket transports
+- broader transport-related parity after the current `u1` / `un` / `ui` / `s1` / `sn` / `t1` / `tn` / `l1` / `ln` coverage
 
 Deliverables:
 
@@ -215,7 +220,7 @@ These are concrete SIPp-side features that are not currently present in
 
 - advanced `-t ui` parity and broader multi-IP transport semantics
 - advanced `-inf` + `-ip_field` compatibility behavior
-- full `[server_ip]` multi-IP server semantics
+- broader `setdest` coverage beyond current pragmatic UDP scope
 - `play_pcap_video`
 - `play_pcap_image`
 - bidirectional RTP/SRTP checking (`rtpcheck`)
