@@ -93,6 +93,34 @@ func TestParseAcceptsServerTransportAliases(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsUITransportWithInjection(t *testing.T) {
+	t.Parallel()
+
+	injectionPath := filepath.Join(t.TempDir(), "ips.csv")
+	if err := os.WriteFile(injectionPath, []byte("127.0.0.2,alpha\n127.0.0.3,beta\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(injection) error = %v", err)
+	}
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-t", "ui",
+		"-inf", injectionPath,
+		"-ip_field", "0",
+	})
+	if err != nil {
+		t.Fatalf("Parse(ui) error = %v", err)
+	}
+	if cfg.Transport != "ui" {
+		t.Fatalf("unexpected transport %q", cfg.Transport)
+	}
+	if cfg.InjectionFile != injectionPath || cfg.IPField != 0 {
+		t.Fatalf("unexpected injection config: file=%q ip_field=%d", cfg.InjectionFile, cfg.IPField)
+	}
+	if len(cfg.UISourceIPs) != 2 || cfg.UISourceIPs[0] != "127.0.0.2" || cfg.UISourceIPs[1] != "127.0.0.3" {
+		t.Fatalf("unexpected ui source IPs: %+v", cfg.UISourceIPs)
+	}
+}
+
 func TestParseEnablesTraceMessagesForMessageFile(t *testing.T) {
 	t.Parallel()
 
@@ -478,6 +506,40 @@ func TestParseAcceptsMaxSocket(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsInfIndex(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-infindex", "users.csv", "0",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.InfIndexFile != "users.csv" {
+		t.Fatalf("expected infindex file users.csv, got %q", cfg.InfIndexFile)
+	}
+	if cfg.InfIndexField != 0 {
+		t.Fatalf("expected infindex field 0, got %d", cfg.InfIndexField)
+	}
+}
+
+func TestParseAcceptsInfIndexCompactSyntax(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-infindex", "users.csv,1",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.InfIndexFile != "users.csv" {
+		t.Fatalf("expected infindex file users.csv, got %q", cfg.InfIndexFile)
+	}
+	if cfg.InfIndexField != 1 {
+		t.Fatalf("expected infindex field 1, got %d", cfg.InfIndexField)
+	}
+}
+
 func TestParseRejectsInvalidBaseCSeq(t *testing.T) {
 	t.Parallel()
 
@@ -559,6 +621,102 @@ func TestParseRejectsInvalidMaxReconnect(t *testing.T) {
 		"-max_reconnect", "-1",
 	}); err == nil {
 		t.Fatal("expected Parse() to reject max_reconnect < 0")
+	}
+}
+
+func TestParseRejectsUITransportWithoutInjection(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-t", "ui",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject ui transport without inf/ip_field")
+	}
+}
+
+func TestParseRejectsInfWithoutIPField(t *testing.T) {
+	t.Parallel()
+
+	injectionPath := filepath.Join(t.TempDir(), "ips.csv")
+	if err := os.WriteFile(injectionPath, []byte("127.0.0.2\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(injection) error = %v", err)
+	}
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-inf", injectionPath,
+	}); err == nil {
+		t.Fatal("expected Parse() to reject inf without ip_field")
+	}
+}
+
+func TestParseRejectsIPFieldWithoutInf(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-ip_field", "0",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject ip_field without inf")
+	}
+}
+
+func TestParseRejectsInfOnNonUITransport(t *testing.T) {
+	t.Parallel()
+
+	injectionPath := filepath.Join(t.TempDir(), "ips.csv")
+	if err := os.WriteFile(injectionPath, []byte("127.0.0.2\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(injection) error = %v", err)
+	}
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-t", "u1",
+		"-inf", injectionPath,
+		"-ip_field", "0",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject inf/ip_field when transport is not ui")
+	}
+}
+
+func TestParseRejectsInvalidIPInInjection(t *testing.T) {
+	t.Parallel()
+
+	injectionPath := filepath.Join(t.TempDir(), "ips.csv")
+	if err := os.WriteFile(injectionPath, []byte("not-an-ip\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(injection) error = %v", err)
+	}
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-t", "ui",
+		"-inf", injectionPath,
+		"-ip_field", "0",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject invalid source IP in inf file")
+	}
+}
+
+func TestParseRejectsInfIndexWithoutField(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-infindex", "users.csv",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject infindex without field")
+	}
+}
+
+func TestParseRejectsInvalidInfIndexField(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-infindex", "users.csv", "-1",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject infindex field < 0")
 	}
 }
 

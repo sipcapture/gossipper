@@ -91,6 +91,18 @@ Run with a deterministic global timeout (CI-friendly):
 go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 10000 -r 50 -timeout_global 30
 ```
 
+Generate CSV lookup index for faster `lookup` action resolution:
+
+```bash
+go run ./cmd/gossip -infindex ./testdata/injection/inject.csv 0
+```
+
+Run M3 `ui` transport MVP (source IP selected per call from CSV):
+
+```bash
+go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -t ui -inf ./testdata/injection/ui_ips.csv -ip_field 0 -m 20 -r 10
+```
+
 Print build version information:
 
 ```bash
@@ -300,6 +312,9 @@ at `/usr/bin/gossIpper`.
 - `-max_socket` limits simultaneously open call sockets for per-call client transports (`un`, `tn`, `ln`).
 - `-max_reconnect` and `-reconnect_sleep` enable reconnect retries for shared client TCP/TLS transports (`t1`, `l1`) on transport failures.
 - `-reconnect_close` in shared client `t1`/`l1` closes active calls on socket loss by skipping reconnect attempts.
+- `-infindex <file> <field>` generates an index file next to the CSV (`.gossipper.idx.<field>.json`) so lookup-by-key can avoid full-file scans.
+- `-t ui` currently provides a client-only M3 MVP: one shared UDP socket per selected source IP.
+- `-inf <file>` + `-ip_field <idx>` are required with `-t ui` and select per-call source IP from the CSV field (zero-based index).
 - `start_rtd` and `rtd` now record named per-step timings into the summary model; they are especially useful for XML flows like `send INVITE` -> `recv 200`.
 - `counter` and `display` are currently exposed as successful-command execution counters in the summary model, which is a practical first step toward richer SIPp-style reporting.
 - In external 3PCC-style flows, the first incoming `recvCmd` can automatically adopt its `Call-ID` into `[call_id]` for later commands.

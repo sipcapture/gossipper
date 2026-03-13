@@ -1,6 +1,8 @@
 package template
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -134,6 +136,58 @@ func TestLookupCSVLine(t *testing.T) {
 	}
 	if line != 3 {
 		t.Fatalf("expected line 3, got %d", line)
+	}
+}
+
+func TestGenerateCSVIndexAndLookupCSVLine(t *testing.T) {
+	t.Parallel()
+
+	basePath := t.TempDir()
+	csvPath := filepath.Join(basePath, "users.csv")
+	if err := os.WriteFile(csvPath, []byte("alice,pass_A\nbob,pass_B\ncarol,pass_C\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(csv) error = %v", err)
+	}
+	indexPath, entries, err := GenerateCSVIndex(basePath, "users.csv", 0)
+	if err != nil {
+		t.Fatalf("GenerateCSVIndex() error = %v", err)
+	}
+	if entries != 3 {
+		t.Fatalf("expected 3 index entries, got %d", entries)
+	}
+	if _, err := os.Stat(indexPath); err != nil {
+		t.Fatalf("expected generated index at %s: %v", indexPath, err)
+	}
+
+	line, found, err := LookupCSVLine(basePath, "users.csv", "bob")
+	if err != nil {
+		t.Fatalf("LookupCSVLine() error = %v", err)
+	}
+	if !found || line != 2 {
+		t.Fatalf("expected bob on line 2, got line=%d found=%v", line, found)
+	}
+}
+
+func TestLookupCSVLineUsesGeneratedIndex(t *testing.T) {
+	t.Parallel()
+
+	basePath := t.TempDir()
+	csvPath := filepath.Join(basePath, "users.csv")
+	if err := os.WriteFile(csvPath, []byte("alice,pass_A\nbob,pass_B\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(csv) error = %v", err)
+	}
+	if _, _, err := GenerateCSVIndex(basePath, "users.csv", 0); err != nil {
+		t.Fatalf("GenerateCSVIndex() error = %v", err)
+	}
+	if err := os.WriteFile(csvPath, []byte("nobody,pass_N\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(csv overwrite) error = %v", err)
+	}
+
+	line, found, err := LookupCSVLine(basePath, "users.csv", "bob")
+	if err != nil {
+		t.Fatalf("LookupCSVLine() error = %v", err)
+	}
+	if !found || line != 2 {
+		t.Fatalf("expected indexed lookup to return line 2, got line=%d found=%v", line, found)
 	}
 }
 

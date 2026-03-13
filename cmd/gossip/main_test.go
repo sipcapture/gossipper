@@ -141,6 +141,24 @@ func TestRunPrintsVersion(t *testing.T) {
 	}
 }
 
+func TestRunGeneratesInfIndex(t *testing.T) {
+	t.Parallel()
+
+	basePath := t.TempDir()
+	csvPath := filepath.Join(basePath, "users.csv")
+	if err := os.WriteFile(csvPath, []byte("alice,pass_A\nbob,pass_B\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(csv) error = %v", err)
+	}
+
+	if err := run([]string{"-infindex", csvPath, "0"}); err != nil {
+		t.Fatalf("run(-infindex) error = %v", err)
+	}
+	indexPath := csvPath + ".gossipper.idx.0.json"
+	if _, err := os.Stat(indexPath); err != nil {
+		t.Fatalf("expected generated infindex file %s: %v", indexPath, err)
+	}
+}
+
 func TestShouldRunTUI(t *testing.T) {
 	t.Parallel()
 

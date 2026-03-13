@@ -81,6 +81,7 @@ type Config struct {
 	TLSSkipVerify    bool
 	CommandName      string
 	CommandPeers     map[string]string
+	UISourceIPs      []string
 }
 
 type Engine struct {
@@ -229,6 +230,8 @@ func (e *Engine) runClient(ctx context.Context) error {
 		return e.runClientShared(ctx)
 	case "un":
 		return e.runClientPerCall(ctx)
+	case "ui":
+		return e.runClientPerSourceIP(ctx)
 	case "t1":
 		return e.runClientSharedTCP(ctx)
 	case "tn":
@@ -414,6 +417,88 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 			send = e.wrapSIPSend(callNumber, localIP, dialog.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send)
 			receive = e.wrapSIPReceive(callNumber, localIP, dialog.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, receive)
 			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, dialog.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send, receive)
+			if runErrLocal != nil {
+				once.Do(func() { runErr = runErrLocal })
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	return runErr
+}
+
+func (e *Engine) runClientPerSourceIP(ctx context.Context) error {
+	if len(e.cfg.UISourceIPs) == 0 {
+		return errors.New("transport ui requires at least one source IP")
+	}
+
+	remoteAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", e.cfg.RemoteHost, e.cfg.RemotePort))
+	if err != nil {
+		return err
+	}
+
+	registry := newMailboxRegistry()
+	sharedByIP := make(map[string]*transport.SharedUDP)
+	for _, sourceIP := range e.cfg.UISourceIPs {
+		if _, exists := sharedByIP[sourceIP]; exists {
+			continue
+		}
+		shared, err := transport.NewSharedUDP(fmt.Sprintf("%s:%d", sourceIP, e.cfg.LocalPort))
+		if err != nil {
+			closeSharedSocketPool(sharedByIP)
+			return err
+		}
+		sharedByIP[sourceIP] = shared
+		go registry.dispatch(shared.Receive())
+	}
+	defer closeSharedSocketPool(sharedByIP)
+
+	sem := make(chan struct{}, e.callConcurrencyLimit(false))
+	var wg sync.WaitGroup
+	var once sync.Once
+	var runErr error
+
+	for i := 1; i <= e.cfg.TotalCalls; i++ {
+		if err := e.waitForNextCall(ctx); err != nil {
+			if errors.Is(err, scheduler.ErrStopped) {
+				break
+			}
+			return err
+		}
+
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(callNumber int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			sourceIP := e.sourceIPForCall(callNumber)
+			shared, ok := sharedByIP[sourceIP]
+			if !ok {
+				once.Do(func() { runErr = fmt.Errorf("no shared socket for source IP %q", sourceIP) })
+				return
+			}
+			callID := newCallID(callNumber)
+			inbox := registry.register(callID)
+			defer registry.unregister(callID)
+
+			receive := func(waitCtx context.Context) (sip.Message, error) {
+				select {
+				case <-waitCtx.Done():
+					return sip.Message{}, waitCtx.Err()
+				case msg := <-inbox:
+					return msg, nil
+				}
+			}
+
+			send := func(payload []byte) error {
+				return shared.Send(payload, remoteAddr)
+			}
+
+			localIP := resolveLocalIP(shared.LocalPort(), sourceIP)
+			send = e.wrapSIPSend(callNumber, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send)
+			receive = e.wrapSIPReceive(callNumber, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, receive)
+			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send, receive)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
 			}
@@ -1283,6 +1368,20 @@ func resolveLocalIP(port int, configured string) string {
 		return "127.0.0.1"
 	}
 	return "127.0.0.1"
+}
+
+func closeSharedSocketPool(pool map[string]*transport.SharedUDP) {
+	for _, shared := range pool {
+		_ = shared.Close()
+	}
+}
+
+func (e *Engine) sourceIPForCall(callNumber int) string {
+	if len(e.cfg.UISourceIPs) == 0 {
+		return e.cfg.LocalIP
+	}
+	index := (callNumber - 1) % len(e.cfg.UISourceIPs)
+	return e.cfg.UISourceIPs[index]
 }
 
 type mailboxRegistry struct {

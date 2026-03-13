@@ -98,10 +98,19 @@ Deliverables:
 
 Priority: medium-high
 
+Status: in progress
+
+Completed so far in this milestone:
+
+- `-t ui` initial client-only MVP with one shared UDP socket per source IP
+- `-inf` + `-ip_field` CLI workflow for per-call local IP selection in `ui` mode
+- per-call source IP is now propagated into render context so `[local_ip]` and `[server_ip]` reflect selected `ui` source IP
+- client-side regression coverage for `ui` source-IP socket behavior and keyword rendering semantics
+
 Target gaps from SIPp:
 
-- `-t ui` ("UDP with one socket per IP address")
-- `-inf` + `-ip_field` workflow for per-call local IP selection
+- broader SIPp parity for `-t ui` beyond current client-only MVP
+- additional `-inf` + `-ip_field` semantics and edge-case compatibility
 - `[server_ip]` keyword semantics used with multi-IP server binding
 - broader transport-related parity after the current `u1` / `un` / `s1` / `sn`
   / `t1` / `tn` / `l1` / `ln` coverage
@@ -135,7 +144,7 @@ Deliverables:
 
 Priority: medium
 
-Status: in progress
+Status: completed
 
 Completed so far in this milestone:
 
@@ -162,12 +171,12 @@ Completed so far in this milestone:
 - initial `-max_socket` parity for per-call client transports (`un`, `tn`, `ln`)
 - partial reconnect control parity via `-max_reconnect` and `-reconnect_sleep` for shared client TCP/TLS (`t1`, `l1`)
 - `-reconnect_close` surfaced with initial close-on-reconnect behavior for shared client TCP/TLS (`t1`, `l1`)
+- `-infindex` parity for indexed CSV injection lookup acceleration (`-infindex <file> <field>`)
 
 Target gaps from SIPp:
 
-- broader CLI flag parity beyond the currently implemented core
-- better compatibility for SIPp-style statistics / tracing switches
-- improved operator-facing runtime visibility comparable to SIPp's mature UX
+This milestone is complete for the selected high-value CLI and operational UX subset.
+Remaining transport/media/full-tail parity stays in Milestones 3/4/6.
 
 Examples of likely candidates:
 
@@ -204,11 +213,9 @@ Deliverables:
 These are concrete SIPp-side features that are not currently present in
 `gossIpper`, or are only partially covered:
 
-- `-t ui`
-- `-inf` + `-ip_field` multi-IP local address workflow
-- `[server_ip]`
-- `warning` action
-- `lookup` action family
+- advanced `-t ui` parity and broader multi-IP transport semantics
+- advanced `-inf` + `-ip_field` compatibility behavior
+- full `[server_ip]` multi-IP server semantics
 - `play_pcap_video`
 - `play_pcap_image`
 - bidirectional RTP/SRTP checking (`rtpcheck`)

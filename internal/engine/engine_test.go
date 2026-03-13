@@ -3541,6 +3541,116 @@ func writeTestCertificate(t *testing.T) (string, string) {
 	return certFile, keyFile
 }
 
+func TestEngineUITransportUsesPerSourceIPSocketsAndKeywords(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+	defer serverConn.Close()
+
+	const totalCalls = 4
+	errCh := make(chan error, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65535)
+		seenByIP := map[string]int{}
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg, err := sip.Parse(buffer[:n])
+			if err != nil {
+				select {
+				case errCh <- err:
+				default:
+				}
+				return
+			}
+			if !strings.EqualFold(msg.Method, "INVITE") {
+				continue
+			}
+			srcIP := addr.IP.String()
+			via, _ := sip.Header(msg.Headers, "Via")
+			if !strings.Contains(via, srcIP) {
+				select {
+				case errCh <- fmt.Errorf("expected Via to contain source ip %s, got %q", srcIP, via):
+				default:
+				}
+				return
+			}
+
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+			response := fmt.Sprintf(
+				"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+				via, from, to, callID, cseq,
+			)
+			_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			seenByIP[srcIP]++
+			if seenByIP["127.0.0.2"] >= 2 && seenByIP["127.0.0.3"] >= 2 {
+				return
+			}
+		}
+	}()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="ui-uac">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "ui",
+		LocalIP:       "0.0.0.0",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    totalCalls,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+		UISourceIPs:   []string{"127.0.0.2", "127.0.0.3"},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	<-done
+	select {
+	case serverErr := <-errCh:
+		t.Fatalf("server handler error = %v", serverErr)
+	default:
+	}
+
+	summary := app.Stats().Snapshot()
+	if summary.SuccessCalls != totalCalls || summary.FailedCalls != 0 {
+		t.Fatalf("unexpected summary for ui transport: %+v", summary)
+	}
+}
+
 func reserveTCPAddr(t *testing.T) string {
 	t.Helper()
 

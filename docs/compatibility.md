@@ -60,7 +60,7 @@ into no-ops or empty strings.
 | `test` | supported | Stores boolean result as `1` or `0`; supports `value` or `variable2` with `equal`, `not_equal`, `greater_than`, `less_than`, `greater_than_equal`, and `less_than_equal` |
 | `log` | supported | Emits message when tracing is enabled |
 | `warning` | supported | Emits message into the error trace when `-trace_err` / `-error_file` is enabled |
-| `lookup` | partial | Looks up the first CSV column and stores a 1-based physical file line number; integrates with `[fieldN ... line=$var]` |
+| `lookup` | partial | Looks up the first CSV column and stores a 1-based physical file line number; integrates with `[fieldN ... line=$var]`; optional `-infindex` accelerates key lookups with generated index files |
 | `jump` | supported | Jumps to an absolute scenario command index via `value` or `variable` |
 | `gettimeofday` | supported | Stores epoch seconds and microseconds in `assign_to` targets |
 | `urlencode` | supported | URL-encodes the referenced variable in place |
@@ -123,6 +123,7 @@ into no-ops or empty strings.
 | --- | --- |
 | `u1` | supported |
 | `un` | supported |
+| `ui` | partial (client-only MVP) |
 | `s1` | supported as server-side UDP alias |
 | `sn` | supported as server-side UDP alias |
 | `t1` | supported |
@@ -155,6 +156,9 @@ into no-ops or empty strings.
 | `-timeout_global` | supported | Exits after N seconds of total runtime for deterministic CI/load runs |
 | `-rate_scale` | supported | Sets interactive CPS step size used by runtime TUI controls (`+/-` for 1x step and `*`/`/` for 10x step) |
 | `-rate_increase` + `-rate_interval` + `-rate_max` | supported | Applies periodic CPS ramp-up/ramp-down during run; `-rate_max` caps upper bound when set |
+| `-inf` + `-ip_field` | supported (for `-t ui`) | Selects per-call source IP from CSV field (zero-based index) for client UI transport |
+| `-t ui` | partial | Client-only MVP: one UDP shared socket per source IP from injection data; advanced SIPp parity remains in Milestone 3 |
+| `-infindex` | supported | Generates a CSV injection index (`-infindex <file> <field>`); lookup uses generated index files for faster first-column key resolution |
 | `-max_socket` | partial | Caps per-call transport concurrency (`un`, `tn`, `ln`) by limiting simultaneously open call sockets |
 | `-max_reconnect` + `-reconnect_sleep` + `-reconnect_close` | partial | Shared client TCP/TLS transports (`t1`, `l1`) support reconnect retries and close-on-reconnect behavior |
 
@@ -217,7 +221,7 @@ into no-ops or empty strings.
 - `sample`, `insert`, and `replace` action families
 - `setdest` and broader per-call addressing changes
 - `play_pcap_video` / `play_pcap_image`
-- full `-inf` / indexed injection parity beyond the current CSV helper subset
+- advanced `-t ui` parity beyond current client-only MVP (`server` multi-IP semantics, broader SIPp behavior alignment)
 - keyword helpers such as `[routes]`, `[dynamic_id]`, `[clock_tick]`, `[sipp_version]`, `[tdmmap]`, and `[fill]`
 - SRTP / rtpcheck
 - full CLI parity with SIPp

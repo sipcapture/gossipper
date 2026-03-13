@@ -41,6 +41,62 @@ func TestPrepareRejectsServerAliasForClientScenario(t *testing.T) {
 	}
 }
 
+func TestPrepareRejectsUITransportForServerScenario(t *testing.T) {
+	t.Parallel()
+
+	cfg := cli.DefaultConfig()
+	cfg.ScenarioName = "uas"
+	cfg.Transport = "ui"
+	cfg.InjectionFile = "dummy.csv"
+	cfg.IPField = 0
+	cfg.UISourceIPs = []string{"127.0.0.2"}
+
+	_, err := Prepare(cfg)
+	if err == nil || !strings.Contains(err.Error(), "transport ui requires a client scenario") {
+		t.Fatalf("expected ui transport validation error, got %v", err)
+	}
+}
+
+func TestPrepareRejectsUITransportWithoutResolvedSourceIPs(t *testing.T) {
+	t.Parallel()
+
+	cfg := cli.DefaultConfig()
+	cfg.ScenarioName = "uac"
+	cfg.Transport = "ui"
+	cfg.InjectionFile = "dummy.csv"
+	cfg.IPField = 0
+	cfg.UISourceIPs = nil
+
+	_, err := Prepare(cfg)
+	if err == nil || !strings.Contains(err.Error(), "transport ui requires inf and ip_field") {
+		t.Fatalf("expected ui source ip validation error, got %v", err)
+	}
+}
+
+func TestPreparePropagatesUISourceIPs(t *testing.T) {
+	t.Parallel()
+
+	cfg := cli.DefaultConfig()
+	cfg.ScenarioName = "uac"
+	cfg.Transport = "ui"
+	cfg.InjectionFile = "dummy.csv"
+	cfg.IPField = 0
+	cfg.UISourceIPs = []string{"127.0.0.2", "127.0.0.3"}
+	cfg.RemoteHost = "127.0.0.1"
+	cfg.RemotePort = 5060
+
+	prepared, err := Prepare(cfg)
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	if len(prepared.EngineConfig.UISourceIPs) != 2 {
+		t.Fatalf("expected 2 ui source ips, got %+v", prepared.EngineConfig.UISourceIPs)
+	}
+	if prepared.EngineConfig.UISourceIPs[0] != "127.0.0.2" || prepared.EngineConfig.UISourceIPs[1] != "127.0.0.3" {
+		t.Fatalf("unexpected ui source ips %+v", prepared.EngineConfig.UISourceIPs)
+	}
+}
+
 func TestPreparePropagatesReconnectSettings(t *testing.T) {
 	t.Parallel()
 

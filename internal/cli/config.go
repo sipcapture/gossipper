@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/csv"
 	"errors"
 	"flag"
 	"fmt"
@@ -73,6 +74,11 @@ type Config struct {
 	CommandName      string
 	CommandPeers     map[string]string
 	CommandRole      string
+	InfIndexFile     string
+	InfIndexField    int
+	InjectionFile    string
+	IPField          int
+	UISourceIPs      []string
 }
 
 func DefaultConfig() Config {
@@ -93,19 +99,28 @@ func DefaultConfig() Config {
 		StatsDumpPeriod:  time.Second,
 		RTTDumpFrequency: 200,
 		TLSSkipVerify:    true,
+		IPField:          -1,
 	}
 }
 
 func Parse(args []string) (Config, error) {
 	cfg := DefaultConfig()
+	normalizedArgs, infIndexFile, infIndexField, err := extractInfIndexArgs(args)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.InfIndexFile = infIndexFile
+	cfg.InfIndexField = infIndexField
 
 	fs := flag.NewFlagSet("gossIpper", flag.ContinueOnError)
 	fs.StringVar(&cfg.ScenarioFile, "sf", "", "path to XML scenario file")
 	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas)")
 	fs.StringVar(&cfg.Service, "s", cfg.Service, "service name used in templates")
-	fs.StringVar(&cfg.Transport, "t", cfg.Transport, "transport mode: u1, un, t1, tn, l1, ln, s1 or sn")
+	fs.StringVar(&cfg.Transport, "t", cfg.Transport, "transport mode: u1, un, ui, t1, tn, l1, ln, s1 or sn")
 	fs.StringVar(&cfg.LocalIP, "i", cfg.LocalIP, "local IP address")
 	fs.IntVar(&cfg.LocalPort, "p", cfg.LocalPort, "local port")
+	fs.StringVar(&cfg.InjectionFile, "inf", "", "CSV injection file for ui transport source IP selection")
+	fs.IntVar(&cfg.IPField, "ip_field", cfg.IPField, "zero-based CSV field index that contains source IP for ui transport")
 	fs.StringVar(&cfg.AuthUsername, "au", cfg.AuthUsername, "authorization username for authentication challenges")
 	fs.StringVar(&cfg.AuthPassword, "ap", cfg.AuthPassword, "authorization password for authentication challenges")
 	fs.Float64Var(&cfg.Rate, "r", cfg.Rate, "calls per second")
@@ -162,7 +177,7 @@ func Parse(args []string) (Config, error) {
 	timeoutGlobalSec := fs.Int("timeout_global", 0, "exit after N seconds of total runtime (SIPp-compatible)")
 	hepCaptureID := fs.Uint("hep_capture_id", 0, "HEP3 capture node ID")
 
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(normalizedArgs); err != nil {
 		return Config{}, err
 	}
 
@@ -224,6 +239,12 @@ func Parse(args []string) (Config, error) {
 	if *timeoutGlobalSec < 0 {
 		return Config{}, errors.New("timeout_global must be greater than or equal to zero")
 	}
+	if cfg.InfIndexField < 0 {
+		return Config{}, errors.New("infindex field must be greater than or equal to zero")
+	}
+	if cfg.IPField < -1 {
+		return Config{}, errors.New("ip_field must be greater than or equal to -1")
+	}
 
 	cfg.DefaultPause = time.Duration(*pauseMS) * time.Millisecond
 	cfg.DefaultRecvTO = time.Duration(*recvMS) * time.Millisecond
@@ -238,9 +259,27 @@ func Parse(args []string) (Config, error) {
 	cfg.HEPCaptureID = uint32(*hepCaptureID)
 
 	switch cfg.Transport {
-	case "u1", "un", "t1", "tn", "l1", "ln", "s1", "sn":
+	case "u1", "un", "ui", "t1", "tn", "l1", "ln", "s1", "sn":
 	default:
 		return Config{}, fmt.Errorf("unsupported transport %q", cfg.Transport)
+	}
+	if cfg.InjectionFile != "" && cfg.IPField < 0 {
+		return Config{}, errors.New("ip_field must be specified when inf is set")
+	}
+	if cfg.IPField >= 0 && cfg.InjectionFile == "" {
+		return Config{}, errors.New("inf must be specified when ip_field is set")
+	}
+	if cfg.Transport == "ui" {
+		if cfg.InjectionFile == "" || cfg.IPField < 0 {
+			return Config{}, errors.New("transport ui requires both inf and ip_field")
+		}
+		sourceIPs, err := loadSourceIPsFromInjection(cfg.InjectionFile, cfg.IPField)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.UISourceIPs = sourceIPs
+	} else if cfg.InjectionFile != "" || cfg.IPField >= 0 {
+		return Config{}, errors.New("inf and ip_field are only supported with transport ui")
 	}
 
 	if cfg.ScenarioFile == "" && cfg.ScenarioName == "" {
@@ -301,6 +340,93 @@ func Parse(args []string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func loadSourceIPsFromInjection(path string, field int) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("unable to open inf file: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.FieldsPerRecord = -1
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse inf file: %w", err)
+	}
+
+	sourceIPs := make([]string, 0, len(records))
+	for rowIndex, record := range records {
+		if field >= len(record) {
+			return nil, fmt.Errorf("ip_field %d is out of range for inf row %d", field, rowIndex+1)
+		}
+		value := strings.TrimSpace(record[field])
+		if value == "" {
+			return nil, fmt.Errorf("empty source IP in inf row %d field %d", rowIndex+1, field)
+		}
+		if net.ParseIP(value) == nil {
+			return nil, fmt.Errorf("invalid source IP %q in inf row %d field %d", value, rowIndex+1, field)
+		}
+		sourceIPs = append(sourceIPs, value)
+	}
+	if len(sourceIPs) == 0 {
+		return nil, errors.New("inf file does not contain any source IP rows")
+	}
+	return sourceIPs, nil
+}
+
+func extractInfIndexArgs(args []string) ([]string, string, int, error) {
+	normalized := make([]string, 0, len(args))
+	var (
+		fileName string
+		field    int
+		seen     bool
+	)
+
+	for idx := 0; idx < len(args); idx++ {
+		if args[idx] != "-infindex" {
+			normalized = append(normalized, args[idx])
+			continue
+		}
+		if seen {
+			return nil, "", 0, errors.New("infindex may only be specified once")
+		}
+		seen = true
+		if idx+1 >= len(args) {
+			return nil, "", 0, errors.New("infindex requires file and field")
+		}
+
+		next := strings.TrimSpace(args[idx+1])
+		if csvFile, csvField, ok := strings.Cut(next, ","); ok {
+			parsedField, err := strconv.Atoi(strings.TrimSpace(csvField))
+			if err != nil {
+				return nil, "", 0, fmt.Errorf("invalid infindex field: %w", err)
+			}
+			fileName = strings.TrimSpace(csvFile)
+			field = parsedField
+			idx += 1
+			continue
+		}
+		if idx+2 >= len(args) {
+			return nil, "", 0, errors.New("infindex requires file and field")
+		}
+		parsedField, err := strconv.Atoi(strings.TrimSpace(args[idx+2]))
+		if err != nil {
+			return nil, "", 0, fmt.Errorf("invalid infindex field: %w", err)
+		}
+		fileName = next
+		field = parsedField
+		idx += 2
+	}
+
+	if strings.TrimSpace(fileName) == "" {
+		return normalized, "", 0, nil
+	}
+	if field < 0 {
+		return nil, "", 0, errors.New("infindex field must be greater than or equal to zero")
+	}
+	return normalized, fileName, field, nil
 }
 
 func splitHostPort(input string) (string, int, error) {

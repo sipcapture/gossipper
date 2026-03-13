@@ -92,6 +92,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		TLSSkipVerify:    cfg.TLSSkipVerify,
 		CommandName:      cfg.CommandName,
 		CommandPeers:     cfg.CommandPeers,
+		UISourceIPs:      append([]string(nil), cfg.UISourceIPs...),
 	}
 
 	return Prepared{
@@ -113,6 +114,13 @@ func NormalizeTransport(cfg *cli.Config, sc scenario.Scenario) error {
 			return fmt.Errorf("transport sn requires a server scenario")
 		}
 		cfg.Transport = "un"
+	case "ui":
+		if sc.Mode != scenario.ModeClient {
+			return fmt.Errorf("transport ui requires a client scenario")
+		}
+		if len(cfg.UISourceIPs) == 0 || cfg.InjectionFile == "" || cfg.IPField < 0 {
+			return fmt.Errorf("transport ui requires inf and ip_field with at least one source IP")
+		}
 	}
 	return nil
 }

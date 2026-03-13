@@ -8,8 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/adubovikov/gossipper/internal/cli"
 	"github.com/adubovikov/gossipper/internal/engine"
 	"github.com/adubovikov/gossipper/internal/launcher"
+	templ "github.com/adubovikov/gossipper/internal/template"
 	"github.com/adubovikov/gossipper/internal/tui"
 )
 
@@ -29,7 +31,20 @@ func run(args []string) error {
 		return tui.Run()
 	}
 
-	prepared, err := launcher.PrepareFromArgs(args)
+	cfg, err := cli.Parse(args)
+	if err != nil {
+		return err
+	}
+	if cfg.InfIndexFile != "" {
+		indexPath, entries, err := templ.GenerateCSVIndex("", cfg.InfIndexFile, cfg.InfIndexField)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("infindex generated: %s (entries=%d)\n", indexPath, entries)
+		return nil
+	}
+
+	prepared, err := launcher.Prepare(cfg)
 	if err != nil {
 		return err
 	}

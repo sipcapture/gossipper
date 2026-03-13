@@ -2,6 +2,7 @@ package template
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -577,7 +578,12 @@ func csvRecordAt(basePath, name string, lineNumber int) ([]string, bool, error) 
 }
 
 func LookupCSVLine(basePath, name, key string) (int, bool, error) {
-	file, err := os.Open(resolvePath(basePath, name))
+	resolvedPath := resolvePath(basePath, name)
+	if line, found, ok := lookupCSVLineFromIndex(resolvedPath, 0, key); ok {
+		return line, found, nil
+	}
+
+	file, err := os.Open(resolvedPath)
 	if err != nil {
 		return 0, false, err
 	}
@@ -598,6 +604,75 @@ func LookupCSVLine(basePath, name, key string) (int, bool, error) {
 		}
 	}
 	return 0, false, nil
+}
+
+func GenerateCSVIndex(basePath, name string, field int) (string, int, error) {
+	if field < 0 {
+		return "", 0, fmt.Errorf("infindex field must be greater than or equal to zero")
+	}
+	resolvedPath := resolvePath(basePath, name)
+	file, err := os.Open(resolvedPath)
+	if err != nil {
+		return "", 0, err
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.FieldsPerRecord = -1
+	records, err := reader.ReadAll()
+	if err != nil {
+		return "", 0, err
+	}
+
+	index := csvIndex{
+		Field: field,
+		Lines: make(map[string]int),
+	}
+	for idx, record := range records {
+		if field >= len(record) {
+			continue
+		}
+		key := strings.TrimSpace(record[field])
+		if key == "" {
+			continue
+		}
+		if _, exists := index.Lines[key]; exists {
+			continue
+		}
+		index.Lines[key] = idx + 1
+	}
+
+	data, err := json.Marshal(index)
+	if err != nil {
+		return "", 0, err
+	}
+	indexPath := buildCSVIndexPath(resolvedPath, field)
+	if err := os.WriteFile(indexPath, data, 0o644); err != nil {
+		return "", 0, err
+	}
+	return indexPath, len(index.Lines), nil
+}
+
+type csvIndex struct {
+	Field int            `json:"field"`
+	Lines map[string]int `json:"lines"`
+}
+
+func buildCSVIndexPath(csvPath string, field int) string {
+	return fmt.Sprintf("%s.gossipper.idx.%d.json", csvPath, field)
+}
+
+func lookupCSVLineFromIndex(csvPath string, field int, key string) (int, bool, bool) {
+	data, err := os.ReadFile(buildCSVIndexPath(csvPath, field))
+	if err != nil {
+		return 0, false, false
+	}
+	var index csvIndex
+	if err := json.Unmarshal(data, &index); err != nil {
+		return 0, false, false
+	}
+	line, found := index.Lines[key]
+	return line, found, true
 }
 
 func parseKeyParams(value string) map[string]string {
