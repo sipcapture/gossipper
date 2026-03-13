@@ -1,6 +1,6 @@
 # Compatibility testing strategy
 
-The most valuable tests for `gossipper` are behavior-level compatibility checks,
+The most valuable tests for `gossIpper` are behavior-level compatibility checks,
 not only unit tests.
 
 ## Layers
@@ -13,7 +13,7 @@ not only unit tests.
    - RTP packet generation
 
 2. Integration tests
-   - run `gossipper` against a lightweight SIP stub over UDP/TCP/TLS as needed
+   - run `gossIpper` against a lightweight SIP stub over UDP/TCP/TLS as needed
    - verify sent request order, response matching, retransmit behavior, XML
      actions, and summary stats
    - verify trace outputs such as `-trace_stat`, `-trace_rtt`, `-trace_logs`,

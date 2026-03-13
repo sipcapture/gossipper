@@ -1,6 +1,6 @@
-# gossipper milestones toward broader SIPp parity
+# gossIpper milestones toward broader SIPp parity
 
-This file tracks the next practical development milestones for `gossipper`,
+This file tracks the next practical development milestones for `gossIpper`,
 focusing on features that exist in `SIPp` and are still missing or only
 partially covered here.
 
@@ -10,7 +10,7 @@ order.
 
 ## Baseline already implemented
 
-`gossipper` already covers a useful subset:
+`gossIpper` already covers a useful subset:
 
 - SIP XML scenarios with `send`, `recv`, `pause`, `nop`, `label`, `timewait`,
   and `init`
@@ -39,7 +39,7 @@ Status: completed
 
 Why first:
 
-- `gossipper` already has JSON summaries and basic RTD/counter support
+- `gossIpper` already has JSON summaries and basic RTD/counter support
 - SIPp still offers richer built-in reporting flows that are useful in CI and
   long-running load tests
 
@@ -57,7 +57,7 @@ Completed so far in this milestone:
 
 Deliverables:
 
-- documented field mapping between current `gossipper` JSON and SIPp-style counters
+- documented field mapping between current `gossIpper` JSON and SIPp-style counters
   completed in `docs/statistics-mapping.md`
 
 ## Milestone 2: XML action and scenario parity
@@ -123,7 +123,7 @@ Target gaps from SIPp:
 - broader generic PCAP replay coverage like SIPp's "play any RTP stream"
   positioning
 - bidirectional RTP / SRTP checking (`rtpcheck`)
-- wider codec/file handling beyond the currently practical `gossipper` subset
+- wider codec/file handling beyond the currently practical `gossIpper` subset
 
 Deliverables:
 
@@ -139,7 +139,7 @@ Status: in progress
 
 Completed so far in this milestone:
 
-- built-in interactive terminal UI via `gossipper tui` and `-interactive`
+- built-in interactive terminal UI via `gossIpper tui` and `-interactive`
 - launch-time parameter selection for mode/profile, transport, remote/local addressing, CPS, concurrency, auth, and trace toggles
 - SIPp-style live runtime dashboard with total/active/success/failed calls, average call duration, invite RTT, timeout and cancellation counters
 - operator controls for increasing or decreasing load during the run, plus pause/resume and graceful client-side stop
@@ -192,7 +192,7 @@ Target gaps from SIPp:
 - obscure keyword variants
 - edge-case branching semantics
 - older scenario constructs that are valid in SIPp but not yet important for
-  current `gossipper` users
+  current `gossIpper` users
 
 Deliverables:
 
@@ -202,7 +202,7 @@ Deliverables:
 ## Explicit backlog checklist
 
 These are concrete SIPp-side features that are not currently present in
-`gossipper`, or are only partially covered:
+`gossIpper`, or are only partially covered:
 
 - `-t ui`
 - `-inf` + `-ip_field` multi-IP local address workflow

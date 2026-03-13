@@ -6,15 +6,15 @@ section: "net"
 priority: "optional"
 maintainer: "Adubovikov <support@qxip.net>"
 description: |
-  gossipper is a Go-based SIP traffic generator and SIPp-compatible
+  gossIpper is a Go-based SIP traffic generator and SIPp-compatible
   scenario runner with incremental XML parity, 3PCC helpers, and RTP tooling.
 vendor: "QXIP"
 homepage: "https://github.com/adubovikov/gossipper"
 license: "MIT"
 
 contents:
-  - src: ./dist/gossipper
-    dst: /usr/bin/gossipper
+  - src: ./dist/gossIpper
+    dst: /usr/bin/gossIpper
     file_info:
       mode: 0755
 

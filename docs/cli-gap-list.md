@@ -1,6 +1,6 @@
 # CLI gap list for Milestone 5
 
-This document tracks `gossipper` CLI parity gaps against SIPp for Milestone 5.
+This document tracks `gossIpper` CLI parity gaps against SIPp for Milestone 5.
 
 It is intentionally pragmatic:
 
@@ -20,7 +20,7 @@ It is intentionally pragmatic:
 
 | Status | Meaning |
 | --- | --- |
-| `supported` | implemented and documented in `gossipper` |
+| `supported` | implemented and documented in `gossIpper` |
 | `partial` | partly implemented; behavior differs from SIPp |
 | `missing` | not implemented yet |
 | `deferred` | intentionally postponed (outside current milestone scope) |
@@ -36,7 +36,7 @@ It is intentionally pragmatic:
   - `../sipp/docs/scenarios/inject_from_csv.rst`
   - `../sipp/docs/scenarios/keywords.rst`
 
-## Implemented CLI surface in `gossipper` (current)
+## Implemented CLI surface in `gossIpper` (current)
 
 | CLI surface | Status | Priority | Notes |
 | --- | --- | --- | --- |
@@ -56,7 +56,7 @@ It is intentionally pragmatic:
 
 ## SIPp parity gaps for Milestone 5
 
-| SIPp flag / behavior | SIPp purpose | Current status in `gossipper` | Priority | Next action | Notes |
+| SIPp flag / behavior | SIPp purpose | Current status in `gossIpper` | Priority | Next action | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `-trace_stat` CSV contract parity | stable periodic statistics schema | `supported` | `P0` | keep contract stable and version changes explicitly | exact header contract is documented and test-guarded |
 | `-trace_rtt` contract parity | RTD sample export compatible with existing tooling | `supported` | `P0` | keep contract stable and version changes explicitly | exact header contract is documented and test-guarded |

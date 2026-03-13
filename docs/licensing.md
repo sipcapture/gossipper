@@ -1,6 +1,6 @@
 # Licensing notes
 
-`gossipper` is distributed under the MIT license. The full license text lives in
+`gossIpper` is distributed under the MIT license. The full license text lives in
 the repository root at `LICENSE`.
 
 ## What this means in practice

@@ -163,10 +163,10 @@ func Run() error {
 	form.AddButton("Quit", func() {
 		app.Stop()
 	})
-	form.SetBorder(true).SetTitle(" gossipper TUI ").SetTitleAlign(tview.AlignLeft)
+	form.SetBorder(true).SetTitle(" gossIpper TUI ").SetTitleAlign(tview.AlignLeft)
 
 	configLayout := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(tview.NewTextView().SetText("[::b]gossipper interactive launcher"), 1, 0, false).
+		AddItem(tview.NewTextView().SetText("[::b]gossIpper interactive launcher"), 1, 0, false).
 		AddItem(configStatus, 2, 0, false).
 		AddItem(form, 0, 1, true)
 

@@ -70,7 +70,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 
 	basePath := cfg.MessageFile
 	if basePath == "" {
-		basePath = filepath.Join(".", fmt.Sprintf("gossipper_%d_messages.log", os.Getpid()))
+		basePath = filepath.Join(".", fmt.Sprintf("gossIpper_%d_messages.log", os.Getpid()))
 	}
 
 	logger := &traceLogger{}

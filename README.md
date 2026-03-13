@@ -1,8 +1,8 @@
-# 🤫 gossipper
+# 🤫 gossIpper
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-`gossipper` is a Go rewrite of SIPp focused on SIP signaling load generation,
+`gossIpper` is a Go rewrite of SIPp focused on SIP signaling load generation,
 incremental XML scenario compatibility, and a cleaner engine architecture.
 
 ## Current scope
@@ -10,7 +10,7 @@ incremental XML scenario compatibility, and a cleaner engine architecture.
 The current MVP implements:
 
 - XML scenarios with `send`, `recv`, `pause`, `nop`, `label`, `timewait`, and `init`
-- XML command handoff via `sendCmd` / `recvCmd`, both inside one `gossipper` process and across multiple instances
+- XML command handoff via `sendCmd` / `recvCmd`, both inside one `gossIpper` process and across multiple instances
 - SIPp-style 3PCC CLI aliases `-master`, `-slave`, and `-slave_cfg` on top of the external command transport
 - Out-of-call SIP scenarios such as stateless `OPTIONS` ping/pong
 - Command-only 3PCC/out-of-call flows can run without a SIP remote address
@@ -24,7 +24,7 @@ The current MVP implements:
 - Global and per-user variable scopes
 - SIPp-style auth credentials via `-au` / `-ap` for challenged `401` / `407` request retries, inline `[authentication username=... password=...]`, and server-side `verifyauth`
 - Concurrent call generation with rate limiting
-- Interactive terminal UI via `gossipper tui` / `gossipper -interactive` for launch presets and live runtime control
+- Interactive terminal UI via `gossIpper tui` / `gossIpper -interactive` for launch presets and live runtime control
 - Basic statistics and JSON summary export
 - Named per-step RTD timers via `start_rtd` / `rtd`, aggregated into summary JSON
 - XML `counter` / `display` attributes aggregated into summary JSON as execution counts
@@ -54,16 +54,16 @@ The current MVP implements:
 
 ## Documentation
 
-- `docs/gossipper-vs-sipp.md`: high-level overview of what `gossipper` can do and how it compares to SIPp
+- `docs/gossipper-vs-sipp.md`: high-level overview of what `gossIpper` can do and how it compares to SIPp
 - `docs/compatibility.md`: current XML, keyword, action, transport, and CLI compatibility matrix
 - `docs/architecture.md`: package-level architecture and execution model
 - `docs/media-roadmap.md`: media-related scope, next steps, and deferred items
 - `docs/compatibility-testing.md`: testing approach for compatibility work and regression coverage
-- `docs/statistics-mapping.md`: mapping between current `gossipper` stats exports and SIPp-style counters
+- `docs/statistics-mapping.md`: mapping between current `gossIpper` stats exports and SIPp-style counters
 - `docs/trace-schema-contract.md`: stable CSV header/order contract for `-trace_stat`, `-trace_rtt`, and `-trace_screen`
 - `docs/tui.md`: interactive TUI usage guide with launcher and runtime screen examples
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
-- `milestone.md`: prioritized roadmap for SIPp features that are still missing in `gossipper`
+- `milestone.md`: prioritized roadmap for SIPp features that are still missing in `gossIpper`
 
 ## Quick start
 
@@ -183,7 +183,7 @@ Run the built-in UAS in SIPp-style server transport mode:
 go run ./cmd/gossip -sn uas -t s1 -i 0.0.0.0 -p 5060 -m 1
 ```
 
-Run out-of-call `OPTIONS` ping/pong between two `gossipper` instances:
+Run out-of-call `OPTIONS` ping/pong between two `gossIpper` instances:
 
 ```bash
 go run ./cmd/gossip -sf ./testdata/scenarios/options_server.xml -t s1 -i 0.0.0.0 -p 5060 -m 1
@@ -208,7 +208,7 @@ Run a SIPp-style audio PCAP replay action from a scenario:
 go run ./cmd/gossip -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
-Run the bundled local two-sided PCAP demo between two `gossipper` instances:
+Run the bundled local two-sided PCAP demo between two `gossIpper` instances:
 
 ```bash
 go run ./cmd/gossip -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
@@ -263,8 +263,8 @@ The builder uses local `nfpm` when available and falls back to the
 By default, package versions are taken from `cmd/gossip/version.go`. You can
 override them by exporting `VERSION=...` for ad-hoc builds.
 
-Package artifacts are written to `dist/` and install the `gossipper` binary
-at `/usr/bin/gossipper`.
+Package artifacts are written to `dist/` and install the `gossIpper` binary
+at `/usr/bin/gossIpper`.
 
 ## Notes
 
@@ -304,7 +304,7 @@ at `/usr/bin/gossipper`.
 - `counter` and `display` are currently exposed as successful-command execution counters in the summary model, which is a practical first step toward richer SIPp-style reporting.
 - In external 3PCC-style flows, the first incoming `recvCmd` can automatically adopt its `Call-ID` into `[call_id]` for later commands.
 - `init` can also use `sendCmd` / `recvCmd`, so inter-instance setup data may be loaded into global scopes before SIP traffic starts.
-- When launched with `-slave`, `gossipper` validates that the scenario first enters the flow via `recvCmd` before it sends any `sendCmd`.
+- When launched with `-slave`, `gossIpper` validates that the scenario first enters the flow via `recvCmd` before it sends any `sendCmd`.
 - RTP support is a separate milestone layered on top of the SIP engine.
 - Current RTP support focuses on audio streaming from PCM mono 8kHz WAV input, audio PCAP replay, RTP echo, and basic RTCP observability.
 - `play_pcap_audio` currently replays UDP payloads from the capture as RTP toward the negotiated audio endpoint; `play_pcap_video` and `play_pcap_image` are still deferred.

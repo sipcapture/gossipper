@@ -99,7 +99,7 @@ func DefaultConfig() Config {
 func Parse(args []string) (Config, error) {
 	cfg := DefaultConfig()
 
-	fs := flag.NewFlagSet("gossipper", flag.ContinueOnError)
+	fs := flag.NewFlagSet("gossIpper", flag.ContinueOnError)
 	fs.StringVar(&cfg.ScenarioFile, "sf", "", "path to XML scenario file")
 	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas)")
 	fs.StringVar(&cfg.Service, "s", cfg.Service, "service name used in templates")

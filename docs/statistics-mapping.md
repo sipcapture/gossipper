@@ -1,6 +1,6 @@
 # Statistics Mapping
 
-This document maps the current `gossipper` statistics model to the SIPp-style
+This document maps the current `gossIpper` statistics model to the SIPp-style
 statistics described in `../sipp/docs/statistics.rst`.
 
 The goal is practical interoperability for automation and reporting, not a
@@ -8,7 +8,7 @@ claim of byte-for-byte SIPp output parity.
 
 ## Summary
 
-`gossipper` currently exposes statistics through three surfaces:
+`gossIpper` currently exposes statistics through three surfaces:
 
 - final JSON summary via `-summary_json`
 - periodic/final CSV snapshots via `-trace_stat`
@@ -19,7 +19,7 @@ more tightly coupled to its legacy UI and transport internals.
 
 ## Mapping Table
 
-| SIPp counter / concept | `gossipper` surface | Mapping status | Notes |
+| SIPp counter / concept | `gossIpper` surface | Mapping status | Notes |
 | --- | --- | --- | --- |
 | `StartTime` | `started_at` | approximate | JSON timestamp of collector start |
 | `CurrentTime` | `finished_at` / `timestamp` | approximate | JSON uses final snapshot time; `-trace_stat` uses per-row snapshot timestamp |
@@ -52,7 +52,7 @@ more tightly coupled to its legacy UI and transport internals.
 | `ResponseTime` STDev | `rtd.<name>.stddev` | supported | Exported in summary JSON |
 | `CallLength` STDev | `call_length.stddev` / `call_stddev_ms` | supported | JSON plus compact periodic CSV column |
 
-## `gossipper`-only exports
+## `gossIpper`-only exports
 
 These fields do not have a clean one-to-one SIPp counter, but are intentionally
 useful in automation:

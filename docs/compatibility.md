@@ -1,6 +1,6 @@
 # XML compatibility matrix
 
-This document defines the currently supported SIPp subset in `gossipper`.
+This document defines the currently supported SIPp subset in `gossIpper`.
 
 Unsupported XML actions now fail during scenario parsing, and unsupported
 scenario keywords fail during template rendering instead of silently degrading

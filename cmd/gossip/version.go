@@ -39,12 +39,12 @@ func GetVersionInfo() VersionInfo {
 }
 
 func GetVersionString() string {
-	return fmt.Sprintf("gossipper %s\nbuilt %s %s, commit %s, go %s, %s/%s",
+	return fmt.Sprintf("gossIpper %s\nbuilt %s %s, commit %s, go %s, %s/%s",
 		Version, BuildDate, BuildTime, GitCommit, GoVersion, BuildOS, BuildArch)
 }
 
 func GetShortVersionString() string {
-	return fmt.Sprintf("gossipper %s", Version)
+	return fmt.Sprintf("gossIpper %s", Version)
 }
 
 func PrintVersion() {
