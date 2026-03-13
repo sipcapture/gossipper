@@ -33,7 +33,7 @@
 - Basic RTCP observability
 - Audio PCAP replay for pre-recorded RTP streams and telephone-event style captures
 - Pragmatic video/image PCAP replay where SDP exposes `m=video` / `m=image`
-- Pragmatic RTP activity checks via XML `exec rtpcheck="..."`
+- Pragmatic RTP activity checks via XML `exec rtpcheck="..."` (`min_packets`, `timeout_ms`, `direction`)
 
 ## Known limits
 

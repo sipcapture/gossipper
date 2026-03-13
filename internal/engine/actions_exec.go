@@ -108,7 +108,7 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		}
 		checkCtx, cancel := context.WithTimeout(ctx, spec.timeout)
 		defer cancel()
-		if err := mediaSession.WaitForRTPActivity(checkCtx, spec.minPackets, spec.bidirectional); err != nil {
+		if err := mediaSession.WaitForRTPActivity(checkCtx, spec.minPackets, spec.direction); err != nil {
 			return err
 		}
 	}
@@ -156,9 +156,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 }
 
 type rtpcheckSpec struct {
-	minPackets    uint32
-	timeout       time.Duration
-	bidirectional bool
+	minPackets uint32
+	timeout    time.Duration
+	direction  media.RTPCheckDirection
 }
 
 func parseRTPCheckSpec(raw string, renderCtx templ.Context) (rtpcheckSpec, error) {
@@ -167,9 +167,9 @@ func parseRTPCheckSpec(raw string, renderCtx templ.Context) (rtpcheckSpec, error
 		return rtpcheckSpec{}, err
 	}
 	spec := rtpcheckSpec{
-		minPackets:    1,
-		timeout:       time.Second,
-		bidirectional: false,
+		minPackets: 1,
+		timeout:    time.Second,
+		direction:  media.RTPCheckAny,
 	}
 	trimmed := strings.TrimSpace(rendered)
 	if trimmed == "" {
@@ -209,11 +209,24 @@ func parseRTPCheckSpec(raw string, renderCtx templ.Context) (rtpcheckSpec, error
 		case "bidirectional":
 			switch strings.ToLower(val) {
 			case "1", "true", "yes":
-				spec.bidirectional = true
+				spec.direction = media.RTPCheckBoth
 			case "0", "false", "no":
-				spec.bidirectional = false
+				spec.direction = media.RTPCheckAny
 			default:
 				return rtpcheckSpec{}, fmt.Errorf("rtpcheck bidirectional must be boolean")
+			}
+		case "direction":
+			switch strings.ToLower(val) {
+			case "any":
+				spec.direction = media.RTPCheckAny
+			case "send", "tx":
+				spec.direction = media.RTPCheckSend
+			case "recv", "rx", "receive":
+				spec.direction = media.RTPCheckRecv
+			case "both", "bidirectional":
+				spec.direction = media.RTPCheckBoth
+			default:
+				return rtpcheckSpec{}, fmt.Errorf("rtpcheck direction must be one of any|send|recv|both")
 			}
 		}
 	}

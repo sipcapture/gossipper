@@ -130,19 +130,18 @@ Deliverables:
 
 Priority: medium-high
 
-Status: in progress (pragmatic)
+Status: completed (pragmatic)
 
 Completed so far in this milestone:
 
 - pragmatic `play_pcap_video` support via `exec play_pcap_video="..."` with SDP `m=video` endpoint discovery
 - pragmatic `play_pcap_image` support via `exec play_pcap_image="..."` with SDP `m=image` endpoint discovery
-- pragmatic `exec rtpcheck="..."` support for RTP activity validation with configurable packet threshold, timeout, and optional bidirectional mode
+- pragmatic `exec rtpcheck="..."` support for RTP activity validation with configurable packet threshold, timeout, and direction mode (`any|send|recv|both`; legacy `bidirectional` alias)
 - parser and engine regression coverage for new PCAP media action attributes and runtime replay behavior
 
-Target gaps from SIPp:
+Target gaps from SIPp (deferred beyond pragmatic M4 close):
 
-- broader generic PCAP replay coverage like SIPp's "play any RTP stream"
-  positioning
+- broader generic PCAP replay coverage like SIPp's "play any RTP stream" positioning
 - full SIPp bidirectional RTP / SRTP checking (`rtpcheck`) parity beyond current pragmatic RTP-only activity checks
 - wider codec/file handling beyond the currently practical `gossIpper` subset
 
@@ -228,9 +227,8 @@ These are concrete SIPp-side features that are not currently present in
 - advanced `-t ui` parity and broader multi-IP transport semantics
 - advanced `-inf` + `-ip_field` compatibility behavior
 - broader `setdest` coverage beyond current pragmatic UDP scope
-- `play_pcap_video`
-- `play_pcap_image`
-- bidirectional RTP/SRTP checking (`rtpcheck`)
+- full SIPp media parity beyond pragmatic `play_pcap_video` / `play_pcap_image` support
+- bidirectional RTP/SRTP checking (`rtpcheck`) beyond current pragmatic RTP activity validation
 - wider media parity beyond current audio-first behavior
 - fuller CLI parity with SIPp
 

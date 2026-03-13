@@ -187,7 +187,7 @@ func TestSessionWaitForRTPActivity(t *testing.T) {
 
 	checkCtx, checkCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer checkCancel()
-	if err := session.WaitForRTPActivity(checkCtx, 1, false); err != nil {
+	if err := session.WaitForRTPActivity(checkCtx, 1, RTPCheckAny); err != nil {
 		t.Fatalf("WaitForRTPActivity() error = %v", err)
 	}
 }
@@ -199,8 +199,52 @@ func TestSessionWaitForRTPActivityTimeout(t *testing.T) {
 	defer session.Stop()
 	checkCtx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
 	defer cancel()
-	if err := session.WaitForRTPActivity(checkCtx, 1, false); err == nil {
+	if err := session.WaitForRTPActivity(checkCtx, 1, RTPCheckAny); err == nil {
 		t.Fatal("expected timeout error")
+	}
+}
+
+func TestSessionWaitForRTPActivityDirectionModes(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	session := NewSession()
+	defer session.Stop()
+	if err := session.StartEcho(ctx, "127.0.0.1", 0); err != nil {
+		t.Fatalf("StartEcho() error = %v", err)
+	}
+	rtpPort, _ := session.Ports()
+	if rtpPort == 0 {
+		t.Fatal("expected RTP port")
+	}
+
+	clientConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(client) error = %v", err)
+	}
+	defer clientConn.Close()
+	packet, err := BuildPacket(StreamConfig{
+		PayloadType: 0,
+		SSRC:        43,
+		Sequence:    1,
+		Timestamp:   160,
+	}, []byte{1, 2, 3, 4})
+	if err != nil {
+		t.Fatalf("BuildPacket() error = %v", err)
+	}
+	if _, err := clientConn.WriteToUDP(packet, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: rtpPort}); err != nil {
+		t.Fatalf("WriteToUDP(rtp) error = %v", err)
+	}
+
+	for _, mode := range []RTPCheckDirection{RTPCheckSend, RTPCheckRecv, RTPCheckBoth} {
+		checkCtx, checkCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		if err := session.WaitForRTPActivity(checkCtx, 1, mode); err != nil {
+			checkCancel()
+			t.Fatalf("WaitForRTPActivity(%s) error = %v", mode, err)
+		}
+		checkCancel()
 	}
 }
 

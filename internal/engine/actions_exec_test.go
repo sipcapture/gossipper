@@ -19,7 +19,7 @@ func TestParseRTPCheckSpecDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseRTPCheckSpec() error = %v", err)
 	}
-	if spec.minPackets != 1 || spec.timeout != time.Second || spec.bidirectional {
+	if spec.minPackets != 1 || spec.timeout != time.Second || spec.direction != media.RTPCheckAny {
 		t.Fatalf("unexpected defaults: %+v", spec)
 	}
 }
@@ -27,7 +27,7 @@ func TestParseRTPCheckSpecDefaults(t *testing.T) {
 func TestParseRTPCheckSpecKeyValue(t *testing.T) {
 	t.Parallel()
 
-	spec, err := parseRTPCheckSpec("min_packets=2 timeout_ms=350 bidirectional=true", templ.Context{})
+	spec, err := parseRTPCheckSpec("min_packets=2 timeout_ms=350 direction=both", templ.Context{})
 	if err != nil {
 		t.Fatalf("parseRTPCheckSpec() error = %v", err)
 	}
@@ -37,8 +37,8 @@ func TestParseRTPCheckSpecKeyValue(t *testing.T) {
 	if spec.timeout != 350*time.Millisecond {
 		t.Fatalf("expected timeout=350ms, got %v", spec.timeout)
 	}
-	if !spec.bidirectional {
-		t.Fatal("expected bidirectional=true")
+	if spec.direction != media.RTPCheckBoth {
+		t.Fatalf("expected direction=both, got %q", spec.direction)
 	}
 }
 
@@ -50,6 +50,30 @@ func TestParseRTPCheckSpecRejectsInvalidTimeout(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	if !strings.Contains(err.Error(), "timeout_ms") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseRTPCheckSpecBidirectionalCompatibility(t *testing.T) {
+	t.Parallel()
+
+	spec, err := parseRTPCheckSpec("bidirectional=1", templ.Context{})
+	if err != nil {
+		t.Fatalf("parseRTPCheckSpec() error = %v", err)
+	}
+	if spec.direction != media.RTPCheckBoth {
+		t.Fatalf("expected direction=both, got %q", spec.direction)
+	}
+}
+
+func TestParseRTPCheckSpecRejectsInvalidDirection(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseRTPCheckSpec("direction=sideways", templ.Context{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "direction") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -79,7 +103,7 @@ func TestApplyExecActionRTPCheck(t *testing.T) {
 
 	err = engine.applyExecAction(
 		ctx,
-		scenario.Action{Type: scenario.ActionExec, RTPCheck: "min_packets=1 timeout_ms=300"},
+		scenario.Action{Type: scenario.ActionExec, RTPCheck: "min_packets=1 timeout_ms=300 direction=send"},
 		templ.Context{},
 		newVarStore(nil, nil, nil, 0),
 		mediaSession,
@@ -100,7 +124,7 @@ func TestApplyExecActionRTPCheckTimeout(t *testing.T) {
 
 	err := engine.applyExecAction(
 		ctx,
-		scenario.Action{Type: scenario.ActionExec, RTPCheck: "min_packets=1 timeout_ms=50"},
+		scenario.Action{Type: scenario.ActionExec, RTPCheck: "min_packets=1 timeout_ms=50 direction=recv"},
 		templ.Context{},
 		newVarStore(nil, nil, nil, 0),
 		mediaSession,

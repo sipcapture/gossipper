@@ -36,7 +36,7 @@ The current MVP implements:
 - RTP streaming over `pion/rtp`, including `exec rtp_stream` with SIPp-style params and `start` / `pause` / `resume` / `stop`
 - Audio PCAP replay via `exec play_pcap_audio="capture.pcap"` with preserved inter-packet timing and SDP-driven remote endpoint discovery
 - Pragmatic video/image PCAP replay via `exec play_pcap_video="capture.pcap"` and `exec play_pcap_image="capture.pcap"` using SDP media endpoint discovery (`m=video` / `m=image`)
-- Pragmatic RTP activity checks via `exec rtpcheck="..."` with configurable `min_packets`, `timeout_ms`, and optional `bidirectional`
+- Pragmatic RTP activity checks via `exec rtpcheck="..."` with configurable `min_packets`, `timeout_ms`, and `direction=any|send|recv|both` (legacy `bidirectional` alias is also supported)
 - RTP echo helper mode via `exec rtp_stream="echo"`
 - Periodic RTCP sender reports plus basic incoming RTCP counters via `pion/rtcp`
 
@@ -328,7 +328,7 @@ at `/usr/bin/gossIpper`.
 - RTP support is a separate milestone layered on top of the SIP engine.
 - Current RTP support focuses on audio streaming from PCM mono 8kHz WAV input, audio PCAP replay, RTP echo, and basic RTCP observability.
 - `play_pcap_audio` currently replays UDP payloads from the capture as RTP toward the negotiated audio endpoint; pragmatic `play_pcap_video` / `play_pcap_image` support reuses the same replay mechanism for SDP `m=video` / `m=image` endpoints.
-- `rtpcheck` currently provides pragmatic RTP activity validation (`min_packets`, `timeout_ms`, optional `bidirectional`) and is not full SIPp SRTP/quality parity.
+- `rtpcheck` currently provides pragmatic RTP activity validation (`min_packets`, `timeout_ms`, `direction`; legacy `bidirectional` alias) and is not full SIPp SRTP/quality parity.
 
 ## License
 

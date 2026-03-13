@@ -60,6 +60,15 @@ type Stats struct {
 	RTCPPacketsReceived uint32
 }
 
+type RTPCheckDirection string
+
+const (
+	RTPCheckAny  RTPCheckDirection = "any"
+	RTPCheckSend RTPCheckDirection = "send"
+	RTPCheckRecv RTPCheckDirection = "recv"
+	RTPCheckBoth RTPCheckDirection = "both"
+)
+
 func NewSession() *Session {
 	s := &Session{}
 	s.pauseCond = sync.NewCond(&s.mu)
@@ -673,34 +682,54 @@ func (s *Session) Snapshot() Stats {
 	return s.stats
 }
 
-func (s *Session) WaitForRTPActivity(ctx context.Context, minPackets uint32, bidirectional bool) error {
+func (s *Session) WaitForRTPActivity(ctx context.Context, minPackets uint32, direction RTPCheckDirection) error {
 	if minPackets == 0 {
 		minPackets = 1
+	}
+	if direction == "" {
+		direction = RTPCheckAny
 	}
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		stats := s.Snapshot()
 		total := stats.RTPPacketsSent + stats.RTPPacketsReceived
-		if bidirectional {
+		switch direction {
+		case RTPCheckSend:
+			if stats.RTPPacketsSent >= minPackets {
+				return nil
+			}
+		case RTPCheckRecv:
+			if stats.RTPPacketsReceived >= minPackets {
+				return nil
+			}
+		case RTPCheckBoth:
 			if stats.RTPPacketsSent >= minPackets && stats.RTPPacketsReceived >= minPackets {
 				return nil
 			}
-		} else if total >= minPackets {
-			return nil
+		default:
+			if total >= minPackets {
+				return nil
+			}
 		}
 		select {
 		case <-ctx.Done():
-			if bidirectional {
+			switch direction {
+			case RTPCheckSend:
+				return fmt.Errorf("rtpcheck timeout: mode=send sent=%d required=%d: %w", stats.RTPPacketsSent, minPackets, ctx.Err())
+			case RTPCheckRecv:
+				return fmt.Errorf("rtpcheck timeout: mode=recv recv=%d required=%d: %w", stats.RTPPacketsReceived, minPackets, ctx.Err())
+			case RTPCheckBoth:
 				return fmt.Errorf(
-					"rtpcheck timeout: sent=%d recv=%d required_each=%d: %w",
+					"rtpcheck timeout: mode=both sent=%d recv=%d required_each=%d: %w",
 					stats.RTPPacketsSent,
 					stats.RTPPacketsReceived,
 					minPackets,
 					ctx.Err(),
 				)
+			default:
+				return fmt.Errorf("rtpcheck timeout: mode=any total=%d required=%d: %w", total, minPackets, ctx.Err())
 			}
-			return fmt.Errorf("rtpcheck timeout: total=%d required=%d: %w", total, minPackets, ctx.Err())
 		case <-ticker.C:
 		}
 	}
