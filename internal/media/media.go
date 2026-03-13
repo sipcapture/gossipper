@@ -673,6 +673,39 @@ func (s *Session) Snapshot() Stats {
 	return s.stats
 }
 
+func (s *Session) WaitForRTPActivity(ctx context.Context, minPackets uint32, bidirectional bool) error {
+	if minPackets == 0 {
+		minPackets = 1
+	}
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		stats := s.Snapshot()
+		total := stats.RTPPacketsSent + stats.RTPPacketsReceived
+		if bidirectional {
+			if stats.RTPPacketsSent >= minPackets && stats.RTPPacketsReceived >= minPackets {
+				return nil
+			}
+		} else if total >= minPackets {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			if bidirectional {
+				return fmt.Errorf(
+					"rtpcheck timeout: sent=%d recv=%d required_each=%d: %w",
+					stats.RTPPacketsSent,
+					stats.RTPPacketsReceived,
+					minPackets,
+					ctx.Err(),
+				)
+			}
+			return fmt.Errorf("rtpcheck timeout: total=%d required=%d: %w", total, minPackets, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 func (s *Session) Ports() (int, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

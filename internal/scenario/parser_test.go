@@ -203,6 +203,55 @@ func TestParseScenarioPlayPCAPAudioAction(t *testing.T) {
 	}
 }
 
+func TestParseScenarioPlayPCAPVideoAndImageAction(t *testing.T) {
+	t.Parallel()
+
+	sc, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="pcap-media">
+  <nop>
+    <action>
+      <exec play_pcap_video="pcap/video.pcap"/>
+      <exec play_pcap_image="pcap/image.pcap"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if len(sc.Commands) != 1 || len(sc.Commands[0].Actions) != 2 {
+		t.Fatalf("unexpected parsed scenario: %+v", sc.Commands)
+	}
+	if sc.Commands[0].Actions[0].Type != ActionExec || sc.Commands[0].Actions[0].PlayPCAPVideo != "pcap/video.pcap" {
+		t.Fatalf("unexpected play_pcap_video action: %+v", sc.Commands[0].Actions[0])
+	}
+	if sc.Commands[0].Actions[1].Type != ActionExec || sc.Commands[0].Actions[1].PlayPCAPImage != "pcap/image.pcap" {
+		t.Fatalf("unexpected play_pcap_image action: %+v", sc.Commands[0].Actions[1])
+	}
+}
+
+func TestParseScenarioRTPCheckAction(t *testing.T) {
+	t.Parallel()
+
+	sc, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="rtpcheck">
+  <nop>
+    <action>
+      <exec rtpcheck="min_packets=2 timeout_ms=500 bidirectional=1"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if len(sc.Commands) != 1 || len(sc.Commands[0].Actions) != 1 {
+		t.Fatalf("unexpected parsed scenario: %+v", sc.Commands)
+	}
+	action := sc.Commands[0].Actions[0]
+	if action.Type != ActionExec || action.RTPCheck != "min_packets=2 timeout_ms=500 bidirectional=1" {
+		t.Fatalf("unexpected rtpcheck action: %+v", action)
+	}
+}
+
 func TestParseScenarioWarningAction(t *testing.T) {
 	t.Parallel()
 

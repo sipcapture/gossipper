@@ -9,10 +9,18 @@ import (
 )
 
 func ParseAudioEndpoint(msg sip.Message, fallbackIP string) (Endpoint, error) {
+	return ParseMediaEndpoint(msg, fallbackIP, "audio")
+}
+
+func ParseMediaEndpoint(msg sip.Message, fallbackIP string, mediaType string) (Endpoint, error) {
 	body := strings.ReplaceAll(msg.Body, "\r\n", "\n")
 	lines := strings.Split(body, "\n")
 	ip := fallbackIP
 	port := 0
+	mediaPrefix := "m=" + strings.ToLower(strings.TrimSpace(mediaType)) + " "
+	if mediaPrefix == "m= " {
+		return Endpoint{}, fmt.Errorf("media type is required")
+	}
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		switch {
@@ -21,7 +29,7 @@ func ParseAudioEndpoint(msg sip.Message, fallbackIP string) (Endpoint, error) {
 			if len(fields) >= 3 {
 				ip = fields[2]
 			}
-		case strings.HasPrefix(line, "m=audio "):
+		case strings.HasPrefix(strings.ToLower(line), mediaPrefix):
 			fields := strings.Fields(line)
 			if len(fields) >= 2 {
 				value, err := strconv.Atoi(fields[1])
@@ -32,7 +40,7 @@ func ParseAudioEndpoint(msg sip.Message, fallbackIP string) (Endpoint, error) {
 		}
 	}
 	if ip == "" || port <= 0 {
-		return Endpoint{}, fmt.Errorf("audio SDP endpoint not found")
+		return Endpoint{}, fmt.Errorf("%s SDP endpoint not found", strings.ToLower(strings.TrimSpace(mediaType)))
 	}
 	return Endpoint{IP: ip, Port: port}, nil
 }

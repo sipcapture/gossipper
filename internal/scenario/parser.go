@@ -95,7 +95,10 @@ type rawActionItem struct {
 	Command        string `xml:"command,attr"`
 	IntCmd         string `xml:"int_cmd,attr"`
 	RTPStream      string `xml:"rtp_stream,attr"`
+	RTPCheck       string `xml:"rtpcheck,attr"`
 	PlayPCAPAudio  string `xml:"play_pcap_audio,attr"`
+	PlayPCAPVideo  string `xml:"play_pcap_video,attr"`
+	PlayPCAPImage  string `xml:"play_pcap_image,attr"`
 	Host           string `xml:"host,attr"`
 	Port           string `xml:"port,attr"`
 	Protocol       string `xml:"protocol,attr"`
@@ -331,7 +334,10 @@ func parseActions(raw []rawAction) ([]Action, error) {
 				Command:        strings.TrimSpace(child.Command),
 				IntCmd:         strings.TrimSpace(child.IntCmd),
 				RTPStream:      strings.TrimSpace(child.RTPStream),
+				RTPCheck:       strings.TrimSpace(child.RTPCheck),
 				PlayPCAPAudio:  strings.TrimSpace(child.PlayPCAPAudio),
+				PlayPCAPVideo:  strings.TrimSpace(child.PlayPCAPVideo),
+				PlayPCAPImage:  strings.TrimSpace(child.PlayPCAPImage),
 				Host:           strings.TrimSpace(child.Host),
 				Port:           strings.TrimSpace(child.Port),
 				Protocol:       strings.TrimSpace(child.Protocol),

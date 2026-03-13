@@ -48,6 +48,21 @@ func TestParseAudioEndpoint(t *testing.T) {
 	}
 }
 
+func TestParseMediaEndpointVideo(t *testing.T) {
+	t.Parallel()
+
+	msg := sip.Message{
+		Body: "v=0\r\nc=IN IP4 127.0.0.2\r\nm=video 41000 RTP/AVP 96\r\n",
+	}
+	ep, err := ParseMediaEndpoint(msg, "127.0.0.1", "video")
+	if err != nil {
+		t.Fatalf("ParseMediaEndpoint(video) error = %v", err)
+	}
+	if ep.IP != "127.0.0.2" || ep.Port != 41000 {
+		t.Fatalf("unexpected endpoint: %+v", ep)
+	}
+}
+
 func TestParseRTPStreamSpecPayloadParams(t *testing.T) {
 	t.Parallel()
 
@@ -133,6 +148,59 @@ func TestSessionEchoAndRTCPStats(t *testing.T) {
 			t.Fatalf("expected RTP/RTCP stats, got %+v", stats)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestSessionWaitForRTPActivity(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	session := NewSession()
+	defer session.Stop()
+	if err := session.StartEcho(ctx, "127.0.0.1", 0); err != nil {
+		t.Fatalf("StartEcho() error = %v", err)
+	}
+	rtpPort, _ := session.Ports()
+	if rtpPort == 0 {
+		t.Fatal("expected RTP port")
+	}
+
+	clientConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(client) error = %v", err)
+	}
+	defer clientConn.Close()
+	packet, err := BuildPacket(StreamConfig{
+		PayloadType: 0,
+		SSRC:        42,
+		Sequence:    1,
+		Timestamp:   160,
+	}, []byte{1, 2, 3, 4})
+	if err != nil {
+		t.Fatalf("BuildPacket() error = %v", err)
+	}
+	if _, err := clientConn.WriteToUDP(packet, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: rtpPort}); err != nil {
+		t.Fatalf("WriteToUDP(rtp) error = %v", err)
+	}
+
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer checkCancel()
+	if err := session.WaitForRTPActivity(checkCtx, 1, false); err != nil {
+		t.Fatalf("WaitForRTPActivity() error = %v", err)
+	}
+}
+
+func TestSessionWaitForRTPActivityTimeout(t *testing.T) {
+	t.Parallel()
+
+	session := NewSession()
+	defer session.Stop()
+	checkCtx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	if err := session.WaitForRTPActivity(checkCtx, 1, false); err == nil {
+		t.Fatal("expected timeout error")
 	}
 }
 

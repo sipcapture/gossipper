@@ -3500,6 +3500,169 @@ Content-Length: 0
 	}
 }
 
+func TestEngineExecPlayPCAPVideo(t *testing.T) {
+	t.Parallel()
+	runPlayPCAPByMediaType(t, "play_pcap_video", "video")
+}
+
+func TestEngineExecPlayPCAPImage(t *testing.T) {
+	t.Parallel()
+	runPlayPCAPByMediaType(t, "play_pcap_image", "image")
+}
+
+func runPlayPCAPByMediaType(t *testing.T, actionAttr string, mediaType string) {
+	t.Helper()
+
+	pcapPath := writeTestPCAP(t)
+
+	rtpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(rtp) error = %v", err)
+	}
+	defer rtpConn.Close()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(sip) error = %v", err)
+	}
+	defer serverConn.Close()
+
+	scenarioXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="PCAP Media UAC">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="200">
+    <action>
+      <exec %s="%s"/>
+    </action>
+  </recv>
+  <pause milliseconds="140"/>
+  <send><![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`, actionAttr, pcapPath)
+
+	sc, err := scenario.ParseString(scenarioXML)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	sc.BasePath = filepath.Dir(pcapPath)
+
+	packetTimes := make(chan time.Time, 8)
+	rtpDone := make(chan struct{})
+	go func() {
+		defer close(rtpDone)
+		buffer := make([]byte, 2048)
+		for {
+			_ = rtpConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			n, _, err := rtpConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			if n > 0 {
+				packetTimes <- time.Now()
+			}
+		}
+	}()
+
+	sipDone := make(chan struct{})
+	go func() {
+		defer close(sipDone)
+		buffer := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg, err := sip.Parse(buffer[:n])
+			if err != nil {
+				return
+			}
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			via, _ := sip.Header(msg.Headers, "Via")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+			switch strings.ToUpper(msg.Method) {
+			case "INVITE":
+				body := fmt.Sprintf(
+					"v=0\r\no=test 1 1 IN IP4 127.0.0.1\r\ns=-\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=%s %d RTP/AVP 96\r\n",
+					mediaType,
+					rtpConn.LocalAddr().(*net.UDPAddr).Port,
+				)
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Type: application/sdp\r\nContent-Length: %d\r\n\r\n%s",
+					via, from, to, callID, cseq, len(body), body,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			case "BYE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				return
+			}
+		}
+	}()
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	<-sipDone
+	<-rtpDone
+	close(packetTimes)
+
+	var arrivals []time.Time
+	for ts := range packetTimes {
+		arrivals = append(arrivals, ts)
+	}
+	if len(arrivals) < 2 {
+		t.Fatalf("expected RTP packets from %s replay, got %d", actionAttr, len(arrivals))
+	}
+	if gap := arrivals[1].Sub(arrivals[0]); gap < 40*time.Millisecond {
+		t.Fatalf("expected PCAP timing gap, got %v", gap)
+	}
+
+	summary := app.Stats().Snapshot()
+	if summary.Media.RTPPacketsSent < 2 {
+		t.Fatalf("expected media counters for %s replay, got %+v", actionAttr, summary.Media)
+	}
+}
+
 func writeTestCertificate(t *testing.T) (string, string) {
 	t.Helper()
 

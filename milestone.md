@@ -130,20 +130,27 @@ Deliverables:
 
 Priority: medium-high
 
+Status: in progress (pragmatic)
+
+Completed so far in this milestone:
+
+- pragmatic `play_pcap_video` support via `exec play_pcap_video="..."` with SDP `m=video` endpoint discovery
+- pragmatic `play_pcap_image` support via `exec play_pcap_image="..."` with SDP `m=image` endpoint discovery
+- pragmatic `exec rtpcheck="..."` support for RTP activity validation with configurable packet threshold, timeout, and optional bidirectional mode
+- parser and engine regression coverage for new PCAP media action attributes and runtime replay behavior
+
 Target gaps from SIPp:
 
-- `play_pcap_video`
-- `play_pcap_image`
 - broader generic PCAP replay coverage like SIPp's "play any RTP stream"
   positioning
-- bidirectional RTP / SRTP checking (`rtpcheck`)
+- full SIPp bidirectional RTP / SRTP checking (`rtpcheck`) parity beyond current pragmatic RTP-only activity checks
 - wider codec/file handling beyond the currently practical `gossIpper` subset
 
 Deliverables:
 
 - media endpoint discovery for non-audio streams where appropriate
 - explicit video/image replay decisions instead of leaving them implicit
-- a separate decision point for SRTP and `rtpcheck`
+- a separate decision point for SRTP and full SIPp `rtpcheck` parity
 
 ## Milestone 5: CLI parity and operational UX
 

@@ -20,6 +20,8 @@
 - Incoming RTCP packets are parsed and exposed through basic session counters.
 - Aggregated RTP/RTCP counters are now surfaced through the engine summary and JSON export.
 - `exec play_pcap_audio="capture.pcap"` is implemented for audio PCAP replay with preserved inter-packet timing from the capture.
+- `exec play_pcap_video="capture.pcap"` is implemented in pragmatic mode via SDP `m=video` endpoint discovery and generic RTP payload replay.
+- `exec play_pcap_image="capture.pcap"` is implemented in pragmatic mode via SDP `m=image` endpoint discovery and generic RTP payload replay.
 - Bundled fixtures and demo scenarios now cover both basic audio replay and DTMF-style RTP event replay through PCAP.
 
 ## Supported media scope today
@@ -30,12 +32,13 @@
 - RTP echo for quick loopback-style validation
 - Basic RTCP observability
 - Audio PCAP replay for pre-recorded RTP streams and telephone-event style captures
+- Pragmatic video/image PCAP replay where SDP exposes `m=video` / `m=image`
+- Pragmatic RTP activity checks via XML `exec rtpcheck="..."`
 
 ## Known limits
 
 - No SRTP
-- No `play_pcap_video`
-- No `play_pcap_image`
+- No full SIPp `rtpcheck` parity (only pragmatic RTP activity checks)
 - No dedicated video media pipeline
 - No advanced RTCP analytics in the summary yet
 - No claim of full SIPp media parity
@@ -48,7 +51,7 @@ overall media surface.
 
 1. Richer RTCP reporting surfaced into engine summary output
 2. Optional SRTP support through a dedicated package
-3. Decide whether video/image PCAP replay is worth implementing
+3. Expand pragmatic video/image replay into a dedicated media pipeline only if real scenarios require codec-specific handling
 4. Expand media reporting if real scenarios need jitter/loss-style visibility
 
 ## Library choices

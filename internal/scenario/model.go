@@ -80,7 +80,10 @@ type Action struct {
 	Command        string
 	IntCmd         string
 	RTPStream      string
+	RTPCheck       string
 	PlayPCAPAudio  string
+	PlayPCAPVideo  string
+	PlayPCAPImage  string
 	Host           string
 	Port           string
 	Protocol       string
