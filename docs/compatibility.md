@@ -156,7 +156,7 @@ into no-ops or empty strings.
 | `-rate_scale` | supported | Sets interactive CPS step size used by runtime TUI controls (`+/-` for 1x step and `*`/`/` for 10x step) |
 | `-rate_increase` + `-rate_interval` + `-rate_max` | supported | Applies periodic CPS ramp-up/ramp-down during run; `-rate_max` caps upper bound when set |
 | `-max_socket` | partial | Caps per-call transport concurrency (`un`, `tn`, `ln`) by limiting simultaneously open call sockets |
-| `-max_reconnect` + `-reconnect_sleep` | partial | Shared client TCP/TLS transports (`t1`, `l1`) retry reconnects on read/write failures |
+| `-max_reconnect` + `-reconnect_sleep` + `-reconnect_close` | partial | Shared client TCP/TLS transports (`t1`, `l1`) support reconnect retries and close-on-reconnect behavior |
 
 ## Trace CLI workflow
 
@@ -209,7 +209,7 @@ into no-ops or empty strings.
 | `-base_cseq` | supported | Sets the base value used by `[cseq]` token rendering |
 | `-rp` | supported | SIPp-style rate period for `-r` (`n` calls per `rp` milliseconds) |
 | runtime interactive rate keys (`+`, `-`, `*`, `/`) | supported | TUI adjusts target CPS by `-rate_scale` (`+/-`: `1x`, `*`/`/`: `10x`) |
-| `-reconnect_close` | deferred | Not implemented yet; reconnect behavior currently covers retry count and sleep only |
+| `-reconnect_close` | partial | In shared client `t1`/`l1`, closes active calls by disabling reconnect attempts when a socket loss is detected |
 | challenged request retry via `[authentication]` | supported | Works for Digest `401` / `407` flows when the scenario explicitly places `[authentication]` in the retried request |
 
 ## Deliberately deferred

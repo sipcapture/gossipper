@@ -11,8 +11,9 @@ import (
 )
 
 type ReconnectOptions struct {
-	MaxAttempts int
-	Sleep       time.Duration
+	MaxAttempts      int
+	Sleep            time.Duration
+	CloseOnReconnect bool
 }
 
 type SharedTCP struct {
@@ -137,7 +138,7 @@ func (s *SharedTCP) Close() error {
 }
 
 func (s *SharedTCP) tryReconnect() bool {
-	if s.reconnect.MaxAttempts <= 0 || s.isClosed() {
+	if s.reconnect.CloseOnReconnect || s.reconnect.MaxAttempts <= 0 || s.isClosed() {
 		return false
 	}
 	s.reconnectMu.Lock()

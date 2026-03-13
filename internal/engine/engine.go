@@ -49,6 +49,7 @@ type Config struct {
 	RateMax          float64
 	MaxReconnect     int
 	ReconnectSleep   time.Duration
+	ReconnectClose   bool
 	BaseCSeq         int
 	TotalCalls       int
 	MaxConcurrent    int
@@ -427,8 +428,9 @@ func (e *Engine) runClientSharedTCP(ctx context.Context) error {
 	localAddr := fmt.Sprintf("%s:%d", e.cfg.LocalIP, e.cfg.LocalPort)
 	remoteAddr := fmt.Sprintf("%s:%d", e.cfg.RemoteHost, e.cfg.RemotePort)
 	shared, err := transport.NewSharedTCPWithReconnect(localAddr, remoteAddr, transport.ReconnectOptions{
-		MaxAttempts: e.cfg.MaxReconnect,
-		Sleep:       e.cfg.ReconnectSleep,
+		MaxAttempts:      e.cfg.MaxReconnect,
+		Sleep:            e.cfg.ReconnectSleep,
+		CloseOnReconnect: e.cfg.ReconnectClose,
 	})
 	if err != nil {
 		return err

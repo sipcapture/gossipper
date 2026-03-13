@@ -19,8 +19,9 @@ func (e *Engine) runClientSharedTLS(ctx context.Context) error {
 		return err
 	}
 	shared, err := transport.NewSharedTLSWithReconnect(localAddr, remoteAddr, tlsCfg, transport.ReconnectOptions{
-		MaxAttempts: e.cfg.MaxReconnect,
-		Sleep:       e.cfg.ReconnectSleep,
+		MaxAttempts:      e.cfg.MaxReconnect,
+		Sleep:            e.cfg.ReconnectSleep,
+		CloseOnReconnect: e.cfg.ReconnectClose,
 	})
 	if err != nil {
 		return err

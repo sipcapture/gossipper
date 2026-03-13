@@ -161,6 +161,7 @@ Completed so far in this milestone:
 - runtime rate ramp controls via `-rate_increase`, `-rate_interval`, and `-rate_max`
 - initial `-max_socket` parity for per-call client transports (`un`, `tn`, `ln`)
 - partial reconnect control parity via `-max_reconnect` and `-reconnect_sleep` for shared client TCP/TLS (`t1`, `l1`)
+- `-reconnect_close` surfaced with initial close-on-reconnect behavior for shared client TCP/TLS (`t1`, `l1`)
 
 Target gaps from SIPp:
 

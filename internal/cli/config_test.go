@@ -446,6 +446,22 @@ func TestParseAcceptsReconnectFlags(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsReconnectClose(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-reconnect_close",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !cfg.ReconnectClose {
+		t.Fatal("expected reconnect_close to be enabled")
+	}
+}
+
 func TestParseAcceptsMaxSocket(t *testing.T) {
 	t.Parallel()
 

@@ -299,6 +299,7 @@ at `/usr/bin/gossipper`.
 - `-rate_increase` adjusts target CPS every `-rate_interval` milliseconds during run; `-rate_max` sets an optional upper cap.
 - `-max_socket` limits simultaneously open call sockets for per-call client transports (`un`, `tn`, `ln`).
 - `-max_reconnect` and `-reconnect_sleep` enable reconnect retries for shared client TCP/TLS transports (`t1`, `l1`) on transport failures.
+- `-reconnect_close` in shared client `t1`/`l1` closes active calls on socket loss by skipping reconnect attempts.
 - `start_rtd` and `rtd` now record named per-step timings into the summary model; they are especially useful for XML flows like `send INVITE` -> `recv 200`.
 - `counter` and `display` are currently exposed as successful-command execution counters in the summary model, which is a practical first step toward richer SIPp-style reporting.
 - In external 3PCC-style flows, the first incoming `recvCmd` can automatically adopt its `Call-ID` into `[call_id]` for later commands.

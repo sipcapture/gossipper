@@ -38,6 +38,7 @@ type Config struct {
 	RateMax          float64
 	MaxReconnect     int
 	ReconnectSleep   time.Duration
+	ReconnectClose   bool
 	BaseCSeq         int
 	TotalCalls       int
 	MaxConcurrent    int
@@ -115,6 +116,7 @@ func Parse(args []string) (Config, error) {
 	rateIntervalMS := fs.Int("rate_interval", 1000, "rate adjustment interval in milliseconds for -rate_increase")
 	maxReconnect := fs.Int("max_reconnect", 0, "retry count for reconnecting shared TCP/TLS client transport")
 	reconnectSleepMS := fs.Int("reconnect_sleep", 0, "sleep in milliseconds between shared TCP/TLS reconnect attempts")
+	reconnectClose := fs.Bool("reconnect_close", false, "close active calls on shared TCP/TLS transport reconnect event")
 	fs.IntVar(&cfg.BaseCSeq, "base_cseq", cfg.BaseCSeq, "base CSeq value used by [cseq]")
 	fs.IntVar(&cfg.MaxConcurrent, "l", cfg.MaxConcurrent, "maximum concurrent calls")
 	fs.IntVar(&cfg.MaxSockets, "max_socket", 0, "maximum number of simultaneously open call sockets (per-call transports)")
@@ -230,6 +232,7 @@ func Parse(args []string) (Config, error) {
 	cfg.RateIncreaseStep = time.Duration(*rateIntervalMS) * time.Millisecond
 	cfg.MaxReconnect = *maxReconnect
 	cfg.ReconnectSleep = time.Duration(*reconnectSleepMS) * time.Millisecond
+	cfg.ReconnectClose = *reconnectClose
 	cfg.StatsDumpPeriod = time.Duration(*statsDumpFrequency) * time.Second
 	cfg.RTTDumpFrequency = *rttDumpFrequency
 	cfg.HEPCaptureID = uint32(*hepCaptureID)

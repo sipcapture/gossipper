@@ -50,6 +50,7 @@ func TestPreparePropagatesReconnectSettings(t *testing.T) {
 	cfg.RemotePort = 5060
 	cfg.MaxReconnect = 4
 	cfg.ReconnectSleep = 120 * time.Millisecond
+	cfg.ReconnectClose = true
 
 	prepared, err := Prepare(cfg)
 	if err != nil {
@@ -60,6 +61,9 @@ func TestPreparePropagatesReconnectSettings(t *testing.T) {
 	}
 	if prepared.EngineConfig.ReconnectSleep != 120*time.Millisecond {
 		t.Fatalf("expected reconnect sleep 120ms, got %v", prepared.EngineConfig.ReconnectSleep)
+	}
+	if !prepared.EngineConfig.ReconnectClose {
+		t.Fatal("expected reconnect_close to propagate")
 	}
 }
 

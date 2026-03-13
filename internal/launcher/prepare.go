@@ -60,6 +60,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		RateMax:          cfg.RateMax,
 		MaxReconnect:     cfg.MaxReconnect,
 		ReconnectSleep:   cfg.ReconnectSleep,
+		ReconnectClose:   cfg.ReconnectClose,
 		BaseCSeq:         cfg.BaseCSeq,
 		TotalCalls:       cfg.TotalCalls,
 		MaxConcurrent:    cfg.MaxConcurrent,

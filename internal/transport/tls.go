@@ -135,7 +135,7 @@ func (s *SharedTLS) Close() error {
 }
 
 func (s *SharedTLS) tryReconnect() bool {
-	if s.reconnect.MaxAttempts <= 0 || s.isClosed() {
+	if s.reconnect.CloseOnReconnect || s.reconnect.MaxAttempts <= 0 || s.isClosed() {
 		return false
 	}
 	s.reconnectMu.Lock()

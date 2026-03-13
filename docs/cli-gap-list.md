@@ -43,7 +43,7 @@ It is intentionally pragmatic:
 | `-sf`, `-sn`, `-rsa` (or positional remote address), `-s`, `-i`, `-p` | `supported` | `P0` | core scenario and addressing startup flags |
 | `-t u1`, `-t un`, `-t t1`, `-t tn`, `-t l1`, `-t ln` | `supported` | `P0` | core transport coverage for UDP/TCP/TLS modes |
 | `-t s1`, `-t sn` | `partial` | `P1` | accepted as server-side UDP aliases, not SIPp SCTP semantics |
-| `-r`, `-rp`, `-rate_scale`, `-rate_increase`, `-rate_interval`, `-rate_max`, `-max_socket`, `-max_reconnect`, `-reconnect_sleep`, `-m`, `-l`, `-users`, `-pause_ms`, `-recv_timeout_ms`, `-timeout_global` | `supported` | `P0` | basic load/scheduling controls are present, including SIPp-style rate periods, runtime rate ramp controls, socket cap for per-call modes, shared TCP/TLS reconnect retries, interactive rate scale, and global run timeout |
+| `-r`, `-rp`, `-rate_scale`, `-rate_increase`, `-rate_interval`, `-rate_max`, `-max_socket`, `-max_reconnect`, `-reconnect_sleep`, `-reconnect_close`, `-m`, `-l`, `-users`, `-pause_ms`, `-recv_timeout_ms`, `-timeout_global` | `supported` | `P0` | basic load/scheduling controls are present, including SIPp-style rate periods, runtime rate ramp controls, socket cap for per-call modes, shared TCP/TLS reconnect knobs, interactive rate scale, and global run timeout |
 | `-summary_json` | `supported` | `P0` | structured final stats for automation |
 | `-trace_msg`, `-message_file`, `-trace_shortmsg` | `supported` | `P0` | full and compact message traces |
 | `-trace_err`, `-error_file`, `-trace_error_codes` | `supported` | `P0` | error trace and compact response-code diagnostics |
@@ -69,7 +69,7 @@ It is intentionally pragmatic:
 | `-t ui` | one UDP socket per source IP from injection data | `deferred` | `P2` | keep in Milestone 3 scope | transport/addressing redesign item |
 | `-inf` + `-ip_field` for transport/IP selection | per-call local IP selection in `ui` workflow | `deferred` | `P2` | keep in Milestone 3 scope | related to `-t ui` and multi-IP behavior |
 | `-infindex` | indexed CSV injection lookup acceleration | `missing` | `P2` | triage after P0/P1 CLI work | separate from current `lookup` action MVP |
-| TCP reconnect controls (`-max_reconnect`, `-reconnect_close`, `-reconnect_sleep`) | reconnection policy tuning | `partial` | `P2` | add `-reconnect_close` semantics if operationally needed | `-max_reconnect` and `-reconnect_sleep` now supported for shared client TCP/TLS (`t1`, `l1`); `-reconnect_close` remains deferred |
+| TCP reconnect controls (`-max_reconnect`, `-reconnect_close`, `-reconnect_sleep`) | reconnection policy tuning | `partial` | `P2` | extend semantics if full SIPp parity is required | supported for shared client TCP/TLS (`t1`, `l1`); `-reconnect_close=true` currently closes active calls by disabling reconnect attempts |
 | `-max_socket` (multi-socket cap) | cap number of active sockets | `partial` | `P2` | evaluate server/shared transport alignment later | currently caps per-call client socket fanout (`un`, `tn`, `ln`) |
 
 ## Candidate P0 shortlist (execution order)
