@@ -1169,7 +1169,8 @@ func (e *Engine) executeCall(
 		ExtraKeywords: map[string]string{
 			"routes": "",
 		},
-		BasePath: e.cfg.Scenario.BasePath,
+		CSVFieldOverrides: make(map[string]map[int]map[int]string),
+		BasePath:          e.cfg.Scenario.BasePath,
 	}
 	currentRemoteHost := remoteHost
 	currentRemoteIP := remoteHost
@@ -1846,6 +1847,16 @@ func (e *Engine) applyActions(ctx context.Context, callNumber int, actions []sce
 			for _, name := range action.AssignTo {
 				vars.Set(name, value)
 			}
+		case scenario.ActionSample:
+			value, err := e.applySampleAction(action, renderCtx)
+			if err != nil {
+				return actionResult{}, err
+			}
+			assignActionValue(action.AssignTo, value, vars)
+		case scenario.ActionInsert, scenario.ActionReplace:
+			if err := applyCSVMutationAction(action, renderCtx); err != nil {
+				return actionResult{}, err
+			}
 		case scenario.ActionStrCmp:
 			if len(action.AssignTo) == 0 {
 				continue
@@ -2016,6 +2027,206 @@ func resolveSetDestAction(action scenario.Action, renderCtx templ.Context) (stri
 		}
 	}
 	return strings.TrimSpace(host), port, strings.TrimSpace(protocol), nil
+}
+
+type sampleSpec struct {
+	min  int64
+	max  int64
+	step int64
+	seed *int64
+}
+
+func (e *Engine) applySampleAction(action scenario.Action, renderCtx templ.Context) (string, error) {
+	if len(action.AssignTo) == 0 {
+		return "", nil
+	}
+	spec, err := parseSampleSpec(action.Value, renderCtx)
+	if err != nil {
+		return "", err
+	}
+	values, err := buildSampleValues(spec)
+	if err != nil {
+		return "", err
+	}
+	if len(values) == 0 {
+		return "", errors.New("sample action produced no values")
+	}
+	idx, err := e.sampleIndex(len(values), spec.seed)
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatInt(values[idx], 10), nil
+}
+
+func (e *Engine) sampleIndex(size int, seed *int64) (int, error) {
+	if size <= 0 {
+		return 0, errors.New("sample action requires non-empty value set")
+	}
+	if seed != nil {
+		rnd := mrand.New(mrand.NewSource(*seed))
+		return rnd.Intn(size), nil
+	}
+	e.randomMu.Lock()
+	defer e.randomMu.Unlock()
+	return e.random.Intn(size), nil
+}
+
+func parseSampleSpec(raw string, renderCtx templ.Context) (sampleSpec, error) {
+	rendered, err := templ.RenderMessageStrict(raw, renderCtx)
+	if err != nil {
+		return sampleSpec{}, err
+	}
+	trimmed := strings.TrimSpace(rendered)
+	if trimmed == "" {
+		return sampleSpec{}, errors.New("sample action requires value spec")
+	}
+	spec := sampleSpec{
+		step: 1,
+	}
+	var hasMin, hasMax bool
+	for _, field := range strings.Fields(trimmed) {
+		parts := strings.SplitN(field, "=", 2)
+		if len(parts) != 2 {
+			return sampleSpec{}, fmt.Errorf("sample action invalid token %q", field)
+		}
+		key := strings.ToLower(strings.TrimSpace(parts[0]))
+		val := strings.TrimSpace(parts[1])
+		switch key {
+		case "min":
+			v, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return sampleSpec{}, fmt.Errorf("sample action invalid min %q", val)
+			}
+			spec.min = v
+			hasMin = true
+		case "max":
+			v, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return sampleSpec{}, fmt.Errorf("sample action invalid max %q", val)
+			}
+			spec.max = v
+			hasMax = true
+		case "step":
+			v, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return sampleSpec{}, fmt.Errorf("sample action invalid step %q", val)
+			}
+			spec.step = v
+		case "seed":
+			v, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				return sampleSpec{}, fmt.Errorf("sample action invalid seed %q", val)
+			}
+			spec.seed = &v
+		default:
+			return sampleSpec{}, fmt.Errorf("sample action unsupported key %q", key)
+		}
+	}
+	if !hasMin || !hasMax {
+		return sampleSpec{}, errors.New("sample action requires min and max")
+	}
+	if spec.step <= 0 {
+		return sampleSpec{}, errors.New("sample action step must be > 0")
+	}
+	if spec.max < spec.min {
+		return sampleSpec{}, errors.New("sample action max must be >= min")
+	}
+	return spec, nil
+}
+
+func buildSampleValues(spec sampleSpec) ([]int64, error) {
+	const maxValues = 1_000_000
+	values := make([]int64, 0, 16)
+	for v := spec.min; v <= spec.max; v += spec.step {
+		values = append(values, v)
+		if len(values) > maxValues {
+			return nil, errors.New("sample action value set is too large")
+		}
+		if spec.step > 0 && v > spec.max-spec.step {
+			break
+		}
+	}
+	return values, nil
+}
+
+type csvMutationSpec struct {
+	line     int
+	field    int
+	text     string
+	position string
+}
+
+func applyCSVMutationAction(action scenario.Action, renderCtx templ.Context) error {
+	if strings.TrimSpace(action.File) == "" {
+		return fmt.Errorf("%s action requires file", action.Type)
+	}
+	fileName, err := templ.RenderMessageStrict(action.File, renderCtx)
+	if err != nil {
+		return err
+	}
+	spec, err := parseCSVMutationSpec(action.Value, renderCtx)
+	if err != nil {
+		return err
+	}
+	mode := "replace"
+	if action.Type == scenario.ActionInsert {
+		mode = "insert"
+	}
+	return templ.ApplyCSVMutation(
+		renderCtx.BasePath,
+		fileName,
+		spec.line,
+		spec.field,
+		mode,
+		spec.text,
+		spec.position,
+		renderCtx.CSVFieldOverrides,
+	)
+}
+
+func parseCSVMutationSpec(raw string, renderCtx templ.Context) (csvMutationSpec, error) {
+	rendered, err := templ.RenderMessageStrict(raw, renderCtx)
+	if err != nil {
+		return csvMutationSpec{}, err
+	}
+	trimmed := strings.TrimSpace(rendered)
+	if trimmed == "" {
+		return csvMutationSpec{}, errors.New("csv mutation action requires value spec")
+	}
+	params := make(map[string]string)
+	for _, part := range strings.Fields(trimmed) {
+		key, val, ok := strings.Cut(part, "=")
+		if !ok {
+			return csvMutationSpec{}, fmt.Errorf("csv mutation action invalid token %q", part)
+		}
+		params[strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(val)
+	}
+	rawLine, ok := params["line"]
+	if !ok {
+		return csvMutationSpec{}, errors.New("csv mutation action requires line")
+	}
+	line, err := strconv.Atoi(rawLine)
+	if err != nil || line <= 0 {
+		return csvMutationSpec{}, fmt.Errorf("csv mutation action invalid line %q", rawLine)
+	}
+	rawField, ok := params["field"]
+	if !ok {
+		return csvMutationSpec{}, errors.New("csv mutation action requires field")
+	}
+	field, err := strconv.Atoi(rawField)
+	if err != nil || field < 0 {
+		return csvMutationSpec{}, fmt.Errorf("csv mutation action invalid field %q", rawField)
+	}
+	text, ok := params["text"]
+	if !ok {
+		return csvMutationSpec{}, errors.New("csv mutation action requires text")
+	}
+	return csvMutationSpec{
+		line:     line,
+		field:    field,
+		text:     text,
+		position: params["position"],
+	}, nil
 }
 
 func normalizeTransportForSetDest(transport string) string {

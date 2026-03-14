@@ -297,6 +297,58 @@ func TestParseScenarioSetDestAction(t *testing.T) {
 	}
 }
 
+func TestParseScenarioSampleAction(t *testing.T) {
+	t.Parallel()
+
+	sc, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="sample">
+  <nop>
+    <action>
+      <sample assign_to="picked" value="min=10 max=20 step=5 seed=7"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if len(sc.Commands) != 1 || len(sc.Commands[0].Actions) != 1 {
+		t.Fatalf("unexpected parsed scenario: %+v", sc.Commands)
+	}
+	action := sc.Commands[0].Actions[0]
+	if action.Type != ActionSample || action.Value != "min=10 max=20 step=5 seed=7" {
+		t.Fatalf("unexpected sample action: %+v", action)
+	}
+	if len(action.AssignTo) != 1 || action.AssignTo[0] != "picked" {
+		t.Fatalf("unexpected sample assign_to: %+v", action.AssignTo)
+	}
+}
+
+func TestParseScenarioInsertReplaceActions(t *testing.T) {
+	t.Parallel()
+
+	sc, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="insert-replace">
+  <nop>
+    <action>
+      <insert file="inject.csv" value="line=2 field=1 text=_x"/>
+      <replace file="inject.csv" value="line=2 field=1 text=hello"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if len(sc.Commands) != 1 || len(sc.Commands[0].Actions) != 2 {
+		t.Fatalf("unexpected parsed scenario: %+v", sc.Commands)
+	}
+	if sc.Commands[0].Actions[0].Type != ActionInsert {
+		t.Fatalf("expected insert action, got %+v", sc.Commands[0].Actions[0])
+	}
+	if sc.Commands[0].Actions[1].Type != ActionReplace {
+		t.Fatalf("expected replace action, got %+v", sc.Commands[0].Actions[1])
+	}
+}
+
 func TestParseScenarioRecvRRSAttribute(t *testing.T) {
 	t.Parallel()
 

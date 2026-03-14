@@ -82,7 +82,7 @@ This milestone is now complete for the intended XML/helper scope.
 
 Explicitly deferred beyond Milestone 2:
 
-- `sample`, `insert`, and `replace` action families
+- advanced `sample` distributions beyond the current deterministic integer range subset, and `insert` / `replace` action families
 - `setdest` because it overlaps transport/addressing work in Milestone 3
 - `play_pcap_video` because it overlaps broader media parity in Milestone 4
 - keyword families such as `[routes]`, `[dynamic_id]`, `[clock_tick]`, `[sipp_version]`, `[tdmmap]`, and `[fill]`
@@ -204,7 +204,7 @@ Deliverables:
 
 Priority: medium-low
 
-Status: in progress (planning)
+Status: completed (pragmatic)
 
 This milestone is intentionally later because it carries the highest blast
 radius and the lowest short-term payoff.
@@ -231,12 +231,20 @@ Completed so far in this milestone:
 - fixture coverage for mixed optional-`recv` branching with `_unexp.main` priority and stable `$_unexp.retaddr` handoff
 - fixed pending-queue starvation edge-case where optional-mismatch leftovers could block subsequent mandatory `recv` matching
 - regression fixture for multiple sequential pending mismatches (`183`/`484`) proving mandatory `recv 486` still resolves deterministically
+- pragmatic `sample` action subset for deterministic integer range sampling (`min/max/step/seed`) with `assign_to`
+- pragmatic `insert` / `replace` action subset for deterministic per-cell CSV in-memory mutation used by `[fieldN ...]` rendering
 - unit coverage for strict and non-strict rendering paths, including arithmetic offsets for tick/id helpers
 - compatibility matrix updates reflecting M6 P0 keyword status
 
+Target gaps from SIPp (deferred beyond pragmatic M6 close):
+
+- advanced `insert` / `replace` semantics beyond current deterministic per-cell CSV mutation subset
+- advanced `sample` distributions and non-deterministic statistical profiles beyond current constrained subset
+- older niche XML/keyword constructs (for example `[tdmmap]`) that are low-value for current automation flows
+
 Execution plan (phased pragmatic close):
 
-Phase 1 - backlog freeze (current):
+Phase 1 - backlog freeze (completed):
 
 - define concrete `P0/P1/P2` scope for M6 with acceptance criteria and explicit non-goals
 - keep M6 focused on XML/keyword semantics only; no transport/media redesign in this milestone

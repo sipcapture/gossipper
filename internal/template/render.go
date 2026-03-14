@@ -43,7 +43,9 @@ type Context struct {
 	DynamicID     int64
 	ExtraKeywords map[string]string
 	Variables     map[string]string
-	BasePath      string
+	// CSVFieldOverrides stores per-file, per-line, per-field in-memory overrides.
+	CSVFieldOverrides map[string]map[int]map[int]string
+	BasePath          string
 }
 
 func (c Context) Render(raw string) string {
@@ -141,7 +143,7 @@ func (c Context) resolveToken(token string) (string, bool, bool) {
 		value, ok := renderFileToken(key, c.BasePath)
 		return value, ok, false
 	}
-	if field, ok := renderFieldTokenWithVariables(key, c.BasePath, c.CallNumber, c.Variables); ok {
+	if field, ok := renderFieldTokenWithVariables(key, c.BasePath, c.CallNumber, c.Variables, c.CSVFieldOverrides); ok {
 		return field, true, false
 	}
 	if value, ok := renderFillToken(key, c.Variables); ok {
@@ -254,7 +256,7 @@ func (c Context) resolveTokenStrict(token string) (string, bool, error) {
 		return value, false, nil
 	}
 	if strings.HasPrefix(lower, "field") {
-		value, ok := renderFieldTokenWithVariables(key, c.BasePath, c.CallNumber, c.Variables)
+		value, ok := renderFieldTokenWithVariables(key, c.BasePath, c.CallNumber, c.Variables, c.CSVFieldOverrides)
 		if !ok {
 			return "", false, fmt.Errorf("unable to resolve field token %q", token)
 		}
@@ -525,10 +527,10 @@ func renderFileToken(key, basePath string) (string, bool) {
 }
 
 func renderFieldToken(key, basePath string, callNumber int) (string, bool) {
-	return renderFieldTokenWithVariables(key, basePath, callNumber, nil)
+	return renderFieldTokenWithVariables(key, basePath, callNumber, nil, nil)
 }
 
-func renderFieldTokenWithVariables(key, basePath string, callNumber int, variables map[string]string) (string, bool) {
+func renderFieldTokenWithVariables(key, basePath string, callNumber int, variables map[string]string, overrides map[string]map[int]map[int]string) (string, bool) {
 	lower := strings.ToLower(key)
 	if !strings.HasPrefix(lower, "field") {
 		return "", false
@@ -557,7 +559,7 @@ func renderFieldTokenWithVariables(key, basePath string, callNumber int, variabl
 		lineNumber = resolved
 	}
 
-	record, ok, err := csvRecordAt(basePath, name, lineNumber)
+	record, ok, err := csvRecordAt(basePath, name, lineNumber, overrides)
 	if err != nil || !ok {
 		return "", false
 	}
@@ -589,7 +591,7 @@ func resolveLineNumber(raw string, variables map[string]string) (int, bool) {
 	return lineNumber, true
 }
 
-func csvRecordAt(basePath, name string, lineNumber int) ([]string, bool, error) {
+func csvRecordAt(basePath, name string, lineNumber int, overrides map[string]map[int]map[int]string) ([]string, bool, error) {
 	if lineNumber <= 0 {
 		return nil, false, nil
 	}
@@ -605,7 +607,93 @@ func csvRecordAt(basePath, name string, lineNumber int) ([]string, bool, error) 
 	if err != nil || len(records) < lineNumber {
 		return nil, false, err
 	}
-	return records[lineNumber-1], true, nil
+	record := append([]string(nil), records[lineNumber-1]...)
+	applyCSVFieldOverrides(resolvePath(basePath, name), lineNumber, record, overrides)
+	return record, true, nil
+}
+
+// ApplyCSVMutation mutates one CSV cell in memory for subsequent [fieldN ...] reads.
+// Supported modes: "replace", "insert" (append by default, or prefix with position=prefix).
+func ApplyCSVMutation(
+	basePath, name string,
+	lineNumber, field int,
+	mode, text, position string,
+	overrides map[string]map[int]map[int]string,
+) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("csv mutation requires file")
+	}
+	if lineNumber <= 0 {
+		return fmt.Errorf("csv mutation line must be > 0")
+	}
+	if field < 0 {
+		return fmt.Errorf("csv mutation field must be >= 0")
+	}
+	record, ok, err := csvRecordAt(basePath, name, lineNumber, overrides)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("csv mutation line %d not found", lineNumber)
+	}
+	if field >= len(record) {
+		return fmt.Errorf("csv mutation field index %d out of range", field)
+	}
+	current := record[field]
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "replace":
+		record[field] = text
+	case "insert":
+		switch strings.ToLower(strings.TrimSpace(position)) {
+		case "", "suffix", "append":
+			record[field] = current + text
+		case "prefix", "prepend":
+			record[field] = text + current
+		default:
+			return fmt.Errorf("csv insert position must be prefix|suffix")
+		}
+	default:
+		return fmt.Errorf("unsupported csv mutation mode %q", mode)
+	}
+	storeCSVFieldOverride(resolvePath(basePath, name), lineNumber, field, record[field], overrides)
+	return nil
+}
+
+func applyCSVFieldOverrides(fileKey string, lineNumber int, record []string, overrides map[string]map[int]map[int]string) {
+	if overrides == nil {
+		return
+	}
+	byFile, ok := overrides[fileKey]
+	if !ok {
+		return
+	}
+	byLine, ok := byFile[lineNumber]
+	if !ok {
+		return
+	}
+	for fieldIndex, value := range byLine {
+		if fieldIndex < 0 || fieldIndex >= len(record) {
+			continue
+		}
+		record[fieldIndex] = value
+	}
+}
+
+func storeCSVFieldOverride(fileKey string, lineNumber, field int, value string, overrides map[string]map[int]map[int]string) {
+	if overrides == nil {
+		return
+	}
+	byFile, ok := overrides[fileKey]
+	if !ok {
+		byFile = make(map[int]map[int]string)
+		overrides[fileKey] = byFile
+	}
+	byLine, ok := byFile[lineNumber]
+	if !ok {
+		byLine = make(map[int]string)
+		byFile[lineNumber] = byLine
+	}
+	byLine[field] = value
 }
 
 func LookupCSVLine(basePath, name, key string) (int, bool, error) {

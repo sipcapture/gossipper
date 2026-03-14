@@ -68,9 +68,9 @@ into no-ops or empty strings.
 | `urldecode` | supported | URL-decodes the referenced variable in place |
 | `verifyauth` | supported | Validates incoming Digest `Authorization` / `Proxy-Authorization` headers for `MD5` and `SHA-256` with `qop=auth` |
 | `exec` | partial | Supports `command`, `int_cmd`, `rtp_stream` `start` / `pause` / `resume` / `stop` / `echo`, pragmatic `rtpcheck` (`min_packets`, `timeout_ms`, `direction=any|send|recv|both`, legacy `bidirectional`), `play_pcap_audio`, `play_pcap_video`, and `play_pcap_image`; PCAP replay preserves timing and uses SDP endpoint discovery for matching media lines (`m=audio`, `m=video`, `m=image`) |
-| `sample` | deferred | Statistical variable sampling is not implemented yet |
-| `insert` | deferred | In-memory injection file mutation is not implemented yet |
-| `replace` | deferred | In-memory injection file mutation is not implemented yet |
+| `sample` | partial | Pragmatic deterministic subset: `value="min=<int> max=<int> [step=<int>] [seed=<int>]"` with `assign_to` target |
+| `insert` | partial | Pragmatic CSV field mutation subset: `file=...` and `value="line=<int> field=<int> text=<value> [position=prefix|suffix]"`; affects in-memory `[fieldN ...]` reads for the current call |
+| `replace` | partial | Pragmatic CSV field mutation subset: `file=...` and `value="line=<int> field=<int> text=<value>"`; affects in-memory `[fieldN ...]` reads for the current call |
 | `setdest` | partial | Pragmatic M3 runtime support: updates remote destination for shared-socket UDP flows (`u1`, `ui`, server-side UDP aliases), with protocol compatibility validation; non-UDP/per-call transports remain deferred |
 | `play_pcap_video` | partial | Pragmatic replay support via `exec play_pcap_video="capture.pcap"` using SDP `m=video` endpoint discovery and generic RTP payload forwarding |
 | `play_pcap_image` | partial | Pragmatic replay support via `exec play_pcap_image="capture.pcap"` using SDP `m=image` endpoint discovery and generic RTP payload forwarding |
@@ -220,7 +220,8 @@ into no-ops or empty strings.
 
 ## Deliberately deferred
 
-- `sample`, `insert`, and `replace` action families
+- advanced `insert` / `replace` semantics beyond current deterministic per-cell CSV mutation subset
+- advanced `sample` distributions beyond current deterministic integer range subset
 - broader per-call addressing changes outside current `setdest` pragmatic scope (for example per-call sockets and non-UDP transports)
 - full video/image media pipeline parity beyond pragmatic PCAP replay coverage
 - advanced `-t ui` parity beyond current client+server multi-IP MVP (broader SIPp behavior alignment)
