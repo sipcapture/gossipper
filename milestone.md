@@ -183,6 +183,8 @@ Completed so far in this milestone:
 - partial reconnect control parity via `-max_reconnect` and `-reconnect_sleep` for shared client TCP/TLS (`t1`, `l1`)
 - `-reconnect_close` surfaced with initial close-on-reconnect behavior for shared client TCP/TLS (`t1`, `l1`)
 - `-infindex` parity for indexed CSV injection lookup acceleration (`-infindex <file> <field>`)
+- parser guardrails for transport-scoped runtime knobs: `-max_socket` restricted to `un`/`tn`/`ln`, reconnect knobs restricted to `t1`/`l1`
+- usability parity for trace cadence flags: explicit `-fd` auto-enables `-trace_stat`, explicit `-rtt_freq` auto-enables `-trace_rtt`
 
 Target gaps from SIPp:
 
@@ -302,7 +304,7 @@ These are concrete SIPp-side features that are not currently present in
 - full SIPp media parity beyond pragmatic `play_pcap_video` / `play_pcap_image` support
 - bidirectional RTP/SRTP checking (`rtpcheck`) beyond current pragmatic RTP activity validation
 - wider media parity beyond current audio-first behavior
-- fuller CLI parity with SIPp
+- fuller CLI parity with SIPp beyond current pragmatic guardrails and trace/rate operational subset
 
 ## Development rule for future work
 

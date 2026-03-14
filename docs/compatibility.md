@@ -161,8 +161,8 @@ into no-ops or empty strings.
 | `-inf` + `-ip_field` | supported (for `-t ui`) | Selects UI transport bind IPs from a CSV field (zero-based index): client mode preserves CSV row order (including duplicates) for per-call rotation, server mode binds one listener per unique IP |
 | `-t ui` | partial | Pragmatic M3 parity: one UDP shared socket per source IP in client mode and one UDP listener socket per configured IP in server mode; bind failures include failing `ip:port`; TUI launch path supports `ui` + `inf` / `ip_field`; advanced SIPp parity remains deferred |
 | `-infindex` | supported | Generates a CSV injection index (`-infindex <file> <field>`); lookup uses generated index files for faster first-column key resolution |
-| `-max_socket` | partial | Caps per-call transport concurrency (`un`, `tn`, `ln`) by limiting simultaneously open call sockets |
-| `-max_reconnect` + `-reconnect_sleep` + `-reconnect_close` | partial | Shared client TCP/TLS transports (`t1`, `l1`) support reconnect retries and close-on-reconnect behavior |
+| `-max_socket` | partial | Caps per-call transport concurrency (`un`, `tn`, `ln`) by limiting simultaneously open call sockets; parser now rejects unsupported transports early |
+| `-max_reconnect` + `-reconnect_sleep` + `-reconnect_close` | partial | Shared client TCP/TLS transports (`t1`, `l1`) support reconnect retries and close-on-reconnect behavior; parser now rejects unsupported transports early |
 
 ## Trace CLI workflow
 
@@ -173,9 +173,9 @@ into no-ops or empty strings.
 | `-trace_shortmsg` | supported | Writes a compact CSV sibling log with timestamp, direction, protocol, summary, and `Call-ID` |
 | `-trace_counts` | supported | Writes periodic CSV snapshots with per-scenario SIP command counters (`sent`, `recv`, `unexp`); additional per-message detail is intentionally deferred to keep schema stable in M5 |
 | `-trace_stat` | supported | Writes periodic and final CSV stats snapshots to a sibling `_stats` trace file with both cumulative totals and per-interval delta fields |
-| `-fd` | supported | Controls `-trace_stat` snapshot frequency in seconds (SIPp-compatible naming) |
+| `-fd` | supported | Controls `-trace_stat` snapshot frequency in seconds (SIPp-compatible naming); providing `-fd` also enables `-trace_stat` |
 | `-trace_rtt` | supported | Writes each completed named RTD sample to a sibling `_rtt` CSV trace file |
-| `-rtt_freq` | supported | Controls `-trace_rtt` flush cadence in completed calls (default `200`) |
+| `-rtt_freq` | supported | Controls `-trace_rtt` flush cadence in completed calls (default `200`); providing `-rtt_freq` also enables `-trace_rtt` |
 | CSV schema contract | supported | Stable `-trace_stat` / `-trace_rtt` / `-trace_screen` header contract is documented in `docs/trace-schema-contract.md` |
 | legacy trace CSV alias columns | deferred | Not emitted by design; migration should use explicit parser adapters, see `docs/trace-schema-contract.md` |
 | `-trace_err` | supported | Writes unexpected SIP messages and runtime failures to the configured error file |

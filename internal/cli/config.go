@@ -181,6 +181,10 @@ func Parse(args []string) (Config, error) {
 	if err := fs.Parse(normalizedArgs); err != nil {
 		return Config{}, err
 	}
+	providedFlags := make(map[string]struct{})
+	fs.Visit(func(f *flag.Flag) {
+		providedFlags[f.Name] = struct{}{}
+	})
 
 	if remoteAddr == "" && fs.NArg() > 0 {
 		remoteAddr = fs.Arg(0)
@@ -322,6 +326,12 @@ func Parse(args []string) (Config, error) {
 	if cfg.MessageFile != "" {
 		cfg.TraceMessages = true
 	}
+	if _, ok := providedFlags["fd"]; ok {
+		cfg.TraceStats = true
+	}
+	if _, ok := providedFlags["rtt_freq"]; ok {
+		cfg.TraceRTT = true
+	}
 	if cfg.AuthUsername == "" {
 		cfg.AuthUsername = cfg.Service
 	}
@@ -337,6 +347,20 @@ func Parse(args []string) (Config, error) {
 	if cfg.HEPAddr != "" {
 		if _, _, err := splitHostPort(cfg.HEPAddr); err != nil {
 			return Config{}, fmt.Errorf("invalid HEP collector address: %w", err)
+		}
+	}
+	if cfg.MaxSockets > 0 {
+		switch cfg.Transport {
+		case "un", "tn", "ln":
+		default:
+			return Config{}, errors.New("max_socket is only supported with un, tn, or ln transport")
+		}
+	}
+	if cfg.MaxReconnect > 0 || cfg.ReconnectSleep > 0 || cfg.ReconnectClose {
+		switch cfg.Transport {
+		case "t1", "l1":
+		default:
+			return Config{}, errors.New("max_reconnect/reconnect_sleep/reconnect_close are only supported with t1 or l1 transport")
 		}
 	}
 

@@ -319,6 +319,9 @@ func TestParseAcceptsRTTDumpFrequency(t *testing.T) {
 	if cfg.RTTDumpFrequency != 50 {
 		t.Fatalf("expected rtt dump frequency 50, got %d", cfg.RTTDumpFrequency)
 	}
+	if !cfg.TraceRTT {
+		t.Fatal("expected -rtt_freq to enable trace_rtt")
+	}
 }
 
 func TestParseAcceptsStatsDumpFrequency(t *testing.T) {
@@ -334,6 +337,9 @@ func TestParseAcceptsStatsDumpFrequency(t *testing.T) {
 	}
 	if cfg.StatsDumpPeriod != 2*time.Second {
 		t.Fatalf("expected stats dump period 2s, got %v", cfg.StatsDumpPeriod)
+	}
+	if !cfg.TraceStats {
+		t.Fatal("expected -fd to enable trace_stat")
 	}
 }
 
@@ -524,6 +530,7 @@ func TestParseAcceptsReconnectFlags(t *testing.T) {
 	cfg, err := Parse([]string{
 		"-sn", "uac",
 		"-rsa", "127.0.0.1:5060",
+		"-t", "t1",
 		"-max_reconnect", "3",
 		"-reconnect_sleep", "150",
 	})
@@ -544,6 +551,7 @@ func TestParseAcceptsReconnectClose(t *testing.T) {
 	cfg, err := Parse([]string{
 		"-sn", "uac",
 		"-rsa", "127.0.0.1:5060",
+		"-t", "l1",
 		"-reconnect_close",
 	})
 	if err != nil {
@@ -560,6 +568,7 @@ func TestParseAcceptsMaxSocket(t *testing.T) {
 	cfg, err := Parse([]string{
 		"-sn", "uac",
 		"-rsa", "127.0.0.1:5060",
+		"-t", "un",
 		"-max_socket", "32",
 	})
 	if err != nil {
@@ -567,6 +576,70 @@ func TestParseAcceptsMaxSocket(t *testing.T) {
 	}
 	if cfg.MaxSockets != 32 {
 		t.Fatalf("expected max_socket 32, got %d", cfg.MaxSockets)
+	}
+}
+
+func TestParseRejectsMaxSocketForUnsupportedTransports(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{"u1", "ui", "t1", "l1"}
+	for _, transport := range cases {
+		transport := transport
+		t.Run(transport, func(t *testing.T) {
+			t.Parallel()
+			args := []string{
+				"-sn", "uac",
+				"-rsa", "127.0.0.1:5060",
+				"-t", transport,
+				"-max_socket", "4",
+			}
+			if transport == "ui" {
+				injectionPath := filepath.Join(t.TempDir(), "ips.csv")
+				if err := os.WriteFile(injectionPath, []byte("127.0.0.2\n"), 0o644); err != nil {
+					t.Fatalf("WriteFile(injection) error = %v", err)
+				}
+				args = append(args, "-inf", injectionPath, "-ip_field", "0")
+			}
+			_, err := Parse(args)
+			if err == nil {
+				t.Fatalf("expected max_socket to be rejected for %s", transport)
+			}
+			if !strings.Contains(err.Error(), "max_socket") {
+				t.Fatalf("unexpected error for %s: %v", transport, err)
+			}
+		})
+	}
+}
+
+func TestParseRejectsReconnectFlagsForUnsupportedTransports(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{"u1", "un", "ui", "tn", "ln"}
+	for _, transport := range cases {
+		transport := transport
+		t.Run(transport, func(t *testing.T) {
+			t.Parallel()
+			args := []string{
+				"-sn", "uac",
+				"-rsa", "127.0.0.1:5060",
+				"-t", transport,
+				"-max_reconnect", "2",
+			}
+			if transport == "ui" {
+				injectionPath := filepath.Join(t.TempDir(), "ips.csv")
+				if err := os.WriteFile(injectionPath, []byte("127.0.0.2\n"), 0o644); err != nil {
+					t.Fatalf("WriteFile(injection) error = %v", err)
+				}
+				args = append(args, "-inf", injectionPath, "-ip_field", "0")
+			}
+			_, err := Parse(args)
+			if err == nil {
+				t.Fatalf("expected reconnect flags to be rejected for %s", transport)
+			}
+			if !strings.Contains(err.Error(), "reconnect") {
+				t.Fatalf("unexpected error for %s: %v", transport, err)
+			}
+		})
 	}
 }
 
