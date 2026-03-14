@@ -38,6 +38,9 @@ type Context struct {
 	LastMessage   string
 	LastHeaders   map[string][]string
 	BodyLength    int
+	SIPpVersion   string
+	ClockTick     int64
+	DynamicID     int64
 	ExtraKeywords map[string]string
 	Variables     map[string]string
 	BasePath      string
@@ -141,6 +144,9 @@ func (c Context) resolveToken(token string) (string, bool, bool) {
 	if field, ok := renderFieldTokenWithVariables(key, c.BasePath, c.CallNumber, c.Variables); ok {
 		return field, true, false
 	}
+	if value, ok := renderFillToken(key, c.Variables); ok {
+		return value, true, false
+	}
 	if strings.HasPrefix(strings.ToLower(key), "last_") {
 		header := strings.TrimPrefix(key, "last_")
 		if strings.EqualFold(header, "message") {
@@ -202,6 +208,15 @@ func (c Context) resolveToken(token string) (string, bool, bool) {
 		return time.Now().Format("2006-01-02 15:04:05"), true, false
 	case "date":
 		return time.Now().UTC().Format(time.RFC1123), true, false
+	case "sipp_version":
+		if strings.TrimSpace(c.SIPpVersion) == "" {
+			return "gossIpper", true, false
+		}
+		return c.SIPpVersion, true, false
+	case "clock_tick":
+		return strconv.FormatInt(c.ClockTick+int64(delta), 10), true, false
+	case "dynamic_id":
+		return strconv.FormatInt(c.DynamicID+int64(delta), 10), true, false
 	case "last_cseq_number":
 		return extractCSeqNumber(c.LastHeaders), true, false
 	case "next_url":
@@ -242,6 +257,13 @@ func (c Context) resolveTokenStrict(token string) (string, bool, error) {
 		value, ok := renderFieldTokenWithVariables(key, c.BasePath, c.CallNumber, c.Variables)
 		if !ok {
 			return "", false, fmt.Errorf("unable to resolve field token %q", token)
+		}
+		return value, false, nil
+	}
+	if strings.HasPrefix(lower, "fill") {
+		value, ok := renderFillToken(key, c.Variables)
+		if !ok {
+			return "", false, fmt.Errorf("unable to resolve fill token %q", token)
 		}
 		return value, false, nil
 	}
@@ -318,6 +340,15 @@ func (c Context) resolveTokenStrict(token string) (string, bool, error) {
 		return time.Now().Format("2006-01-02 15:04:05"), false, nil
 	case "date":
 		return time.Now().UTC().Format(time.RFC1123), false, nil
+	case "sipp_version":
+		if strings.TrimSpace(c.SIPpVersion) == "" {
+			return "gossIpper", false, nil
+		}
+		return c.SIPpVersion, false, nil
+	case "clock_tick":
+		return strconv.FormatInt(c.ClockTick+int64(delta), 10), false, nil
+	case "dynamic_id":
+		return strconv.FormatInt(c.DynamicID+int64(delta), 10), false, nil
 	case "last_cseq_number":
 		return extractCSeqNumber(c.LastHeaders), false, nil
 	case "next_url":
@@ -689,6 +720,70 @@ func parseKeyParams(value string) map[string]string {
 		out[strings.ToLower(strings.TrimSpace(key))] = strings.Trim(strings.TrimSpace(val), `"`)
 	}
 	return out
+}
+
+func renderFillToken(key string, variables map[string]string) (string, bool) {
+	lower := strings.ToLower(key)
+	if !strings.HasPrefix(lower, "fill") {
+		return "", false
+	}
+	paramsRaw := ""
+	if idx := strings.IndexAny(key, " \t"); idx >= 0 {
+		paramsRaw = key[idx+1:]
+	}
+	params := parseKeyParams(paramsRaw)
+	varName := strings.TrimSpace(params["variable"])
+	if varName == "" || variables == nil {
+		return "", false
+	}
+	varName = strings.TrimPrefix(varName, "$")
+	rawLen, ok := variables[varName]
+	if !ok {
+		return "", false
+	}
+	length, ok := parseFillLength(rawLen)
+	if !ok || length < 0 {
+		return "", false
+	}
+	seed := params["text"]
+	if seed == "" {
+		seed = "X"
+	}
+	return fillByPattern(seed, length), true
+}
+
+func parseFillLength(raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	if v, err := strconv.Atoi(raw); err == nil {
+		return v, true
+	}
+	f, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, false
+	}
+	return int(f), true
+}
+
+func fillByPattern(seed string, length int) string {
+	if length <= 0 {
+		return ""
+	}
+	if len(seed) == 1 {
+		return strings.Repeat(seed, length)
+	}
+	var builder strings.Builder
+	builder.Grow(length)
+	for builder.Len() < length {
+		builder.WriteString(seed)
+	}
+	value := builder.String()
+	if len(value) > length {
+		return value[:length]
+	}
+	return value
 }
 
 func resolvePath(basePath, name string) string {

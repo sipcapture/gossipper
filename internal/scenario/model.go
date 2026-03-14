@@ -107,6 +107,7 @@ type Command struct {
 	Retrans  time.Duration
 	RecvReq  string
 	RecvResp string
+	RRS      bool
 	CmdDest  string
 	CmdSrc   string
 	Optional bool

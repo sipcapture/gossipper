@@ -11,7 +11,7 @@ into no-ops or empty strings.
 | SIPp command | Status | Notes |
 | --- | --- | --- |
 | `send` | supported | UDP and TCP sends; `retrans` is honored for UDP |
-| `recv` | supported | Match by `request` or `response`; optional receives supported |
+| `recv` | supported | Match by `request` or `response`; optional receives supported, with pragmatic short-circuit when first incoming SIP mismatches an optional `recv` |
 | `pause` | supported | Uses `milliseconds`, falls back to CLI default |
 | `nop` | supported | Structural no-op, still participates in branching |
 | `label` | supported | Used as a target for `next` jumps |
@@ -19,6 +19,7 @@ into no-ops or empty strings.
 | `sendCmd` | supported | Supports local command bus and external peer delivery with `dest`, `Call-ID` correlation, and optional `From` sender identity |
 | `recvCmd` | supported | Receives from the local bus or external peers, supports actions, timeout, optional `src`, and first-command correlation adoption for 3PCC-style flows so later `[call_id]` can reuse the adopted command context |
 | `init` | supported | Supports initialization `nop`, `pause`, `label`, actions, and command exchange via `sendCmd` / `recvCmd` before traffic starts |
+| `_unexp.main` fallback label | partial | Pragmatic M6 support: on unexpected SIP during `recv`, if `_unexp.main` exists, flow jumps there and sets `$_unexp.retaddr` to the next command index |
 
 ## Common attributes
 
@@ -111,12 +112,12 @@ into no-ops or empty strings.
 | `[users]` | supported | Number of configured logical users from `-users` |
 | `[userid]` | supported | Zero-based logical user identifier for the current call |
 | `[$n]` / `[$name]` | supported | Action and string variables |
-| `[dynamic_id]` | deferred | Not implemented yet |
-| `[routes]` | deferred | Record-Route capture / replay semantics are not implemented yet |
-| `[clock_tick]` | deferred | Internal SIPp clock tick helper is not implemented yet |
-| `[sipp_version]` | deferred | Not implemented yet |
+| `[dynamic_id]` | partial | Pragmatic M6 support renders a deterministic per-message helper value from runtime context; full SIPp wraparound/global semantics remain deferred |
+| `[routes]` | partial | Pragmatic M6 support: when a `recv` command uses `rrs="true"`, captured `Record-Route` headers are replayed as `Route` headers (reverse order) in subsequent rendered messages |
+| `[clock_tick]` | partial | Pragmatic M6 support renders runtime-provided tick values (supports arithmetic offsets) |
+| `[sipp_version]` | supported | Renders runtime version string (defaults to `gossIpper` when not explicitly provided) |
 | `[tdmmap]` | deferred | Not implemented yet |
-| `[fill]` | deferred | Not implemented yet |
+| `[fill]` | partial | Pragmatic M6 support for `variable=` length and optional `text=` seed in message templating; broader SIPp edge semantics remain deferred |
 
 ## Transport modes
 
@@ -223,6 +224,6 @@ into no-ops or empty strings.
 - broader per-call addressing changes outside current `setdest` pragmatic scope (for example per-call sockets and non-UDP transports)
 - full video/image media pipeline parity beyond pragmatic PCAP replay coverage
 - advanced `-t ui` parity beyond current client+server multi-IP MVP (broader SIPp behavior alignment)
-- keyword helpers such as `[routes]`, `[dynamic_id]`, `[clock_tick]`, `[sipp_version]`, `[tdmmap]`, and `[fill]`
+- keyword helpers such as `[tdmmap]` and advanced `[fill]` semantics beyond the current pragmatic subset
 - SRTP and full SIPp `rtpcheck` parity (current support is pragmatic RTP activity validation)
 - full CLI parity with SIPp

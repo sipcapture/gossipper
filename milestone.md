@@ -204,6 +204,8 @@ Deliverables:
 
 Priority: medium-low
 
+Status: in progress (planning)
+
 This milestone is intentionally later because it carries the highest blast
 radius and the lowest short-term payoff.
 
@@ -218,6 +220,68 @@ Deliverables:
 
 - compatibility backlog driven by real failing scenarios
 - regression fixtures for each newly adopted XML edge case
+
+Completed so far in this milestone:
+
+- pragmatic keyword support for `[sipp_version]`, `[clock_tick]`, and `[dynamic_id]` in template rendering
+- pragmatic `[fill]` keyword support for variable-driven filler generation with optional custom seed text
+- pragmatic `[routes]` support backed by `recv rrs="true"` Record-Route capture and reverse-order Route replay
+- pragmatic `_unexp.main` fallback flow for unexpected SIP with `$_unexp.retaddr` handoff
+- pragmatic optional-`recv` short-circuit on first unexpected SIP with pending-stash handoff to following receives
+- fixture coverage for mixed optional-`recv` branching with `_unexp.main` priority and stable `$_unexp.retaddr` handoff
+- fixed pending-queue starvation edge-case where optional-mismatch leftovers could block subsequent mandatory `recv` matching
+- regression fixture for multiple sequential pending mismatches (`183`/`484`) proving mandatory `recv 486` still resolves deterministically
+- unit coverage for strict and non-strict rendering paths, including arithmetic offsets for tick/id helpers
+- compatibility matrix updates reflecting M6 P0 keyword status
+
+Execution plan (phased pragmatic close):
+
+Phase 1 - backlog freeze (current):
+
+- define concrete `P0/P1/P2` scope for M6 with acceptance criteria and explicit non-goals
+- keep M6 focused on XML/keyword semantics only; no transport/media redesign in this milestone
+- gate every item by testability (unit + regression scenario fixture)
+
+Phase 2 - P0 keyword parity (low-risk, high unlock):
+
+- implement `[sipp_version]` keyword rendering (static build/version string path)
+- implement `[clock_tick]` keyword rendering (monotonic runtime tick helper)
+- implement `[dynamic_id]` keyword rendering (message-level incrementing id with deterministic tests)
+- implement pragmatic `[fill]` keyword family (`variable=` length, optional `text=` seed) for message templating use-cases
+
+Acceptance criteria for Phase 2:
+
+- parser/render unit tests for each keyword, including malformed parameter negative cases
+- at least one scenario-level regression test per keyword family
+- `docs/compatibility.md` updated from `deferred` to `partial` / `supported` with scope notes
+
+Phase 3 - P1 keyword + XML edge semantics:
+
+- implement pragmatic `[routes]` replay semantics for flows using `rrs="true"` on receive commands
+- harden edge-case branching behavior around label/index jumps for scenario parity cases seen in failing fixtures
+- add fixture coverage for mixed optional receives + branching paths that currently diverge from SIPp behavior
+
+Acceptance criteria for Phase 3:
+
+- route capture/replay covered by UAC/UAS regression scenarios
+- branching semantics validated by deterministic fixture outcomes, not only unit tests
+- no regressions in existing M1-M5 suites (`go test ./...`)
+
+Phase 4 - P2 deferred actions (only if still needed after fixtures):
+
+- evaluate `sample` action in a constrained deterministic subset first
+- evaluate in-memory injection mutation (`insert` / `replace`) with strict bounds and explicit limitations
+
+Acceptance criteria for Phase 4:
+
+- features stay explicitly marked `partial` unless full SIPp semantics are proven
+- complexity/risk review documented before enabling by default
+
+Planned P0 shortlist for next implementation cycle:
+
+1. `[sipp_version]` + `[clock_tick]` + `[dynamic_id]` renderer support and tests
+2. pragmatic `[fill]` keyword support and tests
+3. documentation sync (`compatibility` + milestone status notes)
 
 ## Explicit backlog checklist
 

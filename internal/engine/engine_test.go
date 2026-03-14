@@ -4393,6 +4393,646 @@ Content-Length: 0
 	}
 }
 
+func TestEngineRoutesKeywordFromRecordRoute(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(server) error = %v", err)
+	}
+	defer serverConn.Close()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 8192)
+		if err := serverConn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			serverErr <- err
+			return
+		}
+		n, addr, err := serverConn.ReadFromUDP(buffer)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		invite, err := sip.Parse(buffer[:n])
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		via, _ := sip.Header(invite.Headers, "Via")
+		from, _ := sip.Header(invite.Headers, "From")
+		to, _ := sip.Header(invite.Headers, "To")
+		callID, _ := sip.Header(invite.Headers, "Call-ID")
+		response := fmt.Sprintf(
+			"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=server\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nRecord-Route: <sip:edge1.example.com;lr>\r\nRecord-Route: <sip:edge2.example.com;lr>\r\nContent-Length: 0\r\n\r\n",
+			via, from, to, callID,
+		)
+		if _, err := serverConn.WriteToUDP([]byte(response), addr); err != nil {
+			serverErr <- err
+			return
+		}
+
+		if err := serverConn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			serverErr <- err
+			return
+		}
+		n, _, err = serverConn.ReadFromUDP(buffer)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		byeRaw := string(buffer[:n])
+		if !strings.Contains(byeRaw, "Route: <sip:edge2.example.com;lr>\r\nRoute: <sip:edge1.example.com;lr>") {
+			serverErr <- fmt.Errorf("expected reversed Route headers in BYE, got %q", byeRaw)
+			return
+		}
+		bye, err := sip.Parse(buffer[:n])
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		via, _ = sip.Header(bye.Headers, "Via")
+		from, _ = sip.Header(bye.Headers, "From")
+		to, _ = sip.Header(bye.Headers, "To")
+		callID, _ = sip.Header(bye.Headers, "Call-ID")
+		ack := fmt.Sprintf(
+			"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: 2 BYE\r\nContent-Length: 0\r\n\r\n",
+			via, from, to, callID,
+		)
+		_, err = serverConn.WriteToUDP([]byte(ack), addr)
+		serverErr <- err
+	}()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="routes-rrs">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: client <sip:client@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="200" rrs="true"/>
+  <send><![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: client <sip:client@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+[routes]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Content-Length: 0
+
+]]></send>
+  <recv response="200"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          1,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server flow error = %v", err)
+	}
+}
+
+func TestEngineUnexpectedRoutesToUnexpMainLabel(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(server) error = %v", err)
+	}
+	defer serverConn.Close()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 8192)
+		if err := serverConn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			serverErr <- err
+			return
+		}
+		n, addr, err := serverConn.ReadFromUDP(buffer)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		invite, err := sip.Parse(buffer[:n])
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		via, _ := sip.Header(invite.Headers, "Via")
+		from, _ := sip.Header(invite.Headers, "From")
+		to, _ := sip.Header(invite.Headers, "To")
+		callID, _ := sip.Header(invite.Headers, "Call-ID")
+		resp := fmt.Sprintf(
+			"SIP/2.0 486 Busy Here\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=busy\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+			via, from, to, callID,
+		)
+		if _, err := serverConn.WriteToUDP([]byte(resp), addr); err != nil {
+			serverErr <- err
+			return
+		}
+
+		if err := serverConn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			serverErr <- err
+			return
+		}
+		n, _, err = serverConn.ReadFromUDP(buffer)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		ackRaw := string(buffer[:n])
+		if !strings.Contains(ackRaw, "ACK ") {
+			serverErr <- fmt.Errorf("expected ACK in _unexp.main flow, got %q", ackRaw)
+			return
+		}
+		if !strings.Contains(ackRaw, "X-Unexp-Ret: 2") {
+			serverErr <- fmt.Errorf("expected _unexp.retaddr header, got %q", ackRaw)
+			return
+		}
+		serverErr <- nil
+	}()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="unexpected-to-main">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: client <sip:client@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="180" timeout="300"/>
+  <label id="_unexp.main"/>
+  <send><![CDATA[
+ACK sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: client <sip:client@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 1 ACK
+X-Unexp-Ret: [$_unexp.retaddr]
+Content-Length: 0
+
+]]></send>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          1,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server flow error = %v", err)
+	}
+}
+
+func TestEngineOptionalRecvShortCircuitsOnUnexpected(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(server) error = %v", err)
+	}
+	defer serverConn.Close()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 8192)
+		if err := serverConn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			serverErr <- err
+			return
+		}
+		n, addr, err := serverConn.ReadFromUDP(buffer)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		invite, err := sip.Parse(buffer[:n])
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		via, _ := sip.Header(invite.Headers, "Via")
+		from, _ := sip.Header(invite.Headers, "From")
+		to, _ := sip.Header(invite.Headers, "To")
+		callID, _ := sip.Header(invite.Headers, "Call-ID")
+		resp := fmt.Sprintf(
+			"SIP/2.0 486 Busy Here\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=busy\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+			via, from, to, callID,
+		)
+		_, err = serverConn.WriteToUDP([]byte(resp), addr)
+		serverErr <- err
+	}()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="optional-short-circuit">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: client <sip:client@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="180" optional="true" timeout="1200"/>
+  <recv response="486" timeout="1200"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: 1500 * time.Millisecond,
+	})
+
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server flow error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("expected optional recv to short-circuit on unexpected SIP, elapsed=%v", elapsed)
+	}
+}
+
+func TestEngineOptionalRecvRoutesToUnexpMainWithRetAddr(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(server) error = %v", err)
+	}
+	defer serverConn.Close()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 8192)
+		if err := serverConn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			serverErr <- err
+			return
+		}
+		n, addr, err := serverConn.ReadFromUDP(buffer)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		invite, err := sip.Parse(buffer[:n])
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		via, _ := sip.Header(invite.Headers, "Via")
+		from, _ := sip.Header(invite.Headers, "From")
+		to, _ := sip.Header(invite.Headers, "To")
+		callID, _ := sip.Header(invite.Headers, "Call-ID")
+		resp := fmt.Sprintf(
+			"SIP/2.0 486 Busy Here\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=busy\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+			via, from, to, callID,
+		)
+		if _, err := serverConn.WriteToUDP([]byte(resp), addr); err != nil {
+			serverErr <- err
+			return
+		}
+
+		if err := serverConn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			serverErr <- err
+			return
+		}
+		n, _, err = serverConn.ReadFromUDP(buffer)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		ackRaw := string(buffer[:n])
+		if !strings.Contains(ackRaw, "ACK ") {
+			serverErr <- fmt.Errorf("expected ACK in _unexp.main flow, got %q", ackRaw)
+			return
+		}
+		if !strings.Contains(ackRaw, "X-Unexp-Ret: 2") {
+			serverErr <- fmt.Errorf("expected _unexp.retaddr=2 from first optional recv, got %q", ackRaw)
+			return
+		}
+		serverErr <- nil
+	}()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="optional-unexp-main-retaddr">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: client <sip:client@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="100" optional="true" timeout="1200"/>
+  <recv response="180" optional="true" timeout="1200"/>
+  <label id="_unexp.main"/>
+  <send><![CDATA[
+ACK sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: client <sip:client@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 1 ACK
+X-Unexp-Ret: [$_unexp.retaddr]
+Content-Length: 0
+
+]]></send>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: 1500 * time.Millisecond,
+	})
+
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server flow error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("expected optional recv to route quickly to _unexp.main, elapsed=%v", elapsed)
+	}
+}
+
+func TestEnginePendingMismatchDoesNotStarveFollowingRecv(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(server) error = %v", err)
+	}
+	defer serverConn.Close()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 8192)
+		if err := serverConn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			serverErr <- err
+			return
+		}
+		n, addr, err := serverConn.ReadFromUDP(buffer)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		invite, err := sip.Parse(buffer[:n])
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		via, _ := sip.Header(invite.Headers, "Via")
+		from, _ := sip.Header(invite.Headers, "From")
+		to, _ := sip.Header(invite.Headers, "To")
+		callID, _ := sip.Header(invite.Headers, "Call-ID")
+
+		// 183 will be stashed by optional recv(180), then must not block recv(486).
+		r183 := fmt.Sprintf(
+			"SIP/2.0 183 Session Progress\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=prg\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+			via, from, to, callID,
+		)
+		if _, err := serverConn.WriteToUDP([]byte(r183), addr); err != nil {
+			serverErr <- err
+			return
+		}
+		r486 := fmt.Sprintf(
+			"SIP/2.0 486 Busy Here\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=busy\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+			via, from, to, callID,
+		)
+		if _, err := serverConn.WriteToUDP([]byte(r486), addr); err != nil {
+			serverErr <- err
+			return
+		}
+		serverErr <- nil
+	}()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="pending-mismatch-no-starvation">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: client <sip:client@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="180" optional="true" timeout="1200"/>
+  <recv response="486" timeout="1200"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: 1500 * time.Millisecond,
+	})
+
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server flow error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 600*time.Millisecond {
+		t.Fatalf("expected recv(486) to proceed without pending starvation, elapsed=%v", elapsed)
+	}
+}
+
+func TestEngineMultiplePendingMismatchesStillReachMandatoryRecv(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(server) error = %v", err)
+	}
+	defer serverConn.Close()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 8192)
+		if err := serverConn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			serverErr <- err
+			return
+		}
+		n, addr, err := serverConn.ReadFromUDP(buffer)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		invite, err := sip.Parse(buffer[:n])
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		via, _ := sip.Header(invite.Headers, "Via")
+		from, _ := sip.Header(invite.Headers, "From")
+		to, _ := sip.Header(invite.Headers, "To")
+		callID, _ := sip.Header(invite.Headers, "Call-ID")
+
+		// Several mismatches before the target 486 must not trap engine in pending loop.
+		r183 := fmt.Sprintf(
+			"SIP/2.0 183 Session Progress\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=prg\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+			via, from, to, callID,
+		)
+		if _, err := serverConn.WriteToUDP([]byte(r183), addr); err != nil {
+			serverErr <- err
+			return
+		}
+		r484 := fmt.Sprintf(
+			"SIP/2.0 484 Address Incomplete\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=addr\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+			via, from, to, callID,
+		)
+		if _, err := serverConn.WriteToUDP([]byte(r484), addr); err != nil {
+			serverErr <- err
+			return
+		}
+		r486 := fmt.Sprintf(
+			"SIP/2.0 486 Busy Here\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=busy\r\nCall-ID: %s\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n",
+			via, from, to, callID,
+		)
+		if _, err := serverConn.WriteToUDP([]byte(r486), addr); err != nil {
+			serverErr <- err
+			return
+		}
+		serverErr <- nil
+	}()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="multiple-pending-mismatch-no-starvation">
+  <send><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: client <sip:client@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Content-Length: 0
+
+]]></send>
+  <recv response="180" optional="true" timeout="1200"/>
+  <recv response="486" timeout="1200"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultRecvTO: 1500 * time.Millisecond,
+	})
+
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server flow error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 650*time.Millisecond {
+		t.Fatalf("expected mandatory recv(486) to pass after multiple mismatches, elapsed=%v", elapsed)
+	}
+}
+
 func reserveTCPAddr(t *testing.T) string {
 	t.Helper()
 

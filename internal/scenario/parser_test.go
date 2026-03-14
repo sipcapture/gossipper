@@ -296,3 +296,21 @@ func TestParseScenarioSetDestAction(t *testing.T) {
 		t.Fatalf("unexpected setdest action: %+v", action)
 	}
 }
+
+func TestParseScenarioRecvRRSAttribute(t *testing.T) {
+	t.Parallel()
+
+	sc, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="rrs">
+  <recv response="200" rrs="true"/>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if len(sc.Commands) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(sc.Commands))
+	}
+	if !sc.Commands[0].RRS {
+		t.Fatalf("expected rrs=true for recv command: %+v", sc.Commands[0])
+	}
+}

@@ -36,6 +36,7 @@ type rawScenarioItem struct {
 	Retrans         string       `xml:"retrans,attr"`
 	Request         string       `xml:"request,attr"`
 	Response        string       `xml:"response,attr"`
+	RRS             string       `xml:"rrs,attr"`
 	Optional        string       `xml:"optional,attr"`
 	Timeout         string       `xml:"timeout,attr"`
 	Milliseconds    string       `xml:"milliseconds,attr"`
@@ -62,6 +63,7 @@ type rawElement struct {
 	Retrans         string      `xml:"retrans,attr"`
 	Request         string      `xml:"request,attr"`
 	Response        string      `xml:"response,attr"`
+	RRS             string      `xml:"rrs,attr"`
 	Optional        string      `xml:"optional,attr"`
 	Timeout         string      `xml:"timeout,attr"`
 	Milliseconds    string      `xml:"milliseconds,attr"`
@@ -215,6 +217,7 @@ func rawScenarioItemToCommand(elem rawScenarioItem, index int) (Command, error) 
 		Retrans:         elem.Retrans,
 		Request:         elem.Request,
 		Response:        elem.Response,
+		RRS:             elem.RRS,
 		Optional:        elem.Optional,
 		Timeout:         elem.Timeout,
 		Milliseconds:    elem.Milliseconds,
@@ -245,6 +248,7 @@ func rawElementToCommand(elem rawElement, index int) (Command, error) {
 		cmd.Type = CommandRecv
 		cmd.RecvReq = strings.TrimSpace(elem.Request)
 		cmd.RecvResp = strings.TrimSpace(elem.Response)
+		cmd.RRS = parseBool(elem.RRS)
 		cmd.Optional = parseBool(elem.Optional)
 		cmd.Timeout = parseDurationMilliseconds(elem.Timeout)
 	case "recvCmd":

@@ -28,8 +28,10 @@ import (
 )
 
 var (
-	errStopCall = errors.New("stop current call")
-	errStopNow  = errors.New("stop execution now")
+	errStopCall             = errors.New("stop current call")
+	errStopNow              = errors.New("stop execution now")
+	errUnexpectedToMain     = errors.New("unexpected SIP routed to _unexp.main")
+	errOptionalRecvMismatch = errors.New("optional recv mismatched with incoming SIP")
 )
 
 type Config struct {
@@ -1164,7 +1166,10 @@ func (e *Engine) executeCall(
 		CallNumber:  callNumber,
 		PID:         os.Getpid(),
 		LastHeaders: make(map[string][]string),
-		BasePath:    e.cfg.Scenario.BasePath,
+		ExtraKeywords: map[string]string{
+			"routes": "",
+		},
+		BasePath: e.cfg.Scenario.BasePath,
 	}
 	currentRemoteHost := remoteHost
 	currentRemoteIP := remoteHost
@@ -1321,21 +1326,43 @@ func (e *Engine) executeCall(
 			if !strings.HasPrefix(e.cfg.Transport, "u") {
 				retransmit = 0
 			}
-			receiveWithPending := func(waitCtx context.Context) (sip.Message, error) {
+			receiveWithPending := func(waitCtx context.Context) (sip.Message, bool, error) {
 				if len(pending) > 0 {
 					msg := pending[0]
 					pending = pending[1:]
-					return msg, nil
+					return msg, true, nil
 				}
-				return receive(waitCtx)
+				msg, err := receive(waitCtx)
+				return msg, false, err
 			}
-			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, send, retransmit, recvTimeout, func(msg sip.Message) {
+			unexpMainIndex := -1
+			if idx, ok := e.cfg.Scenario.Labels["_unexp.main"]; ok {
+				unexpMainIndex = idx
+			}
+			var unexpectedForMain *sip.Message
+			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, send, retransmit, recvTimeout, func(msg sip.Message, fromPending bool) bool {
+				if fromPending {
+					return false
+				}
 				e.traceUnexpectedSIP(callNumber, cmd, msg)
 				e.traceCountUnexpected(cmd.Index)
 				sawUnexpectedSIP = true
+				if unexpMainIndex >= 0 && unexpectedForMain == nil {
+					captured := msg
+					unexpectedForMain = &captured
+					return true
+				}
 				pending = append(pending, msg)
+				return false
 			})
 			if err != nil {
+				if errors.Is(err, errUnexpectedToMain) && unexpectedForMain != nil && unexpMainIndex >= 0 {
+					renderCtx.LastMessage = unexpectedForMain.Raw
+					renderCtx.LastHeaders = unexpectedForMain.Headers
+					store.Set("_unexp.retaddr", strconv.Itoa(index+1))
+					index = unexpMainIndex
+					continue
+				}
 				if cmd.Optional {
 					index = resolveNext(index, cmd, store, e.random)
 					continue
@@ -1349,6 +1376,9 @@ func (e *Engine) executeCall(
 
 			renderCtx.LastMessage = msg.Raw
 			renderCtx.LastHeaders = msg.Headers
+			if cmd.RRS {
+				renderCtx.ExtraKeywords["routes"] = buildRouteHeaders(msg.Headers)
+			}
 			renderCtx.Variables = store.Snapshot()
 			actionResult, err := e.applyActions(ctx, callNumber, cmd.Actions, renderCtx, store, mediaSession)
 			if err != nil {
@@ -1497,13 +1527,13 @@ func (e *Engine) waitForCommand(ctx context.Context, callID, channel, src string
 
 func (e *Engine) waitForMatch(
 	ctx context.Context,
-	receive func(context.Context) (sip.Message, error),
+	receive func(context.Context) (sip.Message, bool, error),
 	cmd scenario.Command,
 	lastSent []byte,
 	send func([]byte) error,
 	retrans time.Duration,
 	timeout time.Duration,
-	stash func(sip.Message),
+	stash func(sip.Message, bool) bool,
 ) (sip.Message, error) {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -1513,14 +1543,19 @@ func (e *Engine) waitForMatch(
 		}
 
 		receiveCtx, cancel := context.WithTimeout(ctx, minDuration(waitFor, nextRetrans(retrans)))
-		msg, err := receive(receiveCtx)
+		msg, fromPending, err := receive(receiveCtx)
 		cancel()
 		if err == nil {
 			if sip.Match(msg, cmd.RecvReq, cmd.RecvResp) {
 				return msg, nil
 			}
 			if stash != nil {
-				stash(msg)
+				if routeToMain := stash(msg, fromPending); routeToMain {
+					return sip.Message{}, errUnexpectedToMain
+				}
+			}
+			if cmd.Optional {
+				return sip.Message{}, errOptionalRecvMismatch
 			}
 			continue
 		}
@@ -2176,6 +2211,22 @@ func parseCommandHeaders(msg string) map[string][]string {
 		headers[name] = append(headers[name], value)
 	}
 	return headers
+}
+
+func buildRouteHeaders(headers map[string][]string) string {
+	values, ok := lookupHeaderCI(headers, "Record-Route")
+	if !ok || len(values) == 0 {
+		return ""
+	}
+	routeLines := make([]string, 0, len(values))
+	for i := len(values) - 1; i >= 0; i-- {
+		value := strings.TrimSpace(values[i])
+		if value == "" {
+			continue
+		}
+		routeLines = append(routeLines, "Route: "+value)
+	}
+	return strings.Join(routeLines, "\r\n")
 }
 
 func commandCallID(raw, fallback string) string {

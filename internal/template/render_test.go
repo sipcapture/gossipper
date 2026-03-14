@@ -237,3 +237,72 @@ func TestRenderMessageStrictSupportsAdditionalHelpers(t *testing.T) {
 		t.Fatalf("expected last_Request_URI helper, got %q", got)
 	}
 }
+
+func TestRenderMessageStrictSupportsM6P0Keywords(t *testing.T) {
+	t.Parallel()
+
+	ctx := Context{
+		SIPpVersion: "gossIpper-0.6.0",
+		ClockTick:   1200,
+		DynamicID:   42,
+	}
+
+	got, err := RenderMessageStrict(
+		"X-Version: [sipp_version]\r\nX-Tick: [clock_tick+2]\r\nX-Dynamic: [dynamic_id]\r\n\r\n",
+		ctx,
+	)
+	if err != nil {
+		t.Fatalf("RenderMessageStrict() error = %v", err)
+	}
+	if !strings.Contains(got, "X-Version: gossIpper-0.6.0") {
+		t.Fatalf("expected sipp_version helper, got %q", got)
+	}
+	if !strings.Contains(got, "X-Tick: 1202") {
+		t.Fatalf("expected clock_tick helper with arithmetic, got %q", got)
+	}
+	if !strings.Contains(got, "X-Dynamic: 42") {
+		t.Fatalf("expected dynamic_id helper, got %q", got)
+	}
+}
+
+func TestRenderMessageSupportsM6P0KeywordDefaults(t *testing.T) {
+	t.Parallel()
+
+	got := RenderMessage("X-Version: [sipp_version]\r\nX-Tick: [clock_tick]\r\nX-Dynamic: [dynamic_id]\r\n\r\n", Context{})
+	if !strings.Contains(got, "X-Version: gossIpper") {
+		t.Fatalf("expected default sipp_version helper, got %q", got)
+	}
+	if !strings.Contains(got, "X-Tick: 0") || !strings.Contains(got, "X-Dynamic: 0") {
+		t.Fatalf("expected zero defaults for clock_tick/dynamic_id, got %q", got)
+	}
+}
+
+func TestRenderMessageStrictSupportsFillKeyword(t *testing.T) {
+	t.Parallel()
+
+	ctx := Context{
+		Variables: map[string]string{"pad": "5", "pad2": "7"},
+	}
+	got, err := RenderMessageStrict("X-Fill: [fill variable=$pad]\r\nX-Fill2: [fill variable=pad2 text=ab]\r\n\r\n", ctx)
+	if err != nil {
+		t.Fatalf("RenderMessageStrict() error = %v", err)
+	}
+	if !strings.Contains(got, "X-Fill: XXXXX") {
+		t.Fatalf("expected default fill pattern, got %q", got)
+	}
+	if !strings.Contains(got, "X-Fill2: abababa") {
+		t.Fatalf("expected custom fill pattern, got %q", got)
+	}
+}
+
+func TestRenderMessageStrictRejectsInvalidFillKeyword(t *testing.T) {
+	t.Parallel()
+
+	_, err := RenderMessageStrict("X-Fill: [fill text=ab]\r\n\r\n", Context{Variables: map[string]string{"v": "2"}})
+	if err == nil {
+		t.Fatal("expected invalid fill token error")
+	}
+	if !strings.Contains(err.Error(), "fill token") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
