@@ -10,9 +10,13 @@ OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildDate=$(BUILD_DATE) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT) -X main.GoVersion=$(GO_VERSION) -X main.BuildOS=$(OS) -X main.BuildArch=$(ARCH)"
 
-.PHONY: build package package-deb package-rpm clean
+.PHONY: build dynamic package package-deb package-rpm clean
 
 build:
+	mkdir -p $(DIST)
+	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build $(LDFLAGS) -o $(DIST)/$(BIN) $(CMD)
+
+dynamic:
 	mkdir -p $(DIST)
 	GOOS=$(OS) GOARCH=$(ARCH) go build $(LDFLAGS) -o $(DIST)/$(BIN) $(CMD)
 
