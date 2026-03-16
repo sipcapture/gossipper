@@ -10,7 +10,7 @@ OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildDate=$(BUILD_DATE) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT) -X main.GoVersion=$(GO_VERSION) -X main.BuildOS=$(OS) -X main.BuildArch=$(ARCH)"
 
-.PHONY: build dynamic package package-deb package-rpm clean
+.PHONY: build dynamic package package-deb package-rpm benchmark clean
 
 build:
 	mkdir -p $(DIST)
@@ -27,6 +27,9 @@ package-deb:
 
 package-rpm:
 	VERSION="$(VERSION)" ARCH="$(ARCH)" scripts/build-package.sh rpm
+
+benchmark:
+	scripts/benchmark-sipp-vs-gossipper.sh "$${BENCH_TARGET:-127.0.0.1:5060}" "$${BENCH_CALLS:-1000}" "$${BENCH_RATE:-50}" "$${BENCH_CONCURRENT:-100}"
 
 clean:
 	rm -rf $(DIST)

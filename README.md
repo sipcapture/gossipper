@@ -93,6 +93,13 @@ Run with a deterministic global timeout (CI-friendly):
 go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 10000 -r 50 -timeout_global 30
 ```
 
+Benchmark gossipper vs SIPp (requires UAS or `-start-uas`):
+
+```bash
+./scripts/benchmark-sipp-vs-gossipper.sh -start-uas -calls 500 -rate 50
+make benchmark   # same, via Makefile
+```
+
 Generate CSV lookup index for faster `lookup` action resolution:
 
 ```bash
