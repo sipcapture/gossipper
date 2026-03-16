@@ -1,6 +1,6 @@
 module github.com/qxip/gossipper
 
-go 1.24.4
+go 1.26.1
 
 require (
 	github.com/gdamore/tcell/v2 v2.13.8
