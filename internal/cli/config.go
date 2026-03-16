@@ -81,6 +81,9 @@ type Config struct {
 	IPField                int
 	UISourceIPs            []string
 	TotalCallsSetExplicitly bool
+	PprofAddr              string
+	CPUProfile             string
+	MemProfile             string
 }
 
 func DefaultConfig() Config {
@@ -179,6 +182,9 @@ func Parse(args []string) (Config, error) {
 	recvMS := fs.Int("recv_timeout_ms", int(DefaultRecvTimeout/time.Millisecond), "default receive timeout in milliseconds")
 	timeoutGlobalSec := fs.Int("timeout_global", 0, "exit after N seconds of total runtime (SIPp-compatible)")
 	hepCaptureID := fs.Uint("hep_capture_id", 0, "HEP3 capture node ID")
+	fs.StringVar(&cfg.PprofAddr, "pprof", "", "pprof HTTP address (e.g. :6060) for live CPU/memory/goroutine profiling")
+	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "write CPU profile to file at exit")
+	fs.StringVar(&cfg.MemProfile, "memprofile", "", "write memory profile to file at exit")
 
 	if err := fs.Parse(normalizedArgs); err != nil {
 		return Config{}, err

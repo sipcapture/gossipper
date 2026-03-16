@@ -4,8 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/pprof"
 	"syscall"
 
 	"github.com/qxip/gossipper/internal/cli"
@@ -47,6 +51,46 @@ func run(args []string) error {
 	prepared, err := launcher.Prepare(cfg)
 	if err != nil {
 		return err
+	}
+
+	// Profiling: pprof HTTP server for live profiling
+	if prepared.CLIConfig.PprofAddr != "" {
+		go func() {
+			fmt.Fprintf(os.Stderr, "pprof: listening on %s (e.g. go tool pprof http://localhost%s/debug/pprof/profile?seconds=30)\n", prepared.CLIConfig.PprofAddr, prepared.CLIConfig.PprofAddr)
+			_ = http.ListenAndServe(prepared.CLIConfig.PprofAddr, nil)
+		}()
+	}
+
+	// Profiling: CPU profile to file at exit
+	if prepared.CLIConfig.CPUProfile != "" {
+		f, err := os.Create(prepared.CLIConfig.CPUProfile)
+		if err != nil {
+			return fmt.Errorf("cpuprofile: %w", err)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			f.Close()
+			return fmt.Errorf("cpuprofile: %w", err)
+		}
+		defer func() {
+			pprof.StopCPUProfile()
+			_ = f.Close()
+		}()
+	}
+
+	// Profiling: memory profile to file at exit
+	if prepared.CLIConfig.MemProfile != "" {
+		defer func() {
+			f, err := os.Create(prepared.CLIConfig.MemProfile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "memprofile: %v\n", err)
+				return
+			}
+			defer f.Close()
+			runtime.GC()
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				fmt.Fprintf(os.Stderr, "memprofile: %v\n", err)
+			}
+		}()
 	}
 
 	baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

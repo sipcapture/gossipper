@@ -251,6 +251,68 @@ func TestClassifyCallFailure(t *testing.T) {
 	}
 }
 
+func TestResolveResponseAddr(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		msg        sip.Message
+		packetAddr *net.UDPAddr
+		wantNil    bool
+		wantIP     net.IP
+		wantPort   int
+	}{
+		{
+			name:       "Via IP differs from packet, use Via",
+			msg:        sip.Message{Headers: map[string][]string{"Via": {"SIP/2.0/UDP 10.0.0.1:5061;branch=x"}}},
+			packetAddr: &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5060},
+			wantNil:    false,
+			wantIP:     net.ParseIP("10.0.0.1"),
+			wantPort:   5061,
+		},
+		{
+			name:       "Via IP same as packet, use packet",
+			msg:        sip.Message{Headers: map[string][]string{"Via": {"SIP/2.0/UDP 127.0.0.1:5060;branch=x"}}},
+			packetAddr: &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5060},
+			wantNil:    true,
+		},
+		{
+			name:       "no Via, use packet",
+			msg:        sip.Message{Headers: map[string][]string{}},
+			packetAddr: &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 5060},
+			wantNil:    true,
+		},
+		{
+			name:       "Via hostname localhost resolves, differs from packet",
+			msg:        sip.Message{Headers: map[string][]string{"Via": {"SIP/2.0/UDP localhost:5062;branch=x"}}},
+			packetAddr: &net.UDPAddr{IP: net.ParseIP("192.168.1.1"), Port: 5060},
+			wantNil:    false,
+			wantIP:     net.ParseIP("127.0.0.1"),
+			wantPort:   5062,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveResponseAddr(tt.msg, tt.packetAddr)
+			if tt.wantNil {
+				if got != nil {
+					t.Errorf("resolveResponseAddr() = %v, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("resolveResponseAddr() = nil, want *net.UDPAddr")
+			}
+			if !got.IP.Equal(tt.wantIP) {
+				t.Errorf("resolveResponseAddr().IP = %v, want %v", got.IP, tt.wantIP)
+			}
+			if got.Port != tt.wantPort {
+				t.Errorf("resolveResponseAddr().Port = %d, want %d", got.Port, tt.wantPort)
+			}
+		})
+	}
+}
+
 func TestEngineMirrorsSIPToHEP(t *testing.T) {
 	t.Parallel()
 

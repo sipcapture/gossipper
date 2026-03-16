@@ -106,3 +106,35 @@ func Match(msg Message, request, response string) bool {
 	}
 	return false
 }
+
+// ViaSentBy parses the topmost Via header and extracts sent-by (host and port).
+// Format: Via: SIP/2.0/UDP host:port;branch=... or Via: SIP/2.0/UDP host;branch=...
+// Default port is 5060 when omitted.
+func ViaSentBy(headers map[string][]string) (host string, port int, ok bool) {
+	val, ok := Header(headers, "Via")
+	if !ok || val == "" {
+		return "", 0, false
+	}
+	parts := strings.SplitN(val, ";", 2)
+	sentBy := strings.TrimSpace(parts[0])
+	if idx := strings.LastIndex(sentBy, " "); idx >= 0 {
+		sentBy = strings.TrimSpace(sentBy[idx+1:])
+	}
+	if sentBy == "" {
+		return "", 0, false
+	}
+	port = 5060
+	if colon := strings.LastIndex(sentBy, ":"); colon >= 0 {
+		host = sentBy[:colon]
+		if p, err := strconv.Atoi(sentBy[colon+1:]); err == nil && p > 0 && p < 65536 {
+			port = p
+		}
+	} else {
+		host = sentBy
+	}
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", 0, false
+	}
+	return host, port, true
+}

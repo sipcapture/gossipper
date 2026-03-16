@@ -702,6 +702,33 @@ type udpServerInbound struct {
 	localPort int
 }
 
+// resolveResponseAddr checks Via sent-by: if it is a hostname, resolves via DNS A-record.
+// If the resolved (or already-IP) Via address differs from packet source, returns that address for responses.
+// Returns nil to keep using packet.Addr.
+func resolveResponseAddr(msg sip.Message, packetAddr *net.UDPAddr) *net.UDPAddr {
+	host, port, ok := sip.ViaSentBy(msg.Headers)
+	if !ok {
+		return nil
+	}
+	var viaIP net.IP
+	if ip := net.ParseIP(host); ip != nil {
+		viaIP = ip
+	} else {
+		addrs, err := net.LookupHost(host)
+		if err != nil || len(addrs) == 0 {
+			return nil
+		}
+		viaIP = net.ParseIP(addrs[0])
+		if viaIP == nil {
+			return nil
+		}
+	}
+	if viaIP.Equal(packetAddr.IP) {
+		return nil
+	}
+	return &net.UDPAddr{IP: viaIP, Port: port}
+}
+
 func (e *Engine) runServerUDP(ctx context.Context) error {
 	localAddr := fmt.Sprintf("%s:%d", e.cfg.LocalIP, e.cfg.LocalPort)
 	shared, err := transport.NewSharedUDP(localAddr)
@@ -749,9 +776,13 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 				accepted++
 				callNumber := accepted
 
+				remote := packet.Addr
+				if viaAddr := resolveResponseAddr(msg, packet.Addr); viaAddr != nil {
+					remote = viaAddr
+				}
 				sess = &serverUDPSession{
 					inbox:     make(chan sip.Message, 8),
-					remote:    packet.Addr,
+					remote:    remote,
 					shared:    shared,
 					localIP:   resolveLocalIP(shared.LocalPort(), e.cfg.LocalIP),
 					localPort: shared.LocalPort(),
@@ -894,9 +925,13 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 					accepted++
 					callNumber := accepted
 
+					remote := packet.remote
+					if viaAddr := resolveResponseAddr(packet.msg, packet.remote); viaAddr != nil {
+						remote = viaAddr
+					}
 					sess = &serverUDPSession{
 						inbox:     make(chan sip.Message, 8),
-						remote:    packet.remote,
+						remote:    remote,
 						shared:    packet.shared,
 						localIP:   packet.localIP,
 						localPort: packet.localPort,

@@ -119,6 +119,22 @@ Print build version information:
 go run ./cmd/gossip -version
 ```
 
+### Profiling
+
+Enable pprof HTTP server for live CPU/memory/goroutine profiling:
+
+```bash
+go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 1000 -r 50 -pprof :6060
+# In another terminal: go tool pprof -http=:8080 http://localhost:6060/debug/pprof/profile?seconds=30
+```
+
+Write CPU and memory profiles to files at exit:
+
+```bash
+go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 500 -r 20 -cpuprofile cpu.prof -memprofile mem.prof
+go tool pprof -http=:8080 cpu.prof   # or mem.prof for heap
+```
+
 Launch the interactive TUI:
 
 ```bash
