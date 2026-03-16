@@ -8,11 +8,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/adubovikov/gossipper/internal/cli"
-	"github.com/adubovikov/gossipper/internal/engine"
-	"github.com/adubovikov/gossipper/internal/launcher"
-	templ "github.com/adubovikov/gossipper/internal/template"
-	"github.com/adubovikov/gossipper/internal/tui"
+	"github.com/qxip/gossipper/internal/cli"
+	"github.com/qxip/gossipper/internal/engine"
+	"github.com/qxip/gossipper/internal/launcher"
+	templ "github.com/qxip/gossipper/internal/template"
+	"github.com/qxip/gossipper/internal/tui"
 )
 
 func main() {

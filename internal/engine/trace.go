@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adubovikov/gossipper/internal/scenario"
-	"github.com/adubovikov/gossipper/internal/sip"
-	"github.com/adubovikov/gossipper/internal/stats"
+	"github.com/qxip/gossipper/internal/scenario"
+	"github.com/qxip/gossipper/internal/sip"
+	"github.com/qxip/gossipper/internal/stats"
 )
 
 type traceLogger struct {

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adubovikov/gossipper/internal/media"
+	"github.com/qxip/gossipper/internal/media"
 )
 
 type Collector struct {

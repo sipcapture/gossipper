@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adubovikov/gossipper/internal/sip"
+	"github.com/qxip/gossipper/internal/sip"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"

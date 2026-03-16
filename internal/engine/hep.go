@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/adubovikov/gossipper/internal/hep"
-	"github.com/adubovikov/gossipper/internal/sip"
+	"github.com/qxip/gossipper/internal/hep"
+	"github.com/qxip/gossipper/internal/sip"
 )
 
 func (e *Engine) startHEP() error {

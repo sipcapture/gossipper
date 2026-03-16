@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/adubovikov/gossipper/internal/cli"
-	"github.com/adubovikov/gossipper/internal/engine"
-	"github.com/adubovikov/gossipper/internal/scenario"
-	"github.com/adubovikov/gossipper/internal/stats"
+	"github.com/qxip/gossipper/internal/cli"
+	"github.com/qxip/gossipper/internal/engine"
+	"github.com/qxip/gossipper/internal/scenario"
+	"github.com/qxip/gossipper/internal/stats"
 )
 
 type Prepared struct {

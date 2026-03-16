@@ -10,8 +10,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/adubovikov/gossipper/internal/sip"
-	templ "github.com/adubovikov/gossipper/internal/template"
+	"github.com/qxip/gossipper/internal/sip"
+	templ "github.com/qxip/gossipper/internal/template"
 )
 
 const authPlaceholder = "Authorization: pending"

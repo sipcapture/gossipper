@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adubovikov/gossipper/internal/media"
-	"github.com/adubovikov/gossipper/internal/scenario"
-	templ "github.com/adubovikov/gossipper/internal/template"
+	"github.com/qxip/gossipper/internal/media"
+	"github.com/qxip/gossipper/internal/scenario"
+	templ "github.com/qxip/gossipper/internal/template"
 )
 
 func TestParseRTPCheckSpecDefaults(t *testing.T) {

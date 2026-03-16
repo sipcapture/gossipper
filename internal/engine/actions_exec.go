@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adubovikov/gossipper/internal/media"
-	"github.com/adubovikov/gossipper/internal/scenario"
-	"github.com/adubovikov/gossipper/internal/sip"
-	templ "github.com/adubovikov/gossipper/internal/template"
+	"github.com/qxip/gossipper/internal/media"
+	"github.com/qxip/gossipper/internal/scenario"
+	"github.com/qxip/gossipper/internal/sip"
+	templ "github.com/qxip/gossipper/internal/template"
 )
 
 func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, renderCtx templ.Context, vars *varStore, mediaSession *media.Session) error {

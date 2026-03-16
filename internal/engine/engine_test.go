@@ -24,17 +24,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adubovikov/gossipper/internal/hep"
-	"github.com/adubovikov/gossipper/internal/media"
+	"github.com/qxip/gossipper/internal/hep"
+	"github.com/qxip/gossipper/internal/media"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/pion/rtcp"
 
-	"github.com/adubovikov/gossipper/internal/scenario"
-	"github.com/adubovikov/gossipper/internal/sip"
-	"github.com/adubovikov/gossipper/internal/stats"
-	templ "github.com/adubovikov/gossipper/internal/template"
+	"github.com/qxip/gossipper/internal/scenario"
+	"github.com/qxip/gossipper/internal/sip"
+	"github.com/qxip/gossipper/internal/stats"
+	templ "github.com/qxip/gossipper/internal/template"
 )
 
 const (
