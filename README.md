@@ -330,6 +330,23 @@ at `/usr/bin/gossIpper`.
 - `play_pcap_audio` currently replays UDP payloads from the capture as RTP toward the negotiated audio endpoint; pragmatic `play_pcap_video` / `play_pcap_image` support reuses the same replay mechanism for SDP `m=video` / `m=image` endpoints.
 - `rtpcheck` currently provides pragmatic RTP activity validation (`min_packets`, `timeout_ms`, `direction`; legacy `bidirectional` alias) and is not full SIPp SRTP/quality parity.
 
+## Releasing
+
+When a new tag of the form `vX.Y.Z` is pushed, the `.github/workflows/version-sync.yml`
+workflow automatically updates the `Version` constant in `cmd/gossip/version.go` on the
+`main` branch to match the tag (stripping the leading `v`).  The release build workflow
+(`.github/workflows/release.yml`) then picks up the new tag and publishes the release
+assets.
+
+To cut a release:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The version sync workflow commits the updated `version.go` back to `main` automatically.
+
 ## License
 
 AGPL-3.0. See `LICENSE`.

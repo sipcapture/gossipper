@@ -1,0 +1,40 @@
+name: Sync version.go with release tag
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  sync-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Update version.go
+        run: |
+          sed -i "s|^\([[:space:]]*Version[[:space:]]*\)=.*|\1= \"${VERSION}\"|" cmd/gossip/version.go
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet cmd/gossip/version.go; then
+            echo "No changes"
+            exit 0
+          fi
+          git add cmd/gossip/version.go
+          git commit -m "chore: sync version.go to ${VERSION}"
+          git push origin main
