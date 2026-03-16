@@ -35,6 +35,7 @@ The current MVP implements:
 - Summary output now includes aggregated RTP/RTCP counters
 - RTP streaming over `pion/rtp`, including `exec rtp_stream` with SIPp-style params and `start` / `pause` / `resume` / `stop`
 - Audio PCAP replay via `exec play_pcap_audio="capture.pcap"` with preserved inter-packet timing and SDP-driven remote endpoint discovery
+- RFC 2833 DTMF generation via `exec send_dtmf="123"` (digits: 0-9, *, #, A-D) and `[dtmf_digits]` keyword for variable-driven strings
 - Pragmatic video/image PCAP replay via `exec play_pcap_video="capture.pcap"` and `exec play_pcap_image="capture.pcap"` using SDP media endpoint discovery (`m=video` / `m=image`)
 - Pragmatic RTP activity checks via `exec rtpcheck="..."` with configurable `min_packets`, `timeout_ms`, and `direction=any|send|recv|both` (legacy `bidirectional` alias is also supported)
 - RTP echo helper mode via `exec rtp_stream="echo"`

@@ -87,6 +87,7 @@ type Action struct {
 	PlayPCAPAudio  string
 	PlayPCAPVideo  string
 	PlayPCAPImage  string
+	SendDTMF       string
 	Host           string
 	Port           string
 	Protocol       string

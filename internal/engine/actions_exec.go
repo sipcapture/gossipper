@@ -150,6 +150,25 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			return err
 		}
 	}
+	if action.SendDTMF != "" {
+		if mediaSession == nil {
+			return fmt.Errorf("send_dtmf is not available in this context")
+		}
+		endpoint, err := media.ParseMediaEndpoint(mustParseLastMessage(renderCtx), renderCtx.RemoteIP, "audio")
+		if err != nil {
+			return err
+		}
+		digits, err := templ.RenderMessageStrict(action.SendDTMF, renderCtx)
+		if err != nil {
+			return err
+		}
+		if e.cfg.TraceMessages {
+			fmt.Fprintf(os.Stdout, "send_dtmf %q -> %s:%d\n", digits, endpoint.IP, endpoint.Port)
+		}
+		if err := mediaSession.SendDTMF(ctx, endpoint, digits, renderCtx.LocalIP, renderCtx.MediaPort); err != nil {
+			return err
+		}
+	}
 
 	_ = vars
 	return nil

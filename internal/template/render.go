@@ -229,6 +229,11 @@ func (c Context) resolveToken(token string) (string, bool, bool) {
 			return "", true, false
 		}
 		return ";tag=" + tag, true, false
+	case "dtmf_digits":
+		if c.Variables != nil {
+			return c.Variables["dtmf_digits"], true, false
+		}
+		return "", true, false
 	default:
 		if strings.HasPrefix(base, "$") {
 			if c.Variables == nil {
@@ -361,6 +366,11 @@ func (c Context) resolveTokenStrict(token string) (string, bool, error) {
 			return "", false, nil
 		}
 		return ";tag=" + tag, false, nil
+	case "dtmf_digits":
+		if c.Variables != nil {
+			return c.Variables["dtmf_digits"], false, nil
+		}
+		return "", false, nil
 	default:
 		if strings.HasPrefix(base, "$") {
 			if c.Variables == nil {
