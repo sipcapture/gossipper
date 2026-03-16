@@ -2,6 +2,7 @@ package launcher
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/adubovikov/gossipper/internal/cli"
 	"github.com/adubovikov/gossipper/internal/engine"
@@ -103,6 +104,8 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 }
 
 func NormalizeTransport(cfg *cli.Config, sc scenario.Scenario) error {
+	cfg.Transport = strings.ToLower(strings.TrimSpace(cfg.Transport))
+
 	switch cfg.Transport {
 	case "s1":
 		if sc.Mode != scenario.ModeServer {

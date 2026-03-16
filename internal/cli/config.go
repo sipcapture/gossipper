@@ -122,6 +122,7 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.LocalPort, "p", cfg.LocalPort, "local port")
 	fs.StringVar(&cfg.InjectionFile, "inf", "", "CSV injection file for ui transport source IP selection")
 	fs.IntVar(&cfg.IPField, "ip_field", cfg.IPField, "zero-based CSV field index that contains source IP for ui transport")
+	fs.IntVar(&cfg.IPField, "ipfield", cfg.IPField, "alias for -ip_field (SIPp-compatible)")
 	fs.StringVar(&cfg.AuthUsername, "au", cfg.AuthUsername, "authorization username for authentication challenges")
 	fs.StringVar(&cfg.AuthPassword, "ap", cfg.AuthPassword, "authorization password for authentication challenges")
 	fs.Float64Var(&cfg.Rate, "r", cfg.Rate, "calls per second")
@@ -263,6 +264,9 @@ func Parse(args []string) (Config, error) {
 	cfg.RTTDumpFrequency = *rttDumpFrequency
 	cfg.HEPCaptureID = uint32(*hepCaptureID)
 
+	cfg.Transport = strings.ToLower(strings.TrimSpace(cfg.Transport))
+	cfg.InjectionFile = strings.TrimSpace(cfg.InjectionFile)
+
 	switch cfg.Transport {
 	case "u1", "un", "ui", "t1", "tn", "l1", "ln", "s1", "sn":
 	default:
@@ -388,6 +392,9 @@ func loadSourceIPsFromInjection(path string, field int) ([]string, error) {
 		if field >= len(record) {
 			return nil, fmt.Errorf("inf file %q row %d: ip_field %d is out of range", path, rowIndex+1, field)
 		}
+		if isIgnorableInfRow(record) {
+			continue
+		}
 		value := strings.TrimSpace(record[field])
 		if value == "" {
 			return nil, fmt.Errorf("inf file %q row %d field %d: empty source IP", path, rowIndex+1, field)
@@ -401,6 +408,21 @@ func loadSourceIPsFromInjection(path string, field int) ([]string, error) {
 		return nil, fmt.Errorf("inf file %q: does not contain any source IP rows", path)
 	}
 	return sourceIPs, nil
+}
+
+func isIgnorableInfRow(record []string) bool {
+	if len(record) == 0 {
+		return true
+	}
+	if strings.HasPrefix(strings.TrimSpace(record[0]), "#") {
+		return true
+	}
+	for _, cell := range record {
+		if strings.TrimSpace(cell) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func extractInfIndexArgs(args []string) ([]string, string, int, error) {

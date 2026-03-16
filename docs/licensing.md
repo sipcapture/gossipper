@@ -1,13 +1,13 @@
 # Licensing notes
 
-`gossIpper` is distributed under the MIT license. The full license text lives in
-the repository root at `LICENSE`.
+`gossIpper` is distributed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+The full license text lives in the repository root at `LICENSE`.
 
 ## What this means in practice
 
 - You can use, copy, modify, and redistribute the code
-- You can ship derived works, including commercial ones
-- You must keep the copyright notice and the MIT permission notice
+- Modified works and network services using this software must provide source code
+- You must keep the copyright notice and license terms
 - The software is provided without warranty
 
 ## SPDX guidance
@@ -18,7 +18,7 @@ Per-file SPDX headers are optional, not mandatory.
 If the project later adopts SPDX headers for source files, use:
 
 ```text
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: AGPL-3.0
 ```
 
 Recommended approach if headers are introduced later:

@@ -1,6 +1,6 @@
 # 🤫 gossIpper
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 
 `gossIpper` is a Go rewrite of SIPp focused on SIP signaling load generation,
 incremental XML scenario compatibility, and a cleaner engine architecture.
@@ -332,4 +332,4 @@ at `/usr/bin/gossIpper`.
 
 ## License
 
-MIT. See `LICENSE`.
+AGPL-3.0. See `LICENSE`.

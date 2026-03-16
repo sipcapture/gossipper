@@ -185,6 +185,8 @@ Completed so far in this milestone:
 - `-infindex` parity for indexed CSV injection lookup acceleration (`-infindex <file> <field>`)
 - parser guardrails for transport-scoped runtime knobs: `-max_socket` restricted to `un`/`tn`/`ln`, reconnect knobs restricted to `t1`/`l1`
 - usability parity for trace cadence flags: explicit `-fd` auto-enables `-trace_stat`, explicit `-rtt_freq` auto-enables `-trace_rtt`
+- `-t ui` usability hardening: case-insensitive transport normalization and launcher-side normalization safety
+- `-inf` / `-ip_field` compatibility hardening: `-ipfield` alias support and pragmatic skip of blank/comment rows in injection CSV
 
 Target gaps from SIPp:
 
@@ -299,7 +301,7 @@ These are concrete SIPp-side features that are not currently present in
 `gossIpper`, or are only partially covered:
 
 - advanced `-t ui` parity and broader multi-IP transport semantics
-- advanced `-inf` + `-ip_field` compatibility behavior
+- advanced `-inf` + `-ip_field` compatibility behavior beyond current alias and row-filtering subset
 - broader `setdest` coverage beyond current pragmatic UDP scope
 - full SIPp media parity beyond pragmatic `play_pcap_video` / `play_pcap_image` support
 - bidirectional RTP/SRTP checking (`rtpcheck`) beyond current pragmatic RTP activity validation

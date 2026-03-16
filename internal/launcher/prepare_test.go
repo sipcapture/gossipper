@@ -60,6 +60,27 @@ func TestPrepareAcceptsUITransportForServerScenario(t *testing.T) {
 	}
 }
 
+func TestPrepareNormalizesUppercaseUITransport(t *testing.T) {
+	t.Parallel()
+
+	cfg := cli.DefaultConfig()
+	cfg.ScenarioName = "uac"
+	cfg.Transport = "UI"
+	cfg.InjectionFile = "dummy.csv"
+	cfg.IPField = 0
+	cfg.UISourceIPs = []string{"127.0.0.2"}
+	cfg.RemoteHost = "127.0.0.1"
+	cfg.RemotePort = 5060
+
+	prepared, err := Prepare(cfg)
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	if prepared.CLIConfig.Transport != "ui" || prepared.EngineConfig.Transport != "ui" {
+		t.Fatalf("expected normalized ui transport, cli=%q engine=%q", prepared.CLIConfig.Transport, prepared.EngineConfig.Transport)
+	}
+}
+
 func TestPrepareRejectsUITransportWithoutResolvedSourceIPs(t *testing.T) {
 	t.Parallel()
 

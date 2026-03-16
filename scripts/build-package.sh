@@ -5,7 +5,7 @@ set -euo pipefail
 PACKAGER="${1:-deb}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="${ROOT_DIR}/dist"
-BIN_NAME="gossIpper"
+BIN_NAME="gossipper"
 CMD_PATH="./cmd/gossip"
 
 case "${PACKAGER}" in

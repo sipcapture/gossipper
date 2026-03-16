@@ -10,11 +10,11 @@ description: |
   scenario runner with incremental XML parity, 3PCC helpers, and RTP tooling.
 vendor: "QXIP"
 homepage: "https://github.com/adubovikov/gossipper"
-license: "MIT"
+license: "AGPL-3.0"
 
 contents:
-  - src: ./dist/gossIpper
-    dst: /usr/bin/gossIpper
+  - src: ./dist/gossipper
+    dst: /usr/bin/gossipper
     file_info:
       mode: 0755
 

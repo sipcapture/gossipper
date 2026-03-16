@@ -1,4 +1,4 @@
-BIN := gossIpper
+BIN := gossipper
 CMD := ./cmd/gossip
 DIST := dist
 VERSION ?= $(shell grep '^[[:space:]]*Version[[:space:]]*=' cmd/gossip/version.go | head -1 | cut -d'"' -f2)

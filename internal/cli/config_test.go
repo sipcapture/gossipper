@@ -122,6 +122,101 @@ func TestParseAcceptsUITransportWithInjection(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsUITransportAliasIPField(t *testing.T) {
+	t.Parallel()
+
+	injectionPath := filepath.Join(t.TempDir(), "ips.csv")
+	if err := os.WriteFile(injectionPath, []byte("127.0.0.2\n127.0.0.3\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(injection) error = %v", err)
+	}
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-t", "ui",
+		"-inf", injectionPath,
+		"-ipfield", "0",
+	})
+	if err != nil {
+		t.Fatalf("Parse(ui ipfield) error = %v", err)
+	}
+	if cfg.IPField != 0 {
+		t.Fatalf("expected ip field from alias, got %d", cfg.IPField)
+	}
+	if len(cfg.UISourceIPs) != 2 {
+		t.Fatalf("unexpected ui source IPs: %+v", cfg.UISourceIPs)
+	}
+}
+
+func TestParseUITransportIPFieldPriorityLastFlagWins(t *testing.T) {
+	t.Parallel()
+
+	injectionPath := filepath.Join(t.TempDir(), "ips.csv")
+	if err := os.WriteFile(injectionPath, []byte("alpha,127.0.0.2\nbeta,127.0.0.3\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(injection) error = %v", err)
+	}
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-t", "ui",
+		"-inf", injectionPath,
+		"-ip_field", "0",
+		"-ipfield", "1",
+	})
+	if err != nil {
+		t.Fatalf("Parse(ui ipfield priority) error = %v", err)
+	}
+	if cfg.IPField != 1 {
+		t.Fatalf("expected last ipfield value to win, got %d", cfg.IPField)
+	}
+	if len(cfg.UISourceIPs) != 2 || cfg.UISourceIPs[0] != "127.0.0.2" || cfg.UISourceIPs[1] != "127.0.0.3" {
+		t.Fatalf("unexpected ui source IPs: %+v", cfg.UISourceIPs)
+	}
+}
+
+func TestParseAcceptsUppercaseUITransport(t *testing.T) {
+	t.Parallel()
+
+	injectionPath := filepath.Join(t.TempDir(), "ips.csv")
+	if err := os.WriteFile(injectionPath, []byte("127.0.0.2\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(injection) error = %v", err)
+	}
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-t", "UI",
+		"-inf", injectionPath,
+		"-ip_field", "0",
+	})
+	if err != nil {
+		t.Fatalf("Parse(UI) error = %v", err)
+	}
+	if cfg.Transport != "ui" {
+		t.Fatalf("expected normalized ui transport, got %q", cfg.Transport)
+	}
+}
+
+func TestParseUISkipsCommentsAndBlankRowsInInf(t *testing.T) {
+	t.Parallel()
+
+	injectionPath := filepath.Join(t.TempDir(), "ips.csv")
+	if err := os.WriteFile(injectionPath, []byte("# header\n\n127.0.0.2\n  \n# comment\n127.0.0.3\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(injection) error = %v", err)
+	}
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-t", "ui",
+		"-inf", injectionPath,
+		"-ip_field", "0",
+	})
+	if err != nil {
+		t.Fatalf("Parse(ui comments/blanks) error = %v", err)
+	}
+	if len(cfg.UISourceIPs) != 2 || cfg.UISourceIPs[0] != "127.0.0.2" || cfg.UISourceIPs[1] != "127.0.0.3" {
+		t.Fatalf("unexpected filtered ui source IPs: %+v", cfg.UISourceIPs)
+	}
+}
+
 func TestParseUIPreservesInjectionOrderAndDuplicates(t *testing.T) {
 	t.Parallel()
 
@@ -889,7 +984,7 @@ func TestParseRejectsEmptySourceIPCell(t *testing.T) {
 	t.Parallel()
 
 	injectionPath := filepath.Join(t.TempDir(), "ips.csv")
-	if err := os.WriteFile(injectionPath, []byte("   \n"), 0o644); err != nil {
+	if err := os.WriteFile(injectionPath, []byte(",tag\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(injection) error = %v", err)
 	}
 	if _, err := Parse([]string{

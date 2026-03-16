@@ -53,7 +53,7 @@ jobs:
           ARCH: ${{ matrix.goarch }}
         run: |
           make build VERSION="${VERSION}" OS="${OS}" ARCH="${ARCH}"
-          mv "dist/gossIpper" "dist/gossIpper_${OS}_${ARCH}"
+          mv "dist/gossipper" "dist/gossipper_${OS}_${ARCH}"
 
       - name: Install nfpm
         if: github.event_name == 'release' || inputs.release
@@ -75,11 +75,11 @@ jobs:
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: gossIpper-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: gossipper-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            dist/gossIpper_${{ matrix.goos }}_${{ matrix.goarch }}
-            dist/gossIpper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.deb
-            dist/gossIpper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.rpm
+            dist/gossipper_${{ matrix.goos }}_${{ matrix.goarch }}
+            dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.deb
+            dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.rpm
           if-no-files-found: ignore
 
       - name: Upload release assets
@@ -88,7 +88,7 @@ jobs:
         with:
           tag_name: ${{ env.VERSION }}
           files: |
-            dist/gossIpper_${{ matrix.goos }}_${{ matrix.goarch }}
-            dist/gossIpper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.deb
-            dist/gossIpper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.rpm
+            dist/gossipper_${{ matrix.goos }}_${{ matrix.goarch }}
+            dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.deb
+            dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.rpm
           fail_on_unmatched_files: true
