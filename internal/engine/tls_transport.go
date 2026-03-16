@@ -50,12 +50,17 @@ func (e *Engine) runClientSharedTLS(ctx context.Context) error {
 			callID := newCallID(callNumber)
 			inbox := registry.register(callID)
 			defer registry.unregister(callID)
-			receive := func(waitCtx context.Context) (sip.Message, error) {
+			receive := func(waitCtx context.Context) (*sip.Message, error) {
 				select {
-				case <-waitCtx.Done():
-					return sip.Message{}, waitCtx.Err()
 				case msg := <-inbox:
 					return msg, nil
+				default:
+				}
+				select {
+				case msg := <-inbox:
+					return msg, nil
+				case <-waitCtx.Done():
+					return nil, waitCtx.Err()
 				}
 			}
 			send := func(payload []byte) error { return shared.Send(payload) }
@@ -103,7 +108,7 @@ func (e *Engine) runClientPerCallTLS(ctx context.Context) error {
 			callID := newCallID(callNumber)
 			localIP := resolveLocalIP(dialog.LocalPort(), e.cfg.LocalIP)
 			send := func(payload []byte) error { return dialog.Send(payload) }
-			receive := func(waitCtx context.Context) (sip.Message, error) { return dialog.Receive(waitCtx) }
+			receive := adaptReceiveToPtr(func(waitCtx context.Context) (sip.Message, error) { return dialog.Receive(waitCtx) })
 			send = e.wrapSIPSend(callNumber, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send)
 			receive = e.wrapSIPReceive(callNumber, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, receive)
 			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive, nil)
@@ -176,14 +181,14 @@ func (e *Engine) runServerTLSShared(ctx context.Context) error {
 						delete(sessions, id)
 						mu.Unlock()
 					}()
-					receive := func(waitCtx context.Context) (sip.Message, error) {
+					receive := adaptReceiveToPtr(func(waitCtx context.Context) (sip.Message, error) {
 						select {
 						case <-waitCtx.Done():
 							return sip.Message{}, waitCtx.Err()
 						case msg := <-inbox:
 							return msg, nil
 						}
-					}
+					})
 					send := func(payload []byte) error {
 						writeMu.Lock()
 						defer writeMu.Unlock()
@@ -243,7 +248,7 @@ func (e *Engine) runServerTLSPerConn(ctx context.Context) error {
 			}
 			inbox := make(chan sip.Message, 8)
 			inbox <- first
-			receive := func(waitCtx context.Context) (sip.Message, error) {
+			receive := adaptReceiveToPtr(func(waitCtx context.Context) (sip.Message, error) {
 				select {
 				case <-waitCtx.Done():
 					return sip.Message{}, waitCtx.Err()
@@ -252,7 +257,7 @@ func (e *Engine) runServerTLSPerConn(ctx context.Context) error {
 				default:
 					return reader.Read(waitCtx)
 				}
-			}
+			})
 			send := func(payload []byte) error { return reader.Write(payload) }
 			remote := conn.RemoteAddr().(*net.TCPAddr)
 			localIP := resolveLocalIP(reader.LocalPort(), e.cfg.LocalIP)

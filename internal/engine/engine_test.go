@@ -63,8 +63,9 @@ func TestEngineRunsBasicUACScenario(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -152,8 +153,9 @@ func TestEngineAppliesBaseCSeqToRenderedToken(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -357,8 +359,9 @@ func TestEngineMirrorsSIPToHEP(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -474,8 +477,9 @@ func TestEngineTraceStatWritesPeriodicCSV(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -611,8 +615,9 @@ func TestEngineTraceStatHonorsCustomDumpFrequency(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -753,8 +758,9 @@ func TestEngineFailureClassesUnexpectedSIP(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -887,8 +893,9 @@ func TestEngineTraceRTTWritesCSV(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -1220,8 +1227,9 @@ func TestEngineTraceCountsWritesPerCommandCSV(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -1357,8 +1365,9 @@ func TestEngineCollectsNamedRTDStats(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -1452,8 +1461,9 @@ func TestEngineCollectsCounterAndDisplayStats(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -1624,8 +1634,9 @@ func TestEngineAppliesActionsAndVariables(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -1722,8 +1733,9 @@ func TestEngineLookupActionFeedsFieldToken(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -1842,8 +1854,9 @@ func TestEngineAppliesStrCmpAndExtendedTestComparisons(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -1977,8 +1990,9 @@ func TestEngineSupportsArithmeticJumpAndHelperActions(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -2208,8 +2222,9 @@ func TestEngineRunsSendCmdRecvCmdScenario(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -2338,8 +2353,9 @@ func TestEngineRunsExternalSendCmdRecvCmdScenario(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -2695,8 +2711,9 @@ func TestEngineInitInjectionAndUserScope(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -2801,8 +2818,9 @@ func TestEngineInitExternalSendCmdRecvCmdScope(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -3036,8 +3054,9 @@ Content-Length: 0
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -3167,8 +3186,9 @@ Content-Length: 0
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -3178,7 +3198,7 @@ Content-Length: 0
 			cseq, _ := sip.Header(msg.Headers, "CSeq")
 			switch strings.ToUpper(msg.Method) {
 			case "INVITE":
-				endpoint, err := media.ParseAudioEndpoint(msg, "127.0.0.1")
+				endpoint, err := media.ParseAudioEndpoint(*msg, "127.0.0.1")
 				if err != nil {
 					return
 				}
@@ -3348,8 +3368,9 @@ Content-Length: 0
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -3494,8 +3515,9 @@ Content-Length: 0
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -3653,8 +3675,9 @@ Content-Length: 0
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -3788,8 +3811,9 @@ func TestEngineUITransportUsesPerSourceIPSocketsAndKeywords(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				select {
 				case errCh <- err:
 				default:
@@ -3959,9 +3983,10 @@ Content-Length: 0
 		if got := addr.IP.String(); got != targetIP {
 			t.Fatalf("expected response from %s, got %s", targetIP, got)
 		}
-		msg, err := sip.Parse(buffer[:n])
-		if err != nil {
-			t.Fatalf("sip.Parse() error = %v", err)
+		msg := sip.GetMessage()
+		defer sip.PutMessage(msg)
+		if err := sip.ParseInto(msg, buffer[:n]); err != nil {
+			t.Fatalf("sip.ParseInto() error = %v", err)
 		}
 		if msg.StatusCode != 200 {
 			t.Fatalf("expected 200 OK, got %d", msg.StatusCode)
@@ -4091,9 +4116,10 @@ Content-Length: 0
 		if got := addr.IP.String(); got != targetIP {
 			t.Fatalf("expected response from %s, got %s", targetIP, got)
 		}
-		msg, err := sip.Parse(buffer[:n])
-		if err != nil {
-			t.Fatalf("sip.Parse() error = %v", err)
+		msg := sip.GetMessage()
+		defer sip.PutMessage(msg)
+		if err := sip.ParseInto(msg, buffer[:n]); err != nil {
+			t.Fatalf("sip.ParseInto() error = %v", err)
 		}
 		if msg.StatusCode != 200 {
 			t.Fatalf("expected 200 OK, got %d", msg.StatusCode)
@@ -4340,8 +4366,9 @@ func TestEngineSetDestUpdatesUDPDestination(t *testing.T) {
 			serverErr <- err
 			return
 		}
-		msg, err := sip.Parse(buffer[:n])
-		if err != nil {
+		msg := sip.GetMessage()
+		defer sip.PutMessage(msg)
+		if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 			serverErr <- err
 			return
 		}
@@ -4476,8 +4503,9 @@ func TestEngineRoutesKeywordFromRecordRoute(t *testing.T) {
 			serverErr <- err
 			return
 		}
-		invite, err := sip.Parse(buffer[:n])
-		if err != nil {
+		invite := sip.GetMessage()
+		defer sip.PutMessage(invite)
+		if err := sip.ParseInto(invite, buffer[:n]); err != nil {
 			serverErr <- err
 			return
 		}
@@ -4508,8 +4536,9 @@ func TestEngineRoutesKeywordFromRecordRoute(t *testing.T) {
 			serverErr <- fmt.Errorf("expected reversed Route headers in BYE, got %q", byeRaw)
 			return
 		}
-		bye, err := sip.Parse(buffer[:n])
-		if err != nil {
+		bye := sip.GetMessage()
+		defer sip.PutMessage(bye)
+		if err := sip.ParseInto(bye, buffer[:n]); err != nil {
 			serverErr <- err
 			return
 		}
@@ -4599,8 +4628,9 @@ func TestEngineUnexpectedRoutesToUnexpMainLabel(t *testing.T) {
 			serverErr <- err
 			return
 		}
-		invite, err := sip.Parse(buffer[:n])
-		if err != nil {
+		invite := sip.GetMessage()
+		defer sip.PutMessage(invite)
+		if err := sip.ParseInto(invite, buffer[:n]); err != nil {
 			serverErr <- err
 			return
 		}
@@ -4712,8 +4742,9 @@ func TestEngineOptionalRecvShortCircuitsOnUnexpected(t *testing.T) {
 			serverErr <- err
 			return
 		}
-		invite, err := sip.Parse(buffer[:n])
-		if err != nil {
+		invite := sip.GetMessage()
+		defer sip.PutMessage(invite)
+		if err := sip.ParseInto(invite, buffer[:n]); err != nil {
 			serverErr <- err
 			return
 		}
@@ -4796,8 +4827,9 @@ func TestEngineOptionalRecvRoutesToUnexpMainWithRetAddr(t *testing.T) {
 			serverErr <- err
 			return
 		}
-		invite, err := sip.Parse(buffer[:n])
-		if err != nil {
+		invite := sip.GetMessage()
+		defer sip.PutMessage(invite)
+		if err := sip.ParseInto(invite, buffer[:n]); err != nil {
 			serverErr <- err
 			return
 		}
@@ -4914,8 +4946,9 @@ func TestEnginePendingMismatchDoesNotStarveFollowingRecv(t *testing.T) {
 			serverErr <- err
 			return
 		}
-		invite, err := sip.Parse(buffer[:n])
-		if err != nil {
+		invite := sip.GetMessage()
+		defer sip.PutMessage(invite)
+		if err := sip.ParseInto(invite, buffer[:n]); err != nil {
 			serverErr <- err
 			return
 		}
@@ -5011,8 +5044,9 @@ func TestEngineMultiplePendingMismatchesStillReachMandatoryRecv(t *testing.T) {
 			serverErr <- err
 			return
 		}
-		invite, err := sip.Parse(buffer[:n])
-		if err != nil {
+		invite := sip.GetMessage()
+		defer sip.PutMessage(invite)
+		if err := sip.ParseInto(invite, buffer[:n]); err != nil {
 			serverErr <- err
 			return
 		}
@@ -5226,4 +5260,85 @@ func buildPCAPUDPPacket(t *testing.T, payload []byte) []byte {
 		t.Fatalf("SerializeLayers() error = %v", err)
 	}
 	return buffer.Bytes()
+}
+
+// ─── Engine throughput benchmarks ────────────────────────────────────────────
+
+// BenchmarkEngineUACUDPThroughput exercises the full engine hot path:
+// RenderMessageStrict (template) → UDP send → UDP recv → sip.ParseInto (dispatch)
+// → waitForMatch → executeCall — using the basic UAC scenario.
+func BenchmarkEngineUACUDPThroughput(b *testing.B) {
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		b.Fatalf("ListenUDP: %v", err)
+	}
+	defer serverConn.Close()
+
+	// Minimal UAS: echo INVITE→200, BYE→200.
+	go func() {
+		buf := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+			msg := sip.GetMessage()
+			if sip.ParseInto(msg, buf[:n]) != nil {
+				sip.PutMessage(msg)
+				continue
+			}
+			via, _ := sip.Header(msg.Headers, "Via")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+			var resp string
+			switch strings.ToUpper(msg.Method) {
+			case "INVITE":
+				resp = fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+			case "BYE":
+				resp = fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+			}
+			sip.PutMessage(msg)
+			if resp != "" {
+				_, _ = serverConn.WriteToUDP([]byte(resp), addr)
+			}
+		}
+	}()
+
+	sc, err := scenario.ParseFile("../../testdata/scenarios/basic_uac.xml")
+	if err != nil {
+		b.Fatalf("ParseFile: %v", err)
+	}
+
+	port := serverConn.LocalAddr().(*net.UDPAddr).Port
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		app := New(Config{
+			Scenario:      sc,
+			Transport:     "u1",
+			LocalIP:       "127.0.0.1",
+			RemoteHost:    "127.0.0.1",
+			RemotePort:    port,
+			Service:       "echo",
+			Rate:          10000,
+			TotalCalls:    1,
+			MaxConcurrent: 1,
+			DefaultPause:  0,
+			DefaultRecvTO: 2 * time.Second,
+		})
+		ctx := context.Background()
+		if err := app.Run(ctx); err != nil {
+			b.Fatalf("Run: %v", err)
+		}
+	}
 }

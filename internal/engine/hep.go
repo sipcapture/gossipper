@@ -32,21 +32,20 @@ func (e *Engine) stopHEP() {
 	e.hep = nil
 }
 
-func (e *Engine) observeSIP(direction string, callNumber int, localIP string, localPort int, remoteIP string, remotePort int, raw string) {
+func (e *Engine) observeSIP(direction string, callNumber int, localIP string, localPort int, remoteIP string, remotePort int, raw []byte) {
 	if e.cfg.TraceMessages || e.cfg.TraceShortMsg {
-		e.traceEvent(direction, callNumber, raw)
+		e.traceEvent(direction, callNumber, string(raw))
 	}
-	if e.hep == nil {
-		return
-	}
-	srcIP, srcPort := localIP, localPort
-	dstIP, dstPort := remoteIP, remotePort
-	if direction == "recv" {
-		srcIP, srcPort = remoteIP, remotePort
-		dstIP, dstPort = localIP, localPort
-	}
-	if err := e.hep.SendSIP(time.Now(), srcIP, srcPort, dstIP, dstPort, e.cfg.Transport, []byte(raw)); err != nil {
-		e.traceError("hep-export", callNumber, err.Error())
+	if e.hep != nil {
+		srcIP, srcPort := localIP, localPort
+		dstIP, dstPort := remoteIP, remotePort
+		if direction == "recv" {
+			srcIP, srcPort = remoteIP, remotePort
+			dstIP, dstPort = localIP, localPort
+		}
+		if err := e.hep.SendSIP(time.Now(), srcIP, srcPort, dstIP, dstPort, e.cfg.Transport, raw); err != nil {
+			e.traceError("hep-export", callNumber, err.Error())
+		}
 	}
 }
 
@@ -55,18 +54,18 @@ func (e *Engine) wrapSIPSend(callNumber int, localIP string, localPort int, remo
 		if err := send(payload); err != nil {
 			return err
 		}
-		e.observeSIP("send", callNumber, localIP, localPort, remoteIP, remotePort, string(payload))
+		e.observeSIP("send", callNumber, localIP, localPort, remoteIP, remotePort, payload)
 		return nil
 	}
 }
 
-func (e *Engine) wrapSIPReceive(callNumber int, localIP string, localPort int, remoteIP string, remotePort int, receive func(waitCtx context.Context) (sip.Message, error)) func(context.Context) (sip.Message, error) {
-	return func(waitCtx context.Context) (sip.Message, error) {
+func (e *Engine) wrapSIPReceive(callNumber int, localIP string, localPort int, remoteIP string, remotePort int, receive func(waitCtx context.Context) (*sip.Message, error)) func(context.Context) (*sip.Message, error) {
+	return func(waitCtx context.Context) (*sip.Message, error) {
 		msg, err := receive(waitCtx)
 		if err != nil {
-			return sip.Message{}, err
+			return nil, err
 		}
-		e.observeSIP("recv", callNumber, localIP, localPort, remoteIP, remotePort, msg.Raw)
+		e.observeSIP("recv", callNumber, localIP, localPort, remoteIP, remotePort, []byte(msg.Raw))
 		return msg, nil
 	}
 }

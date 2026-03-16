@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/qxip/gossipper/internal/sip"
@@ -15,8 +14,6 @@ import (
 )
 
 const authPlaceholder = "Authorization: pending"
-
-var authTokenPattern = regexp.MustCompile(`\[(authentication[^\]]*)\]`)
 
 type authKeywordOptions struct {
 	tokenKey string
@@ -293,20 +290,31 @@ func cloneKeywords(in map[string]string) map[string]string {
 	return out
 }
 
+// extractAuthKeywordOptions finds [authentication...] tokens without regexp.
 func extractAuthKeywordOptions(raw string) []authKeywordOptions {
-	matches := authTokenPattern.FindAllStringSubmatch(raw, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	options := make([]authKeywordOptions, 0, len(matches))
-	for _, match := range matches {
-		tokenKey := strings.TrimSpace(match[1])
+	const prefix = "[authentication"
+	var options []authKeywordOptions
+	s := strings.ToLower(raw)
+	for {
+		i := strings.Index(s, prefix)
+		if i < 0 {
+			break
+		}
+		start := i
+		end := strings.IndexByte(raw[start+1:], ']')
+		if end < 0 {
+			break
+		}
+		end += start + 1
+		tokenKey := strings.TrimSpace(raw[start+1 : end]) // key without brackets, for ExtraKeywords lookup
 		params := parseAuthKeywordParams(tokenKey)
 		options = append(options, authKeywordOptions{
 			tokenKey: tokenKey,
 			username: params["username"],
 			password: params["password"],
 		})
+		s = s[end+1:]
+		raw = raw[end+1:]
 	}
 	return options
 }

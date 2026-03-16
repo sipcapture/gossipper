@@ -37,8 +37,9 @@ func TestRunSupports3PCCMasterSlaveAliases(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -340,8 +341,9 @@ func TestRunWritesMessageAndShortTraceFiles(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -481,8 +483,9 @@ func TestRunWritesUnexpectedResponseToErrorTraceFile(t *testing.T) {
 		if err != nil {
 			return
 		}
-		msg, err := sip.Parse(buffer[:n])
-		if err != nil {
+		msg := sip.GetMessage()
+		defer sip.PutMessage(msg)
+		if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 			return
 		}
 		callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -558,8 +561,9 @@ func TestRunWritesUnexpectedResponseToErrorCodesTraceFile(t *testing.T) {
 		if err != nil {
 			return
 		}
-		msg, err := sip.Parse(buffer[:n])
-		if err != nil {
+		msg := sip.GetMessage()
+		defer sip.PutMessage(msg)
+		if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 			return
 		}
 		callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -678,8 +682,9 @@ func TestRunSupportsDigestAuthenticationKeyword(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := sip.Parse(buffer[:n])
-			if err != nil {
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 				return
 			}
 			callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -830,8 +835,9 @@ func TestRunBundledPCAPScenarios(t *testing.T) {
 					if err != nil {
 						return
 					}
-					msg, err := sip.Parse(buffer[:n])
-					if err != nil {
+					msg := sip.GetMessage()
+					defer sip.PutMessage(msg)
+					if err := sip.ParseInto(msg, buffer[:n]); err != nil {
 						return
 					}
 					callID, _ := sip.Header(msg.Headers, "Call-ID")
@@ -945,11 +951,12 @@ func readSIPMessage(t *testing.T, conn *net.UDPConn) sip.Message {
 	if err != nil {
 		t.Fatalf("ReadFromUDP() error = %v", err)
 	}
-	msg, err := sip.Parse(buffer[:n])
-	if err != nil {
-		t.Fatalf("sip.Parse() error = %v; raw=%q", err, string(buffer[:n]))
+	msg := sip.GetMessage()
+	defer sip.PutMessage(msg)
+	if err := sip.ParseInto(msg, buffer[:n]); err != nil {
+		t.Fatalf("sip.ParseInto() error = %v; raw=%q", err, string(buffer[:n]))
 	}
-	return msg
+	return msg.Copy()
 }
 
 func deriveShortPathForTest(fullPath string) string {

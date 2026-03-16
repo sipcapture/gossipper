@@ -28,10 +28,12 @@ import (
 )
 
 var (
+	regexpCache   sync.Map // map[string]*regexp.Regexp
 	errStopCall             = errors.New("stop current call")
 	errStopNow              = errors.New("stop execution now")
 	errUnexpectedToMain     = errors.New("unexpected SIP routed to _unexp.main")
 	errOptionalRecvMismatch = errors.New("optional recv mismatched with incoming SIP")
+	parseHeadersLinesPool   = sync.Pool{New: func() interface{} { return new([]string) }}
 )
 
 type Config struct {
@@ -271,9 +273,9 @@ func (e *Engine) runClientCommandOnly(ctx context.Context) error {
 			send := func(payload []byte) error {
 				return fmt.Errorf("SIP send is not available in command-only scenario")
 			}
-			receive := func(waitCtx context.Context) (sip.Message, error) {
+			receive := adaptReceiveToPtr(func(waitCtx context.Context) (sip.Message, error) {
 				return sip.Message{}, fmt.Errorf("SIP receive is not available in command-only scenario")
-			}
+			})
 			send = e.wrapSIPSend(callNumber, resolveLocalIP(0, e.cfg.LocalIP), e.cfg.LocalPort, e.cfg.RemoteHost, e.cfg.RemotePort, send)
 			receive = e.wrapSIPReceive(callNumber, resolveLocalIP(0, e.cfg.LocalIP), e.cfg.LocalPort, e.cfg.RemoteHost, e.cfg.RemotePort, receive)
 
@@ -338,10 +340,10 @@ func (e *Engine) runClientShared(ctx context.Context) error {
 			inbox := registry.register(callID)
 			defer registry.unregister(callID)
 
-			receive := func(waitCtx context.Context) (sip.Message, error) {
+			receive := func(waitCtx context.Context) (*sip.Message, error) {
 				select {
 				case <-waitCtx.Done():
-					return sip.Message{}, waitCtx.Err()
+					return nil, waitCtx.Err()
 				case msg := <-inbox:
 					return msg, nil
 				}
@@ -409,17 +411,18 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 			defer dialog.Close()
 
 			callID := newCallID(callNumber)
-			receive := func(waitCtx context.Context) (sip.Message, error) {
+			receive := adaptReceiveToPtr(func(waitCtx context.Context) (sip.Message, error) {
 				packet, err := dialog.Receive(waitCtx)
 				if err != nil {
 					return sip.Message{}, err
 				}
-				msg, err := sip.Parse(packet.Data)
-				if err != nil {
+				msg := sip.GetMessage()
+				defer sip.PutMessage(msg)
+				if err := sip.ParseInto(msg, packet.Data); err != nil {
 					return sip.Message{}, err
 				}
-				return msg, nil
-			}
+				return msg.Copy(), nil
+			})
 			send := func(payload []byte) error {
 				return dialog.Send(payload)
 			}
@@ -494,10 +497,10 @@ func (e *Engine) runClientPerSourceIP(ctx context.Context) error {
 			inbox := registry.register(callID)
 			defer registry.unregister(callID)
 
-			receive := func(waitCtx context.Context) (sip.Message, error) {
+			receive := func(waitCtx context.Context) (*sip.Message, error) {
 				select {
 				case <-waitCtx.Done():
-					return sip.Message{}, waitCtx.Err()
+					return nil, waitCtx.Err()
 				case msg := <-inbox:
 					return msg, nil
 				}
@@ -568,12 +571,17 @@ func (e *Engine) runClientSharedTCP(ctx context.Context) error {
 			inbox := registry.register(callID)
 			defer registry.unregister(callID)
 
-			receive := func(waitCtx context.Context) (sip.Message, error) {
+			receive := func(waitCtx context.Context) (*sip.Message, error) {
 				select {
-				case <-waitCtx.Done():
-					return sip.Message{}, waitCtx.Err()
 				case msg := <-inbox:
 					return msg, nil
+				default:
+				}
+				select {
+				case msg := <-inbox:
+					return msg, nil
+				case <-waitCtx.Done():
+					return nil, waitCtx.Err()
 				}
 			}
 			send := func(payload []byte) error {
@@ -626,13 +634,9 @@ func (e *Engine) runClientPerCallTCP(ctx context.Context) error {
 			defer dialog.Close()
 
 			callID := newCallID(callNumber)
-			receive := func(waitCtx context.Context) (sip.Message, error) {
-				msg, err := dialog.Receive(waitCtx)
-				if err != nil {
-					return sip.Message{}, err
-				}
-				return msg, nil
-			}
+			receive := adaptReceiveToPtr(func(waitCtx context.Context) (sip.Message, error) {
+				return dialog.Receive(waitCtx)
+			})
 			send := func(payload []byte) error {
 				return dialog.Send(payload)
 			}
@@ -686,7 +690,7 @@ func (e *Engine) runServer(ctx context.Context) error {
 }
 
 type serverUDPSession struct {
-	inbox     chan sip.Message
+	inbox     chan *sip.Message
 	remote    *net.UDPAddr
 	shared    *transport.SharedUDP
 	localIP   string
@@ -694,7 +698,7 @@ type serverUDPSession struct {
 }
 
 type udpServerInbound struct {
-	msg       sip.Message
+	msg       *sip.Message
 	callID    string
 	remote    *net.UDPAddr
 	shared    *transport.SharedUDP
@@ -755,13 +759,15 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 
 	go func() {
 		for packet := range shared.Receive() {
-			msg, err := sip.Parse(packet.Data)
-			if err != nil {
+			msg := sip.GetMessage()
+			if err := sip.ParseInto(msg, packet.Data); err != nil {
+				sip.PutMessage(msg)
 				continue
 			}
 
 			callID, ok := sip.Header(msg.Headers, "Call-ID")
 			if !ok {
+				sip.PutMessage(msg)
 				continue
 			}
 
@@ -769,19 +775,20 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 			sess, exists := sessions[callID]
 			if !exists {
 				firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
-				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) || accepted >= e.cfg.TotalCalls {
+				if !sip.Match(*msg, firstCmd.RecvReq, firstCmd.RecvResp) || accepted >= e.cfg.TotalCalls {
 					mu.Unlock()
+					sip.PutMessage(msg)
 					continue
 				}
 				accepted++
 				callNumber := accepted
 
 				remote := packet.Addr
-				if viaAddr := resolveResponseAddr(msg, packet.Addr); viaAddr != nil {
+				if viaAddr := resolveResponseAddr(*msg, packet.Addr); viaAddr != nil {
 					remote = viaAddr
 				}
 				sess = &serverUDPSession{
-					inbox:     make(chan sip.Message, 8),
+					inbox:     make(chan *sip.Message, 8),
 					remote:    remote,
 					shared:    shared,
 					localIP:   resolveLocalIP(shared.LocalPort(), e.cfg.LocalIP),
@@ -789,7 +796,7 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 				}
 				sessions[callID] = sess
 				wg.Add(1)
-				go func(callNumber int, id string, startMsg sip.Message, sess *serverUDPSession) {
+				go func(callNumber int, id string, startMsg *sip.Message, sess *serverUDPSession) {
 					defer wg.Done()
 					defer func() {
 						mu.Lock()
@@ -802,10 +809,10 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 					}()
 					sess.inbox <- startMsg
 
-					receive := func(waitCtx context.Context) (sip.Message, error) {
+					receive := func(waitCtx context.Context) (*sip.Message, error) {
 						select {
 						case <-waitCtx.Done():
-							return sip.Message{}, waitCtx.Err()
+							return nil, waitCtx.Err()
 						case msg := <-sess.inbox:
 							return msg, nil
 						}
@@ -833,6 +840,7 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 			select {
 			case sess.inbox <- msg:
 			default:
+				sip.PutMessage(msg)
 			}
 		}
 	}()
@@ -873,25 +881,28 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 		pool[sourceIP] = shared
 		go func(localIP string, socket *transport.SharedUDP) {
 			for packet := range socket.Receive() {
-				msg, err := sip.Parse(packet.Data)
-				if err != nil {
+				msg := sip.GetMessage()
+				if err := sip.ParseInto(msg, packet.Data); err != nil {
+					sip.PutMessage(msg)
 					continue
 				}
 				callID, ok := sip.Header(msg.Headers, "Call-ID")
 				if !ok {
+					sip.PutMessage(msg)
 					continue
 				}
-				select {
-				case <-runCtx.Done():
-					return
-				case incoming <- udpServerInbound{
+				ib := udpServerInbound{
 					msg:       msg,
 					callID:    callID,
 					remote:    packet.Addr,
 					shared:    socket,
 					localIP:   localIP,
 					localPort: socket.LocalPort(),
-				}:
+				}
+				select {
+				case <-runCtx.Done():
+					return
+				case incoming <- ib:
 				}
 			}
 		}(sourceIP, shared)
@@ -918,19 +929,20 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 				sess, exists := sessions[packet.callID]
 				if !exists {
 					firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
-					if !sip.Match(packet.msg, firstCmd.RecvReq, firstCmd.RecvResp) || accepted >= e.cfg.TotalCalls {
-						mu.Unlock()
-						continue
-					}
+				if !sip.Match(*packet.msg, firstCmd.RecvReq, firstCmd.RecvResp) || accepted >= e.cfg.TotalCalls {
+					mu.Unlock()
+					sip.PutMessage(packet.msg)
+					continue
+				}
 					accepted++
 					callNumber := accepted
 
 					remote := packet.remote
-					if viaAddr := resolveResponseAddr(packet.msg, packet.remote); viaAddr != nil {
+					if viaAddr := resolveResponseAddr(*packet.msg, packet.remote); viaAddr != nil {
 						remote = viaAddr
 					}
 					sess = &serverUDPSession{
-						inbox:     make(chan sip.Message, 8),
+						inbox:     make(chan *sip.Message, 8),
 						remote:    remote,
 						shared:    packet.shared,
 						localIP:   packet.localIP,
@@ -938,7 +950,7 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 					}
 					sessions[packet.callID] = sess
 					wg.Add(1)
-					go func(id string, startMsg sip.Message, callNumber int, sess *serverUDPSession) {
+					go func(id string, startMsg *sip.Message, callNumber int, sess *serverUDPSession) {
 						defer wg.Done()
 						defer func() {
 							mu.Lock()
@@ -950,10 +962,10 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 							mu.Unlock()
 						}()
 						sess.inbox <- startMsg
-						receive := func(waitCtx context.Context) (sip.Message, error) {
+						receive := func(waitCtx context.Context) (*sip.Message, error) {
 							select {
 							case <-waitCtx.Done():
-								return sip.Message{}, waitCtx.Err()
+								return nil, waitCtx.Err()
 							case msg := <-sess.inbox:
 								return msg, nil
 							}
@@ -977,6 +989,7 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 				}
 				if sess.shared != packet.shared {
 					mu.Unlock()
+					sip.PutMessage(packet.msg)
 					continue
 				}
 				mu.Unlock()
@@ -984,6 +997,7 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 				select {
 				case sess.inbox <- packet.msg:
 				default:
+					sip.PutMessage(packet.msg)
 				}
 			}
 		}
@@ -1079,8 +1093,9 @@ func (e *Engine) runServerTCPShared(ctx context.Context) error {
 					remote := conn.RemoteAddr().(*net.TCPAddr)
 					localIP := resolveLocalIP(reader.LocalPort(), e.cfg.LocalIP)
 					send = e.wrapSIPSend(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
-					receive = e.wrapSIPReceive(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, receive)
-					_ = e.executeCall(ctx, callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive, nil)
+					recv := adaptReceiveToPtr(receive)
+					recv = e.wrapSIPReceive(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, recv)
+					_ = e.executeCall(ctx, callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, recv, nil)
 				}(callID, sess.inbox, callNumber)
 			}
 			mu.Unlock()
@@ -1149,8 +1164,9 @@ func (e *Engine) runServerTCPPerConn(ctx context.Context) error {
 			remote := conn.RemoteAddr().(*net.TCPAddr)
 			localIP := resolveLocalIP(reader.LocalPort(), e.cfg.LocalIP)
 			send = e.wrapSIPSend(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
-			receive = e.wrapSIPReceive(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, receive)
-			_ = e.executeCall(ctx, callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive, nil)
+			recv := adaptReceiveToPtr(receive)
+			recv = e.wrapSIPReceive(callNumber, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, recv)
+			_ = e.executeCall(ctx, callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, recv, nil)
 		}(accepted+1, conn)
 	}
 	wg.Wait()
@@ -1166,7 +1182,7 @@ func (e *Engine) executeCall(
 	remoteHost string,
 	remotePort int,
 	send func([]byte) error,
-	receive func(context.Context) (sip.Message, error),
+	receive func(context.Context) (*sip.Message, error),
 	setDestination func(host string, port int) (string, error),
 ) (runErr error) {
 	startedAt := time.Now()
@@ -1216,7 +1232,7 @@ func (e *Engine) executeCall(
 		lastRetrans      time.Duration
 		inviteStartedAt  time.Time
 		inviteLatencySet bool
-		pending          []sip.Message
+		pending          []*sip.Message
 		commandCallKey   = renderCtx.CallID
 		rtdStarts        = make(map[string]time.Time)
 	)
@@ -1332,8 +1348,9 @@ func (e *Engine) executeCall(
 			lastSent = []byte(message)
 			lastRetrans = cmd.Retrans
 
-			parsed, err := sip.Parse(lastSent)
-			if err == nil && strings.EqualFold(parsed.Method, "INVITE") {
+			parsed := sip.GetMessage()
+			defer sip.PutMessage(parsed)
+			if err := sip.ParseInto(parsed, lastSent); err == nil && strings.EqualFold(parsed.Method, "INVITE") {
 				inviteStartedAt = time.Now()
 			}
 		case scenario.CommandSendCmd:
@@ -1362,7 +1379,7 @@ func (e *Engine) executeCall(
 			if !strings.HasPrefix(e.cfg.Transport, "u") {
 				retransmit = 0
 			}
-			receiveWithPending := func(waitCtx context.Context) (sip.Message, bool, error) {
+			receiveWithPending := func(waitCtx context.Context) (*sip.Message, bool, error) {
 				if len(pending) > 0 {
 					msg := pending[0]
 					pending = pending[1:]
@@ -1376,25 +1393,25 @@ func (e *Engine) executeCall(
 				unexpMainIndex = idx
 			}
 			var unexpectedForMain *sip.Message
-			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, send, retransmit, recvTimeout, func(msg sip.Message, fromPending bool) bool {
+			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, send, retransmit, recvTimeout, func(m *sip.Message, fromPending bool) bool {
 				if fromPending {
 					return false
 				}
-				e.traceUnexpectedSIP(callNumber, cmd, msg)
+				e.traceUnexpectedSIP(callNumber, cmd, *m)
 				e.traceCountUnexpected(cmd.Index)
 				sawUnexpectedSIP = true
 				if unexpMainIndex >= 0 && unexpectedForMain == nil {
-					captured := msg
-					unexpectedForMain = &captured
+					cpy := m.Copy()
+					unexpectedForMain = &cpy
 					return true
 				}
-				pending = append(pending, msg)
+				pending = append(pending, m)
 				return false
 			})
 			if err != nil {
 				if errors.Is(err, errUnexpectedToMain) && unexpectedForMain != nil && unexpMainIndex >= 0 {
 					renderCtx.LastMessage = unexpectedForMain.Raw
-					renderCtx.LastHeaders = unexpectedForMain.Headers
+					renderCtx.LastHeaders = copyHeaders(unexpectedForMain.Headers)
 					store.Set("_unexp.retaddr", strconv.Itoa(index+1))
 					index = unexpMainIndex
 					continue
@@ -1408,10 +1425,11 @@ func (e *Engine) executeCall(
 				}
 				return err
 			}
+			defer sip.PutMessage(msg)
 			e.traceCountRecv(cmd.Index)
 
 			renderCtx.LastMessage = msg.Raw
-			renderCtx.LastHeaders = msg.Headers
+			renderCtx.LastHeaders = copyHeaders(msg.Headers)
 			if cmd.RRS {
 				renderCtx.ExtraKeywords["routes"] = buildRouteHeaders(msg.Headers)
 			}
@@ -1563,51 +1581,62 @@ func (e *Engine) waitForCommand(ctx context.Context, callID, channel, src string
 
 func (e *Engine) waitForMatch(
 	ctx context.Context,
-	receive func(context.Context) (sip.Message, bool, error),
+	receive func(context.Context) (*sip.Message, bool, error),
 	cmd scenario.Command,
 	lastSent []byte,
 	send func([]byte) error,
 	retrans time.Duration,
 	timeout time.Duration,
-	stash func(sip.Message, bool) bool,
-) (sip.Message, error) {
+	stash func(*sip.Message, bool) bool,
+) (*sip.Message, error) {
 	deadline := time.Now().Add(timeout)
 	for {
 		waitFor := time.Until(deadline)
 		if waitFor <= 0 {
-			return sip.Message{}, context.DeadlineExceeded
+			return nil, context.DeadlineExceeded
 		}
 
 		receiveCtx, cancel := context.WithTimeout(ctx, minDuration(waitFor, nextRetrans(retrans)))
 		msg, fromPending, err := receive(receiveCtx)
 		cancel()
 		if err == nil {
-			if sip.Match(msg, cmd.RecvReq, cmd.RecvResp) {
+			if sip.Match(*msg, cmd.RecvReq, cmd.RecvResp) {
 				return msg, nil
 			}
 			if stash != nil {
 				if routeToMain := stash(msg, fromPending); routeToMain {
-					return sip.Message{}, errUnexpectedToMain
+					sip.PutMessage(msg)
+					return nil, errUnexpectedToMain
 				}
 			}
-			if cmd.Optional {
-				return sip.Message{}, errOptionalRecvMismatch
+		if cmd.Optional {
+			// Free msg only if stash did NOT take ownership.
+			// When stash != nil and fromPending is false, stash stored msg in
+			// pending (caller will drain it next). When fromPending is true
+			// the message was dequeued from pending and stash returned early.
+			if stash == nil || fromPending {
+				sip.PutMessage(msg)
 			}
-			continue
+			return nil, errOptionalRecvMismatch
+		}
+		if fromPending {
+			sip.PutMessage(msg)
+		}
+		continue
 		}
 
 		if errors.Is(err, context.DeadlineExceeded) && retrans > 0 && len(lastSent) > 0 && time.Now().Before(deadline) {
 			if sendErr := send(lastSent); sendErr != nil {
-				return sip.Message{}, sendErr
+				return nil, sendErr
 			}
 			e.stats.AddRetransmit()
 			continue
 		}
 
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return sip.Message{}, context.DeadlineExceeded
+			return nil, context.DeadlineExceeded
 		}
-		return sip.Message{}, err
+		return nil, err
 	}
 }
 
@@ -1689,19 +1718,19 @@ func (e *Engine) sourceIPForCall(callNumber int) string {
 
 type mailboxRegistry struct {
 	mu        sync.RWMutex
-	mailboxes map[string]chan sip.Message
+	mailboxes map[string]chan *sip.Message
 }
 
 func newMailboxRegistry() *mailboxRegistry {
 	return &mailboxRegistry{
-		mailboxes: make(map[string]chan sip.Message),
+		mailboxes: make(map[string]chan *sip.Message),
 	}
 }
 
-func (r *mailboxRegistry) register(callID string) chan sip.Message {
+func (r *mailboxRegistry) register(callID string) chan *sip.Message {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	ch := make(chan sip.Message, 8)
+	ch := make(chan *sip.Message, 8)
 	r.mailboxes[callID] = ch
 	return ch
 }
@@ -1714,47 +1743,98 @@ func (r *mailboxRegistry) unregister(callID string) {
 
 func (r *mailboxRegistry) dispatch(incoming <-chan transport.Packet) {
 	for packet := range incoming {
-		msg, err := sip.Parse(packet.Data)
-		if err != nil {
+		msg := sip.GetMessage()
+		if err := sip.ParseInto(msg, packet.Data); err != nil {
+			sip.PutMessage(msg)
 			continue
 		}
 		callID, ok := sip.Header(msg.Headers, "Call-ID")
 		if !ok {
+			sip.PutMessage(msg)
 			continue
 		}
 		r.mu.RLock()
 		ch, exists := r.mailboxes[callID]
 		r.mu.RUnlock()
 		if !exists {
+			sip.PutMessage(msg)
 			continue
 		}
 		select {
 		case ch <- msg:
 		default:
+			sip.PutMessage(msg)
 		}
 	}
 }
 
 func (r *mailboxRegistry) dispatchMessages(incoming <-chan sip.Message) {
 	for msg := range incoming {
-		r.dispatchMessage(msg)
+		m := sip.GetMessage()
+		sip.CopyInto(m, msg)
+		r.dispatchMessagePtr(m)
 	}
 }
 
-func (r *mailboxRegistry) dispatchMessage(msg sip.Message) {
-	callID, ok := sip.Header(msg.Headers, "Call-ID")
+func (r *mailboxRegistry) dispatchMessagePtr(m *sip.Message) {
+	callID, ok := sip.Header(m.Headers, "Call-ID")
 	if !ok {
+		sip.PutMessage(m)
 		return
 	}
 	r.mu.RLock()
 	ch, exists := r.mailboxes[callID]
 	r.mu.RUnlock()
 	if !exists {
+		sip.PutMessage(m)
 		return
 	}
 	select {
-	case ch <- msg:
+	case ch <- m:
 	default:
+		sip.PutMessage(m)
+	}
+}
+
+func (r *mailboxRegistry) dispatchMessage(msg sip.Message) {
+	m := sip.GetMessage()
+	sip.CopyInto(m, msg)
+	r.dispatchMessagePtr(m)
+}
+
+// adaptReceiveToPtr wraps a receive that returns (sip.Message, error) to return (*sip.Message, error)
+// by copying into a pooled message. Caller (executeCall) must PutMessage when done.
+func adaptReceiveToPtr(receive func(context.Context) (sip.Message, error)) func(context.Context) (*sip.Message, error) {
+	return func(ctx context.Context) (*sip.Message, error) {
+		msg, err := receive(ctx)
+		if err != nil {
+			return nil, err
+		}
+		m := sip.GetMessage()
+		sip.CopyInto(m, msg)
+		return m, nil
+	}
+}
+
+func (r *mailboxRegistry) _dispatchMessageOld(msg sip.Message) {
+	m := sip.GetMessage()
+	sip.CopyInto(m, msg)
+	callID, ok := sip.Header(m.Headers, "Call-ID")
+	if !ok {
+		sip.PutMessage(m)
+		return
+	}
+	r.mu.RLock()
+	ch, exists := r.mailboxes[callID]
+	r.mu.RUnlock()
+	if !exists {
+		sip.PutMessage(m)
+		return
+	}
+	select {
+	case ch <- m:
+	default:
+		sip.PutMessage(m)
 	}
 }
 
@@ -1771,10 +1851,13 @@ func randomBranch(callNumber, messageIndex int) string {
 }
 
 func ensureMessageTerminator(msg string) string {
+	if len(msg) >= 4 && msg[len(msg)-4:] == "\r\n\r\n" {
+		return msg
+	}
 	if strings.Contains(msg, "\r\n\r\n") {
 		return msg
 	}
-	if strings.HasSuffix(msg, "\r\n") {
+	if len(msg) >= 2 && msg[len(msg)-2:] == "\r\n" {
 		return msg + "\r\n"
 	}
 	return msg + "\r\n\r\n"
@@ -1990,6 +2073,18 @@ func (e *Engine) applyActions(ctx context.Context, callNumber int, actions []sce
 	return result, nil
 }
 
+func getCachedRegexp(pattern string) (*regexp.Regexp, error) {
+	if v, ok := regexpCache.Load(pattern); ok {
+		return v.(*regexp.Regexp), nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	regexpCache.Store(pattern, re)
+	return re, nil
+}
+
 func applyERegAction(action scenario.Action, renderCtx templ.Context, vars *varStore) error {
 	source := renderCtx.LastMessage
 	switch strings.ToLower(action.SearchIn) {
@@ -2009,7 +2104,7 @@ func applyERegAction(action scenario.Action, renderCtx templ.Context, vars *varS
 		source = renderCtx.LastMessage
 	}
 
-	re, err := regexp.Compile(action.Regexp)
+	re, err := getCachedRegexp(action.Regexp)
 	if err != nil {
 		return err
 	}
@@ -2440,7 +2535,9 @@ func extractBody(msg string) string {
 
 func parseCommandHeaders(msg string) map[string][]string {
 	headers := make(map[string][]string)
-	for _, line := range strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n") {
+	ptr := parseHeadersLinesPool.Get().(*[]string)
+	templ.SplitLinesTo(ptr, msg)
+	for _, line := range *ptr {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -2456,7 +2553,19 @@ func parseCommandHeaders(msg string) map[string][]string {
 		}
 		headers[name] = append(headers[name], value)
 	}
+	parseHeadersLinesPool.Put(ptr)
 	return headers
+}
+
+func copyHeaders(m map[string][]string) map[string][]string {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string][]string, len(m))
+	for k, v := range m {
+		out[k] = append([]string(nil), v...)
+	}
+	return out
 }
 
 func buildRouteHeaders(headers map[string][]string) string {

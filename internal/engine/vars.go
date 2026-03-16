@@ -21,6 +21,8 @@ type varStore struct {
 	userNames   map[string]struct{}
 	scopes      *scopedVars
 	userID      int
+	// scratch is reused by Snapshot() to avoid map allocations on hot path
+	scratch map[string]string
 }
 
 func newVarStore(scopes *scopedVars, globalNames, userNames []string, userID int) *varStore {
@@ -77,19 +79,23 @@ func (v *varStore) Set(name, value string) {
 }
 
 func (v *varStore) Snapshot() map[string]string {
-	out := make(map[string]string, len(v.local))
+	capacity := len(v.local) + len(v.globalNames) + len(v.userNames)
+	if v.scratch == nil {
+		v.scratch = make(map[string]string, capacity)
+	}
+	clear(v.scratch)
 	for k, val := range v.local {
-		out[k] = val
+		v.scratch[k] = val
 	}
 	v.scopes.mu.RLock()
-	defer v.scopes.mu.RUnlock()
 	for name := range v.globalNames {
-		out[name] = v.scopes.global[name]
+		v.scratch[name] = v.scopes.global[name]
 	}
 	if scoped, exists := v.scopes.users[v.userID]; exists {
 		for name := range v.userNames {
-			out[name] = scoped[name]
+			v.scratch[name] = scoped[name]
 		}
 	}
-	return out
+	v.scopes.mu.RUnlock()
+	return v.scratch
 }

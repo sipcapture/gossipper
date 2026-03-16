@@ -253,8 +253,12 @@ func parseRTPCheckSpec(raw string, renderCtx templ.Context) (rtpcheckSpec, error
 }
 
 func mustParseLastMessage(ctx templ.Context) sip.Message {
-	msg, _ := sip.Parse([]byte(ctx.LastMessage))
-	return msg
+	msg := sip.GetMessage()
+	defer sip.PutMessage(msg)
+	if err := sip.ParseInto(msg, []byte(ctx.LastMessage)); err != nil {
+		return sip.Message{}
+	}
+	return msg.Copy()
 }
 
 func userID(callNumber, users int) int {

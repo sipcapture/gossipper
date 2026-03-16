@@ -5,7 +5,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 )
+
+var msgPool = sync.Pool{
+	New: func() interface{} {
+		return &Message{Headers: make(map[string][]string)}
+	},
+}
 
 type Message struct {
 	StartLine  string
@@ -18,63 +25,156 @@ type Message struct {
 	Raw        string
 }
 
+// Parse parses raw bytes into a new Message value.
+// Uses the same byte scanner as ParseInto to avoid intermediate allocations.
 func Parse(raw []byte) (Message, error) {
-	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
-	lines := strings.Split(text, "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
-		return Message{}, errors.New("empty SIP message")
+	var msg Message
+	msg.Headers = make(map[string][]string)
+	if err := parseBytes(raw, &msg); err != nil {
+		return Message{}, err
 	}
-
-	msg := Message{
-		StartLine: strings.TrimSpace(lines[0]),
-		Headers:   make(map[string][]string),
-		Raw:       string(raw),
-	}
-
-	if strings.HasPrefix(msg.StartLine, "SIP/2.0 ") {
-		parts := strings.SplitN(msg.StartLine, " ", 3)
-		if len(parts) < 3 {
-			return Message{}, fmt.Errorf("invalid SIP status line %q", msg.StartLine)
-		}
-		code, err := strconv.Atoi(parts[1])
-		if err != nil {
-			return Message{}, err
-		}
-		msg.StatusCode = code
-		msg.Reason = parts[2]
-	} else {
-		parts := strings.SplitN(msg.StartLine, " ", 3)
-		if len(parts) < 3 {
-			return Message{}, fmt.Errorf("invalid SIP request line %q", msg.StartLine)
-		}
-		msg.Method = parts[0]
-		msg.RequestURI = parts[1]
-	}
-
-	bodyIndex := -1
-	for i := 1; i < len(lines); i++ {
-		line := strings.TrimRight(lines[i], "\r")
-		if line == "" {
-			bodyIndex = i + 1
-			break
-		}
-		name, value, ok := strings.Cut(line, ":")
-		if !ok {
-			return Message{}, fmt.Errorf("malformed SIP header %q", line)
-		}
-		msg.Headers[strings.TrimSpace(name)] = append(msg.Headers[strings.TrimSpace(name)], strings.TrimSpace(value))
-	}
-
-	if bodyIndex != -1 && bodyIndex < len(lines) {
-		msg.Body = strings.Join(lines[bodyIndex:], "\n")
-	}
-
 	return msg, nil
 }
 
+// GetMessage returns a Message from the pool for reuse. Call PutMessage when done.
+func GetMessage() *Message { return msgPool.Get().(*Message) }
+
+// Copy returns a deep copy of the message. Use when passing a pooled Message
+// to code that will outlive the current scope (caller must call PutMessage).
+func (m *Message) Copy() Message {
+	cpy := Message{
+		StartLine:  m.StartLine,
+		Method:     m.Method,
+		RequestURI: m.RequestURI,
+		StatusCode: m.StatusCode,
+		Reason:     m.Reason,
+		Body:       m.Body,
+		Raw:        m.Raw,
+		Headers:    make(map[string][]string, len(m.Headers)),
+	}
+	for k, v := range m.Headers {
+		cpy.Headers[k] = append([]string(nil), v...)
+	}
+	return cpy
+}
+
+// CopyInto copies src into dst, reusing dst's Headers map. Use when adapting
+// a Message value (e.g. from transport) to a pooled *Message for the engine.
+func CopyInto(dst *Message, src Message) {
+	for k := range dst.Headers {
+		delete(dst.Headers, k)
+	}
+	dst.StartLine, dst.Method, dst.RequestURI = src.StartLine, src.Method, src.RequestURI
+	dst.StatusCode, dst.Reason = src.StatusCode, src.Reason
+	dst.Body, dst.Raw = src.Body, src.Raw
+	if dst.Headers == nil {
+		dst.Headers = make(map[string][]string)
+	}
+	for k, v := range src.Headers {
+		dst.Headers[k] = append([]string(nil), v...)
+	}
+}
+
+// PutMessage returns a Message to the pool. Clear Headers before putting if reused.
+func PutMessage(m *Message) {
+	for k := range m.Headers {
+		delete(m.Headers, k)
+	}
+	m.StartLine, m.Method, m.RequestURI = "", "", ""
+	m.StatusCode, m.Reason = 0, ""
+	m.Body, m.Raw = "", ""
+	msgPool.Put(m)
+}
+
+// ParseInto parses raw into msg, reusing msg's Headers map.
+// Safe for concurrent use provided each goroutine holds exclusive ownership of msg
+// (i.e. obtained via GetMessage and returned via PutMessage).
+func ParseInto(msg *Message, raw []byte) error {
+	if msg.Headers == nil {
+		msg.Headers = make(map[string][]string)
+	} else {
+		for k := range msg.Headers {
+			delete(msg.Headers, k)
+		}
+	}
+	msg.Method, msg.RequestURI, msg.StatusCode, msg.Reason, msg.Body = "", "", 0, "", ""
+	return parseBytes(raw, msg)
+}
+
+// parseBytes is the shared byte scanner used by both Parse and ParseInto.
+// It scans raw without intermediate string copies (no ReplaceAll, no Split).
+func parseBytes(raw []byte, msg *Message) error {
+	msg.Raw = string(raw)
+
+	lineStart := 0
+	lineIdx := 0
+	bodyByteOffset := -1
+
+	for i := 0; i <= len(raw); i++ {
+		if i == len(raw) || raw[i] == '\n' {
+			end := i
+			if end > lineStart && raw[end-1] == '\r' {
+				end--
+			}
+			line := string(raw[lineStart:end])
+
+			switch lineIdx {
+			case 0:
+				line = strings.TrimSpace(line)
+				if line == "" {
+					return errors.New("empty SIP message")
+				}
+				msg.StartLine = line
+				if strings.HasPrefix(line, "SIP/2.0 ") {
+					parts := strings.SplitN(line, " ", 3)
+					if len(parts) < 3 {
+						return fmt.Errorf("invalid SIP status line %q", line)
+					}
+					code, err := strconv.Atoi(parts[1])
+					if err != nil {
+						return err
+					}
+					msg.StatusCode = code
+					msg.Reason = parts[2]
+				} else {
+					parts := strings.SplitN(line, " ", 3)
+					if len(parts) < 3 {
+						return fmt.Errorf("invalid SIP request line %q", line)
+					}
+					msg.Method = parts[0]
+					msg.RequestURI = parts[1]
+				}
+			default:
+				if line == "" {
+					bodyByteOffset = i + 1
+					break
+				}
+				name, value, ok := strings.Cut(line, ":")
+				if !ok {
+					return fmt.Errorf("malformed SIP header %q", line)
+				}
+				k := strings.TrimSpace(name)
+				msg.Headers[k] = append(msg.Headers[k], strings.TrimSpace(value))
+			}
+
+			if bodyByteOffset >= 0 {
+				break
+			}
+			lineStart = i + 1
+			lineIdx++
+		}
+	}
+
+	if bodyByteOffset >= 0 && bodyByteOffset < len(raw) {
+		msg.Body = string(raw[bodyByteOffset:])
+	}
+	return nil
+}
+
 func ExtractCallID(raw []byte) (string, error) {
-	msg, err := Parse(raw)
-	if err != nil {
+	msg := GetMessage()
+	defer PutMessage(msg)
+	if err := ParseInto(msg, raw); err != nil {
 		return "", err
 	}
 	callID, ok := Header(msg.Headers, "Call-ID")

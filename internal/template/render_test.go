@@ -306,3 +306,71 @@ func TestRenderMessageStrictRejectsInvalidFillKeyword(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// ─── Benchmarks ──────────────────────────────────────────────────────────────
+
+var benchCtx = Context{
+	Service:    "echo",
+	Transport:  "u1",
+	LocalIP:    "127.0.0.1",
+	LocalPort:  5080,
+	RemoteHost: "127.0.0.1",
+	RemoteIP:   "127.0.0.1",
+	RemotePort: 5060,
+	CallID:     "bench-call-id-0001",
+	CSeq:       1,
+	CallNumber: 1,
+	PID:        12345,
+	BranchBase: "z9hG4bK-bench",
+}
+
+// rawNoLen is a typical INVITE without [len] (common case: no body).
+const rawNoLen = "INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0\r\n" +
+	"Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]\r\n" +
+	"From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]\r\n" +
+	"To: [service] <sip:[service]@[remote_ip]:[remote_port]>\r\n" +
+	"Call-ID: [call_id]\r\n" +
+	"CSeq: [cseq] INVITE\r\n" +
+	"Content-Length: 0\r\n\r\n"
+
+// rawWithLen has a body and uses [len] — requires double render.
+const rawWithLen = "INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0\r\n" +
+	"Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]\r\n" +
+	"From: test <sip:test@[local_ip]:[local_port]>;tag=[pid]Tag[call_number]\r\n" +
+	"To: [service] <sip:[service]@[remote_ip]:[remote_port]>\r\n" +
+	"Call-ID: [call_id]\r\n" +
+	"CSeq: [cseq] INVITE\r\n" +
+	"Content-Length: [len]\r\n\r\n" +
+	"v=0\r\no=test 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
+
+// BenchmarkRenderMessageNoLen measures the fast path (no [len] token).
+func BenchmarkRenderMessageNoLen(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = RenderMessage(rawNoLen, benchCtx)
+	}
+}
+
+// BenchmarkRenderMessageWithLen measures the double-render path ([len] present).
+func BenchmarkRenderMessageWithLen(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = RenderMessage(rawWithLen, benchCtx)
+	}
+}
+
+// BenchmarkRenderMessageStrictNoLen measures RenderMessageStrict fast path.
+func BenchmarkRenderMessageStrictNoLen(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = RenderMessageStrict(rawNoLen, benchCtx)
+	}
+}
+
+// BenchmarkRenderMessageStrictWithLen measures RenderMessageStrict double-render path.
+func BenchmarkRenderMessageStrictWithLen(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = RenderMessageStrict(rawWithLen, benchCtx)
+	}
+}

@@ -501,8 +501,12 @@ func (t *traceLogger) startStatsLoop(collector *stats.Collector, period time.Dur
 	}
 	t.statsStop = make(chan struct{})
 	t.statsDone = make(chan struct{})
+	// Capture channels into locals so the goroutine never reads t.statsStop/t.statsDone
+	// after Close() may have already set those fields to nil (data race).
+	stop := t.statsStop
+	done := t.statsDone
 	go func() {
-		defer close(t.statsDone)
+		defer close(done)
 
 		ticker := time.NewTicker(period)
 		defer ticker.Stop()
@@ -515,7 +519,7 @@ func (t *traceLogger) startStatsLoop(collector *stats.Collector, period time.Dur
 				t.writeStatsSnapshot(summary, previous)
 				snapshotCopy := summary
 				previous = &snapshotCopy
-			case <-t.statsStop:
+			case <-stop:
 				summary := collector.Snapshot()
 				t.writeStatsSnapshot(summary, previous)
 				return
@@ -533,15 +537,17 @@ func (t *traceLogger) startCountsLoop(period time.Duration) {
 	}
 	t.countsStop = make(chan struct{})
 	t.countsDone = make(chan struct{})
+	stop := t.countsStop
+	done := t.countsDone
 	go func() {
-		defer close(t.countsDone)
+		defer close(done)
 		ticker := time.NewTicker(period)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
 				t.writeCountsSnapshot()
-			case <-t.countsStop:
+			case <-stop:
 				t.writeCountsSnapshot()
 				return
 			}
@@ -558,8 +564,10 @@ func (t *traceLogger) startScreenLoop(collector *stats.Collector, period time.Du
 	}
 	t.screenStop = make(chan struct{})
 	t.screenDone = make(chan struct{})
+	stop := t.screenStop
+	done := t.screenDone
 	go func() {
-		defer close(t.screenDone)
+		defer close(done)
 		ticker := time.NewTicker(period)
 		defer ticker.Stop()
 		for {
@@ -567,7 +575,7 @@ func (t *traceLogger) startScreenLoop(collector *stats.Collector, period time.Du
 			case <-ticker.C:
 				summary := collector.Snapshot()
 				t.writeScreenSnapshot(summary)
-			case <-t.screenStop:
+			case <-stop:
 				summary := collector.Snapshot()
 				t.writeScreenSnapshot(summary)
 				return

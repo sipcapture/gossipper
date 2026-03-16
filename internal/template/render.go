@@ -6,13 +6,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-var tokenPattern = regexp.MustCompile(`\[[^\]]+\]`)
+var (
+	linesPool = sync.Pool{
+		New: func() interface{} { return new([]string) },
+	}
+	builderPool = sync.Pool{
+		New: func() interface{} { return new(strings.Builder) },
+	}
+)
 
 type Context struct {
 	Service       string
@@ -49,25 +56,44 @@ type Context struct {
 }
 
 func (c Context) Render(raw string) string {
-	lines := splitLines(raw)
-	rendered := make([]string, 0, len(lines))
-	for _, line := range lines {
+	ptr := linesPool.Get().(*[]string)
+	splitLinesTo(ptr, raw)
+	out := builderPool.Get().(*strings.Builder)
+	out.Reset()
+	out.Grow(len(raw) + 64)
+	first := true
+	for _, line := range *ptr {
 		value, keep := c.renderLine(line)
 		if !keep {
 			continue
 		}
-		rendered = append(rendered, value)
+		if !first {
+			out.WriteString("\r\n")
+		}
+		out.WriteString(value)
+		first = false
 	}
-	return strings.Join(rendered, "\r\n")
+	result := out.String()
+	builderPool.Put(out)
+	linesPool.Put(ptr)
+	return result
 }
 
 func RenderMessage(raw string, ctx Context) string {
+	// Fast path: no [len] token → single render (most SIP messages without body).
+	if !hasLenToken(raw) {
+		return ctx.Render(raw)
+	}
 	first := ctx.Render(raw)
 	ctx.BodyLength = computeBodyLength(first)
 	return ctx.Render(raw)
 }
 
 func RenderMessageStrict(raw string, ctx Context) (string, error) {
+	// Fast path: no [len] token → single render.
+	if !hasLenToken(raw) {
+		return ctx.RenderStrict(raw)
+	}
 	first, err := ctx.RenderStrict(raw)
 	if err != nil {
 		return "", err
@@ -76,19 +102,57 @@ func RenderMessageStrict(raw string, ctx Context) (string, error) {
 	return ctx.RenderStrict(raw)
 }
 
-func (c Context) renderLine(line string) (string, bool) {
+// hasLenToken reports whether raw contains a [len...] keyword (case-insensitive).
+// Used to skip the double-render when there is no body-length substitution.
+func hasLenToken(raw string) bool {
+	for i := 0; i+4 <= len(raw); i++ {
+		if raw[i] == '[' &&
+			(raw[i+1] == 'l' || raw[i+1] == 'L') &&
+			(raw[i+2] == 'e' || raw[i+2] == 'E') &&
+			(raw[i+3] == 'n' || raw[i+3] == 'N') {
+			return true
+		}
+	}
+	return false
+}
+
+// expandTokens replaces [token] substrings via manual scan (no regexp).
+func expandTokens(line string, resolve func(token string) (replacement string, ok bool, drop bool)) (string, bool) {
+	b := builderPool.Get().(*strings.Builder)
+	b.Reset()
+	b.Grow(len(line) + 64)
 	dropLine := false
-	value := tokenPattern.ReplaceAllStringFunc(line, func(token string) string {
-		replacement, ok, drop := c.resolveToken(token)
-		if drop {
-			dropLine = true
-			return ""
+	i := 0
+	for i < len(line) {
+		if line[i] == '[' {
+			end := strings.IndexByte(line[i+1:], ']')
+			if end == -1 {
+				b.WriteByte(line[i])
+				i++
+				continue
+			}
+			end += i + 2
+			token := line[i:end]
+			rep, ok, drop := resolve(token)
+			if drop {
+				dropLine = true
+			}
+			if ok {
+				b.WriteString(rep)
+			}
+			i = end
+			continue
 		}
-		if !ok {
-			return ""
-		}
-		return replacement
-	})
+		b.WriteByte(line[i])
+		i++
+	}
+	result := b.String()
+	builderPool.Put(b)
+	return result, dropLine
+}
+
+func (c Context) renderLine(line string) (string, bool) {
+	value, dropLine := expandTokens(line, c.resolveToken)
 	if dropLine {
 		return "", false
 	}
@@ -96,38 +160,71 @@ func (c Context) renderLine(line string) (string, bool) {
 }
 
 func (c Context) RenderStrict(raw string) (string, error) {
-	lines := splitLines(raw)
-	rendered := make([]string, 0, len(lines))
-	for _, line := range lines {
+	ptr := linesPool.Get().(*[]string)
+	splitLinesTo(ptr, raw)
+	out := builderPool.Get().(*strings.Builder)
+	out.Reset()
+	out.Grow(len(raw) + 64)
+	first := true
+	for _, line := range *ptr {
 		value, keep, err := c.renderLineStrict(line)
 		if err != nil {
+			builderPool.Put(out)
 			return "", err
 		}
 		if !keep {
 			continue
 		}
-		rendered = append(rendered, value)
+		if !first {
+			out.WriteString("\r\n")
+		}
+		out.WriteString(value)
+		first = false
 	}
-	return strings.Join(rendered, "\r\n"), nil
+	result := out.String()
+	builderPool.Put(out)
+	linesPool.Put(ptr)
+	return result, nil
+}
+
+func expandTokensStrict(line string, resolve func(token string) (replacement string, drop bool, err error)) (string, bool, error) {
+	b := builderPool.Get().(*strings.Builder)
+	b.Reset()
+	b.Grow(len(line) + 64)
+	dropLine := false
+	var firstErr error
+	i := 0
+	for i < len(line) {
+		if line[i] == '[' {
+			end := strings.IndexByte(line[i+1:], ']')
+			if end == -1 {
+				b.WriteByte(line[i])
+				i++
+				continue
+			}
+			end += i + 2
+			token := line[i:end]
+			rep, drop, err := resolve(token)
+			if err != nil && firstErr == nil {
+				firstErr = err
+			}
+			if drop {
+				dropLine = true
+			}
+			b.WriteString(rep)
+			i = end
+			continue
+		}
+		b.WriteByte(line[i])
+		i++
+	}
+	result := b.String()
+	builderPool.Put(b)
+	return result, dropLine, firstErr
 }
 
 func (c Context) renderLineStrict(line string) (string, bool, error) {
-	dropLine := false
-	var firstErr error
-	value := tokenPattern.ReplaceAllStringFunc(line, func(token string) string {
-		replacement, drop, err := c.resolveTokenStrict(token)
-		if err != nil {
-			if firstErr == nil {
-				firstErr = err
-			}
-			return ""
-		}
-		if drop {
-			dropLine = true
-			return ""
-		}
-		return replacement
-	})
+	value, dropLine, firstErr := expandTokensStrict(line, c.resolveTokenStrict)
 	if firstErr != nil {
 		return "", false, firstErr
 	}
@@ -387,9 +484,53 @@ func (c Context) resolveTokenStrict(token string) (string, bool, error) {
 	}
 }
 
+// SplitLinesTo fills dst with lines from value, reusing the slice to avoid allocs.
+// Handles \r\n without allocating (avoids strings.ReplaceAll). Exported for engine.
+func SplitLinesTo(dst *[]string, value string) {
+	splitLinesTo(dst, value)
+}
+
+func splitLinesTo(dst *[]string, value string) {
+	*dst = (*dst)[:0]
+	start := 0
+	for i := 0; i < len(value); i++ {
+		if value[i] == '\n' {
+			*dst = append(*dst, value[start:i])
+			start = i + 1
+			continue
+		}
+		if value[i] == '\r' && i+1 < len(value) && value[i+1] == '\n' {
+			*dst = append(*dst, value[start:i])
+			start = i + 2
+			i++ // skip \n in next iteration
+			continue
+		}
+	}
+	if start < len(value) {
+		*dst = append(*dst, value[start:])
+	}
+}
+
 func splitLines(value string) []string {
-	value = strings.ReplaceAll(value, "\r\n", "\n")
-	return strings.Split(value, "\n")
+	ptr := linesPool.Get().(*[]string)
+	splitLinesTo(ptr, value)
+	result := make([]string, len(*ptr))
+	copy(result, *ptr)
+	linesPool.Put(ptr)
+	return result
+}
+
+// firstLineFromMessage returns the first line of msg (handles \n and \r\n), no alloc.
+func firstLineFromMessage(msg string) string {
+	for i := 0; i < len(msg); i++ {
+		if msg[i] == '\n' {
+			return msg[:i]
+		}
+		if msg[i] == '\r' && i+1 < len(msg) && msg[i+1] == '\n' {
+			return msg[:i]
+		}
+	}
+	return msg
 }
 
 func computeBodyLength(msg string) int {
@@ -464,12 +605,17 @@ func extractPeerTag(headers map[string][]string) string {
 	if !ok || len(values) == 0 {
 		return ""
 	}
-	last := values[len(values)-1]
-	for _, part := range strings.Split(last, ";") {
+	s := values[len(values)-1]
+	for {
+		part, rest, ok := strings.Cut(s, ";")
 		part = strings.TrimSpace(part)
-		if strings.HasPrefix(strings.ToLower(part), "tag=") {
-			return strings.TrimSpace(strings.TrimPrefix(part, "tag="))
+		if len(part) >= 4 && strings.HasPrefix(strings.ToLower(part), "tag=") {
+			return strings.TrimSpace(part[4:])
 		}
+		if !ok {
+			break
+		}
+		s = rest
 	}
 	return ""
 }
@@ -502,9 +648,10 @@ func extractContactURI(headers map[string][]string) string {
 
 func extractLastRequestURI(lastMessage string, headers map[string][]string) string {
 	if strings.TrimSpace(lastMessage) != "" {
-		lines := splitLines(lastMessage)
-		if len(lines) > 0 {
-			parts := strings.Fields(strings.TrimSpace(lines[0]))
+		first := firstLineFromMessage(lastMessage)
+		first = strings.TrimSpace(first)
+		if first != "" {
+			parts := strings.Fields(first)
 			if len(parts) >= 2 && !strings.HasPrefix(strings.ToUpper(parts[0]), "SIP/2.0") {
 				return parts[1]
 			}
