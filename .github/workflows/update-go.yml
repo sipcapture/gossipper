@@ -1,0 +1,71 @@
+name: Weekly Go Version Update
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Every Monday at 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-go:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get latest stable Go version
+        id: latest
+        run: |
+          LATEST=$(curl -fsSL "https://go.dev/dl/?mode=json" | jq -r '.[0].version' | sed 's/^go//')
+          echo "version=${LATEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Get current Go version from go.mod
+        id: current
+        run: |
+          CURRENT=$(grep -m1 '^go ' go.mod | awk '{print $2}')
+          echo "version=${CURRENT}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if update is needed
+        id: check
+        run: |
+          if [ "${{ steps.latest.outputs.version }}" = "${{ steps.current.outputs.version }}" ]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "Go is already at the latest version (${{ steps.current.outputs.version }}), no update needed."
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "Update needed: ${{ steps.current.outputs.version }} -> ${{ steps.latest.outputs.version }}"
+          fi
+
+      - name: Update Go version in files
+        if: steps.check.outputs.needed == 'true'
+        env:
+          CURRENT: ${{ steps.current.outputs.version }}
+          LATEST: ${{ steps.latest.outputs.version }}
+        run: |
+          sed -i "s/^go ${CURRENT}$/go ${LATEST}/" go.mod
+          sed -i "s/go-version: \"${CURRENT}\"/go-version: \"${LATEST}\"/g" .github/workflows/go.yml
+          sed -i "s/go-version: \"${CURRENT}\"/go-version: \"${LATEST}\"/g" .github/workflows/release.yml
+
+      - name: Create pull request
+        if: steps.check.outputs.needed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update Go to ${{ steps.latest.outputs.version }}"
+          branch: "chore/update-go-${{ steps.latest.outputs.version }}"
+          delete-branch: true
+          title: "chore: update Go to ${{ steps.latest.outputs.version }}"
+          body: |
+            Automated weekly Go version update.
+
+            - **From:** `${{ steps.current.outputs.version }}`
+            - **To:** `${{ steps.latest.outputs.version }}`
+
+            Updated files:
+            - `go.mod`
+            - `.github/workflows/go.yml`
+            - `.github/workflows/release.yml`
+          labels: dependencies
