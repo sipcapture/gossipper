@@ -77,9 +77,10 @@ type Config struct {
 	CommandRole      string
 	InfIndexFile     string
 	InfIndexField    int
-	InjectionFile    string
-	IPField          int
-	UISourceIPs      []string
+	InjectionFile          string
+	IPField                int
+	UISourceIPs            []string
+	TotalCallsSetExplicitly bool
 }
 
 func DefaultConfig() Config {
@@ -186,6 +187,10 @@ func Parse(args []string) (Config, error) {
 	fs.Visit(func(f *flag.Flag) {
 		providedFlags[f.Name] = struct{}{}
 	})
+	cfg.TotalCallsSetExplicitly = false
+	if _, ok := providedFlags["m"]; ok {
+		cfg.TotalCallsSetExplicitly = true
+	}
 
 	if remoteAddr == "" && fs.NArg() > 0 {
 		remoteAddr = fs.Arg(0)

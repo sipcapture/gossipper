@@ -45,9 +45,10 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 	}
 
 	totalCalls := cfg.TotalCalls
-	if sc.Mode == scenario.ModeServer && totalCalls == cli.DefaultTotalCalls {
+	if sc.Mode == scenario.ModeServer && totalCalls == cli.DefaultTotalCalls && !cfg.TotalCallsSetExplicitly {
 		// UAS defaults to 1 call, which rejects all but the first incoming call.
 		// For server mode, default to accepting many calls (like SIPp UAS).
+		// Do not override when user explicitly passed -m (e.g. -m 1 in tests).
 		totalCalls = 10_000_000
 	}
 
