@@ -80,6 +80,7 @@ type Config struct {
 	HEPCaptureID     uint32
 	HEPPassword      string
 	HEPRawRTCP       bool
+	SendMediaReport  bool
 	TLSCertFile      string
 	TLSKeyFile       string
 	TLSCAFile        string

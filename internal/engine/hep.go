@@ -16,7 +16,8 @@ func (e *Engine) startHEP() error {
 		Addr:      e.cfg.HEPAddr,
 		CaptureID: e.cfg.HEPCaptureID,
 		Password:  e.cfg.HEPPassword,
-		RawRTCP:   e.cfg.HEPRawRTCP,
+		RawRTCP:         e.cfg.HEPRawRTCP,
+		SendMediaReport: e.cfg.SendMediaReport,
 	})
 	if err != nil {
 		return err
