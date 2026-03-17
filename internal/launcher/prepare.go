@@ -95,6 +95,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		HEPAddr:          cfg.HEPAddr,
 		HEPCaptureID:     cfg.HEPCaptureID,
 		HEPPassword:      cfg.HEPPassword,
+		HEPRawRTCP:       cfg.HEPRawRTCP,
 		TLSCertFile:      cfg.TLSCertFile,
 		TLSKeyFile:       cfg.TLSKeyFile,
 		TLSCAFile:        cfg.TLSCAFile,

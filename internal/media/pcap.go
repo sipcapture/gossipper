@@ -63,6 +63,8 @@ func (s *Session) StartPCAPReplay(ctx context.Context, endpoint Endpoint, path, 
 	s.running = true
 	s.echoMode = false
 	s.stats = Stats{}
+	s.localIP = localIP
+	s.localPort = conn.LocalAddr().(*net.UDPAddr).Port
 	rtcpPort := conn.LocalAddr().(*net.UDPAddr).Port + 1
 	rtcpLocalAddr := &net.UDPAddr{Port: rtcpPort}
 	if localAddr.IP != nil {
@@ -70,18 +72,24 @@ func (s *Session) StartPCAPReplay(ctx context.Context, endpoint Endpoint, path, 
 	}
 	rtcpConn, _ := net.ListenUDP("udp", rtcpLocalAddr)
 	s.rtcpConn = rtcpConn
+	obs := s.hepObserver
+	callID := s.callID
 	s.mu.Unlock()
 
-	go s.pcapLoop(childCtx, conn, remoteAddr, packets)
+	go s.pcapLoop(childCtx, conn, remoteAddr, packets, obs)
 	if rtcpConn != nil {
-		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, StreamConfig{SSRC: firstSSRC})
+		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, StreamConfig{SSRC: firstSSRC}, obs, callID)
 		go s.rtcpReceiveLoop(childCtx, rtcpConn)
 	}
 	return nil
 }
 
-func (s *Session) pcapLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, packets []pcapPacket) {
+func (s *Session) pcapLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, packets []pcapPacket, obs HEPObserver) {
 	defer s.Stop()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	localIP := localAddr.IP.String()
+	localPort := localAddr.Port
 
 	for _, packet := range packets {
 		if err := ctx.Err(); err != nil {
@@ -99,6 +107,9 @@ func (s *Session) pcapLoop(ctx context.Context, conn *net.UDPConn, remote *net.U
 		}
 		if _, err := conn.WriteToUDP(packet.data, remote); err != nil {
 			return
+		}
+		if obs != nil {
+			_ = obs.SendRTP(time.Now(), localIP, localPort, remote.IP.String(), remote.Port, packet.data)
 		}
 
 		payloadBytes := len(packet.data)

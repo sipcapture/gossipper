@@ -68,6 +68,7 @@ type Config struct {
 	HEPAddr          string
 	HEPCaptureID     uint32
 	HEPPassword      string
+	HEPRawRTCP       bool
 	TLSCertFile      string
 	TLSKeyFile       string
 	TLSCAFile        string
@@ -161,6 +162,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.ScreenFile, "screen_file", "", "path to runtime screen trace log file")
 	fs.StringVar(&cfg.HEPAddr, "hep_addr", "", "HEP3 collector address host:port for SIP mirroring to Homer")
 	fs.StringVar(&cfg.HEPPassword, "hep_password", "", "optional HEP3 auth key")
+	fs.BoolVar(&cfg.HEPRawRTCP, "hep_raw_rtcp", true, "send RTP/RTCP as raw HEP (type 5); set false to send JSON reports like hepagent (RTP type 35, RTCP type 37)")
 	fs.StringVar(&cfg.TLSCertFile, "tls_cert", "", "TLS certificate file for server mode or mutual TLS")
 	fs.StringVar(&cfg.TLSKeyFile, "tls_key", "", "TLS private key file")
 	fs.StringVar(&cfg.TLSCAFile, "tls_ca", "", "TLS CA bundle file")

@@ -3,6 +3,7 @@ package hep
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -10,7 +11,10 @@ import (
 )
 
 const (
-	ProtocolSIP = 0x01
+	ProtocolSIP        = 0x01
+	ProtocolRTCP       = 0x05 // raw RTCP binary (type 5), processed by hepagent-go RTCPConverter
+	ProtocolRTPReport  = 0x23 // Short RTP Report JSON = 35 (TypeShortRTPReport in hepagent-go)
+	ProtocolRTCPReport = 0x25 // Short RTCP Report JSON = 37 (TypeShortRTCPReport in hepagent-go)
 
 	ipFamilyIPv4 = 0x02
 	ipFamilyIPv6 = 0x0a
@@ -38,6 +42,7 @@ type Config struct {
 	Addr      string
 	CaptureID uint32
 	Password  string
+	RawRTCP   bool
 }
 
 type Message struct {
@@ -68,11 +73,12 @@ type Decoded struct {
 }
 
 type Client struct {
-	conn *net.UDPConn
-	addr *net.UDPAddr
+	conn    *net.UDPConn
+	addr    *net.UDPAddr
 
 	captureID uint32
 	password  string
+	rawRTCP   bool
 }
 
 func New(cfg Config) (*Client, error) {
@@ -92,6 +98,7 @@ func New(cfg Config) (*Client, error) {
 		addr:      addr,
 		captureID: cfg.CaptureID,
 		password:  cfg.Password,
+		rawRTCP:   cfg.RawRTCP,
 	}, nil
 }
 
@@ -123,6 +130,88 @@ func (c *Client) SendSIP(now time.Time, srcIP string, srcPort int, dstIP string,
 	}
 	_, err = c.conn.WriteToUDP(packet, c.addr)
 	return err
+}
+
+func (c *Client) SendRTP(now time.Time, srcIP string, srcPort int, dstIP string, dstPort int, payload []byte) error {
+	if c == nil {
+		return nil
+	}
+	// In raw mode we only mirror RTCP; skip RTP mirroring.
+	if c.rawRTCP {
+		return nil
+	}
+	packet, err := Encode(Message{
+		Time:       now,
+		SrcIP:      srcIP,
+		DstIP:      dstIP,
+		SrcPort:    srcPort,
+		DstPort:    dstPort,
+		IPProtocol: ipProtoUDP,
+		ProtoType:  ProtocolRTPReport,
+		CaptureID:  c.captureID,
+		AuthKey:    c.password,
+		Payload:    payload,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = c.conn.WriteToUDP(packet, c.addr)
+	return err
+}
+
+func (c *Client) SendRTCP(now time.Time, callID string, ssrc uint32, srcIP string, srcPort int, dstIP string, dstPort int, packetLoss uint32, rawPayload []byte) error {
+	if c == nil {
+		return nil
+	}
+	var payload []byte
+	var protoType uint8
+	if c.rawRTCP {
+		protoType = ProtocolRTCP
+		payload = rawPayload
+	} else {
+		protoType = ProtocolRTCPReport
+		report := rtcpShortReport{
+			CorrelationID:  callID,
+			RTPSipCallID:   callID,
+			SSRC:           fmt.Sprintf("0x%x", ssrc),
+			CumPacketLoss:  packetLoss,
+			ReportName:     srcIP + "-" + fmt.Sprintf("%d", srcPort),
+			Source:         "GOSSIPPER",
+			Type:           "PERIODIC",
+		}
+		var err error
+		payload, err = json.Marshal(report)
+		if err != nil {
+			return err
+		}
+	}
+	packet, err := Encode(Message{
+		Time:       now,
+		SrcIP:      srcIP,
+		DstIP:      dstIP,
+		SrcPort:    srcPort,
+		DstPort:    dstPort,
+		IPProtocol: ipProtoUDP,
+		ProtoType:  protoType,
+		CaptureID:  c.captureID,
+		AuthKey:    c.password,
+		Payload:    payload,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = c.conn.WriteToUDP(packet, c.addr)
+	return err
+}
+
+type rtcpShortReport struct {
+	CorrelationID  string `json:"CORRELATION_ID"`
+	RTPSipCallID   string `json:"RTP_SIP_CALL_ID"`
+	SSRC           string `json:"SSRC"`
+	CumPacketLoss  uint32 `json:"CUM_PACKET_LOSS"`
+	ReportName     string `json:"REPORT_NAME"`
+	Source         string `json:"SOURCE"`
+	Type           string `json:"TYPE"`
 }
 
 func Encode(msg Message) ([]byte, error) {

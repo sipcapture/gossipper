@@ -79,6 +79,7 @@ type Config struct {
 	HEPAddr          string
 	HEPCaptureID     uint32
 	HEPPassword      string
+	HEPRawRTCP       bool
 	TLSCertFile      string
 	TLSKeyFile       string
 	TLSCAFile        string
@@ -1189,6 +1190,10 @@ func (e *Engine) executeCall(
 	e.stats.StartCall()
 	success := false
 	mediaSession := media.NewSession()
+	if e.hep != nil {
+		mediaSession.SetHEPObserver(e.hep)
+	}
+	mediaSession.SetCallID(callID)
 	sawUnexpectedSIP := false
 	defer func() {
 		if !success {

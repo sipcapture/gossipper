@@ -113,6 +113,14 @@ func (s *Session) SendDTMF(ctx context.Context, endpoint Endpoint, digits string
 	}
 	defer conn.Close()
 
+	connLocalAddr := conn.LocalAddr().(*net.UDPAddr)
+	connLocalIP := connLocalAddr.IP.String()
+	connLocalPort := connLocalAddr.Port
+
+	s.mu.Lock()
+	obs := s.hepObserver
+	s.mu.Unlock()
+
 	ssrc := rand.Uint32()
 	sequence := uint16(rand.Intn(65535))
 	timestamp := rand.Uint32()
@@ -131,6 +139,9 @@ func (s *Session) SendDTMF(ctx context.Context, endpoint Endpoint, digits string
 		for _, raw := range packets {
 			if _, err := conn.WriteToUDP(raw, remoteAddr); err != nil {
 				return err
+			}
+			if obs != nil {
+				_ = obs.SendRTP(time.Now(), connLocalIP, connLocalPort, remoteAddr.IP.String(), remoteAddr.Port, raw)
 			}
 			s.mu.Lock()
 			s.stats.RTPPacketsSent++

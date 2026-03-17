@@ -49,6 +49,16 @@ type Session struct {
 	lastTimestamp uint32
 	ssrc          uint32
 	stats         Stats
+	hepObserver   HEPObserver
+	localIP       string
+	localPort     int
+	callID        string
+}
+
+// HEPObserver is implemented by the HEP client to mirror RTP/RTCP traffic to Homer.
+type HEPObserver interface {
+	SendRTP(now time.Time, srcIP string, srcPort int, dstIP string, dstPort int, payload []byte) error
+	SendRTCP(now time.Time, callID string, ssrc uint32, srcIP string, srcPort int, dstIP string, dstPort int, packetLoss uint32, payload []byte) error
 }
 
 type Stats struct {
@@ -73,6 +83,18 @@ func NewSession() *Session {
 	s := &Session{}
 	s.pauseCond = sync.NewCond(&s.mu)
 	return s
+}
+
+func (s *Session) SetHEPObserver(obs HEPObserver) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hepObserver = obs
+}
+
+func (s *Session) SetCallID(callID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.callID = callID
 }
 
 func BuildPacket(cfg StreamConfig, payload []byte) ([]byte, error) {
@@ -186,17 +208,21 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 	s.running = true
 	s.echoMode = false
 	s.stats = Stats{}
+	s.localIP = localIP
+	s.localPort = conn.LocalAddr().(*net.UDPAddr).Port
 	rtcpLocalAddr := &net.UDPAddr{Port: localAddr.Port + 1}
 	if localAddr.IP != nil {
 		rtcpLocalAddr.IP = localAddr.IP
 	}
 	rtcpConn, _ := net.ListenUDP("udp", rtcpLocalAddr)
 	s.rtcpConn = rtcpConn
+	obs := s.hepObserver
+	callID := s.callID
 	s.mu.Unlock()
 
-	go s.streamLoop(childCtx, conn, remoteAddr, cfg, packets)
+	go s.streamLoop(childCtx, conn, remoteAddr, cfg, packets, obs)
 	if rtcpConn != nil {
-		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, cfg)
+		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, cfg, obs, callID)
 		go s.rtcpReceiveLoop(childCtx, rtcpConn)
 	}
 	return nil
@@ -225,6 +251,8 @@ func (s *Session) StartEcho(ctx context.Context, localIP string, localPort int) 
 	s.running = true
 	s.echoMode = true
 	s.stats = Stats{}
+	s.localIP = localIP
+	s.localPort = conn.LocalAddr().(*net.UDPAddr).Port
 	rtcpLocalAddr := &net.UDPAddr{Port: conn.LocalAddr().(*net.UDPAddr).Port + 1}
 	if localAddr.IP != nil {
 		rtcpLocalAddr.IP = localAddr.IP
@@ -282,8 +310,12 @@ func (s *Session) Stop() {
 	}
 }
 
-func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig, packets [][]byte) {
+func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig, packets [][]byte, obs HEPObserver) {
 	defer s.Stop()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	localIP := localAddr.IP.String()
+	localPort := localAddr.Port
 
 	loops := cfg.LoopCount
 	if loops == 0 {
@@ -310,6 +342,9 @@ func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net
 			}
 			if _, err := conn.WriteToUDP(frame, remote); err != nil {
 				return
+			}
+			if obs != nil {
+				_ = obs.SendRTP(time.Now(), localIP, localPort, remote.IP.String(), remote.Port, frame)
 			}
 			s.mu.Lock()
 			s.packetCount++
@@ -360,9 +395,14 @@ func (s *Session) echoLoop(ctx context.Context, conn *net.UDPConn) {
 	}
 }
 
-func (s *Session) rtcpLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig) {
+func (s *Session) rtcpLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig, obs HEPObserver, callID string) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	localIP := localAddr.IP.String()
+	localPort := localAddr.Port
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -392,6 +432,9 @@ func (s *Session) rtcpLoop(ctx context.Context, conn *net.UDPConn, remote *net.U
 			}
 			if _, err := conn.WriteToUDP(raw, remote); err != nil {
 				continue
+			}
+			if obs != nil {
+				_ = obs.SendRTCP(time.Now(), callID, ssrc, localIP, localPort, remote.IP.String(), remote.Port, 0, raw)
 			}
 			s.mu.Lock()
 			s.stats.RTCPSenderReports++
