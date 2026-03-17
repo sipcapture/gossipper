@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - "v*"
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -19,7 +21,11 @@ jobs:
 
       - name: Extract version from tag
         run: |
-          TAG="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
           VERSION="${TAG#v}"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
