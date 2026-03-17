@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	Version   = "0.1.3"
+	Version   = "0.1.4"
 	BuildDate = "1970-01-01"
 	BuildTime = "00:00:00"
 	GitCommit = "unknown"
