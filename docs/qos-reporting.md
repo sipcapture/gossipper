@@ -43,7 +43,7 @@ mirrored if `-hep_addr` is set.
 ```
 
 `gossIpper` accumulates per-SSRC statistics in the HEP client and emits
-two JSON reports every **10 seconds** per active RTP stream:
+three JSON report types every **10 seconds** per active RTP stream:
 
 - **HEP type 35** — Short RTP Report. Contains packet count, octet count,
   RTP timestamp, SSRC, and a `CORRELATION_ID` / `RTP_SIP_CALL_ID` mapped
@@ -52,6 +52,9 @@ two JSON reports every **10 seconds** per active RTP stream:
   (NTP timestamp, packet count, octet count) plus cumulative packet loss
   (reported as `0` because `gossIpper` is a sender and does not measure
   loss on its own outbound stream).
+- **HEP type 100** — DTMF Report (emitted only when `telephone-event` RFC 2833
+  packets were detected during the interval). Contains the accumulated digit
+  events with timestamps, volume, and duration. See [DTMF reporting](#dtmf-reporting) below.
 
 These types are processed by `hepagent-go`'s Short RTP/RTCP Report
 pipeline and appear in Homer as media-quality timeline entries correlated
@@ -86,6 +89,7 @@ standard RTCP analytics pipeline.
 | `0x05` | 5 | Raw binary RTCP SR | hepagent-go `RTCPConverter` |
 | `0x23` | 35 | Short RTP Report (JSON) | hepagent-go short-report pipeline |
 | `0x25` | 37 | Short RTCP Report (JSON) | hepagent-go short-report pipeline |
+| `0x64` | 100 | DTMF Report (JSON) | hepagent-go DTMF pipeline |
 
 SIP (type 1) is always forwarded when `-hep_addr` is configured, regardless
 of the `-send_media_report` setting.
@@ -149,6 +153,73 @@ Byte layout (28 bytes, no Report Blocks):
 
 ---
 
+## DTMF reporting
+
+In JSON mode (`-send_media_report=true -hep_raw_rtcp=false`), `gossIpper`
+detects RFC 2833 `telephone-event` RTP packets sent during a call and
+reports them as a **HEP type 100** `DTMFReport` JSON message.
+
+### Detection
+
+`telephone-event` packets carry a 4-byte payload:
+
+```
+Byte 0:  event code (bit 7 = End-of-Event flag, bits 6-0 = digit code)
+           0-9 → digits 0-9,  10 → *,  11 → #,  12-15 → A-D
+Byte 1:  reserved/volume (bits 5-0 = volume in dBm0)
+Byte 2-3: duration (big-endian, in clock-rate units, e.g. 8000 Hz)
+```
+
+Each digit generates three RTP packets (start, continuation, end). Only
+the end-of-event packet (bit 7 of byte 0 set) is recorded to avoid
+duplicates.
+
+### Accumulation and flush
+
+Detected events are stored per-SSRC alongside the RTP statistics.
+On every 10-second tick the `reportLoop` goroutine flushes all accumulated
+events as a single `DTMFReport` per stream, then clears the buffer.
+
+### DTMFReport JSON fields
+
+| JSON key | Value |
+|----------|-------|
+| `CORRELATION_ID` | SIP `Call-ID` |
+| `REPORT_TS` | Unix millisecond timestamp of the report |
+| `DTMF` | Semicolon-separated event strings (see format below) |
+| `SRC_IP` | Source IP of the RTP stream |
+| `SRC_PORT` | Source port |
+| `DST_IP` | Destination IP |
+| `DST_PORT` | Destination port |
+| `CODEC_PT` | RTP payload type (usually `101`) |
+| `CODEC_NAME` | `"telephone-event"` |
+| `PARTY` | `1` |
+| `STYPE` | `"GOSSIPPER-DTMF"` |
+| `TYPE` | `"PERIODIC"` |
+
+Each entry in the `DTMF` string has the format:
+
+```
+ts:<unix_sec>,tsu:<unix_usec>,e:<digit_code>,v:<volume>,d:<duration>,c:1
+```
+
+Multiple events are joined with `;`.
+
+Example `DTMF` value for digits `1` then `2`:
+
+```
+ts:1741987200,tsu:123456,e:1,v:0,d:12000,c:1;ts:1741987201,tsu:456789,e:2,v:0,d:12000,c:1
+```
+
+### Raw RTCP mode and DTMF
+
+In raw RTCP mode (`-hep_raw_rtcp=true`) `telephone-event` packets are
+included in the per-SSRC packet/octet counters but no separate DTMF report
+is generated. In this mode `hepagent-go` detects DTMF directly from the
+RTCP stream it processes.
+
+---
+
 ## Known limits
 
 - **No jitter measurement.** `gossIpper` is a pure sender for its own RTP
@@ -204,6 +275,7 @@ gossipper -sn uac \
   -r 10 -m 1000 192.168.1.1:5060
 ```
 
-JSON type 35 (RTP) and type 37 (RTCP) reports are emitted every 10 seconds,
-correlated to the SIP `Call-ID`. Use this mode if the Homer instance is
-configured to consume short RTP/RTCP JSON reports rather than raw RTCP.
+JSON type 35 (RTP), type 37 (RTCP), and type 100 (DTMF, when digits are sent)
+reports are emitted every 10 seconds, correlated to the SIP `Call-ID`.
+Use this mode if the Homer instance is configured to consume short RTP/RTCP
+JSON reports rather than raw RTCP.
