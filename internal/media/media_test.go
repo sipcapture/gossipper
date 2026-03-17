@@ -16,6 +16,82 @@ import (
 	"github.com/pion/rtcp"
 )
 
+func TestTestdataRawFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join("..", "..", "testdata", "media", "tone_pcmu.raw")
+	cmd, cfg, err := ParseRTPStreamSpec(path, "")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec(raw) error = %v", err)
+	}
+	if cmd != "start" {
+		t.Fatalf("expected start, got %q", cmd)
+	}
+	packets, err := loadPackets(cfg)
+	if err != nil {
+		t.Fatalf("loadPackets(raw) error = %v", err)
+	}
+	if len(packets) == 0 {
+		t.Fatal("expected packets from raw file")
+	}
+	for i, pkt := range packets {
+		if len(pkt) == 0 {
+			t.Fatalf("packet %d is empty", i)
+		}
+	}
+}
+
+func TestTestdataSilenceRawFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join("..", "..", "testdata", "media", "silence_pcmu.raw")
+	cmd, cfg, err := ParseRTPStreamSpec(path, "")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec(silence raw) error = %v", err)
+	}
+	if cmd != "start" {
+		t.Fatalf("expected start, got %q", cmd)
+	}
+	packets, err := loadPackets(cfg)
+	if err != nil {
+		t.Fatalf("loadPackets(silence raw) error = %v", err)
+	}
+	if len(packets) == 0 {
+		t.Fatal("expected packets from silence raw file")
+	}
+	for _, pkt := range packets {
+		for _, b := range pkt {
+			if b != 0xff {
+				t.Fatalf("expected PCMU silence byte 0xff, got 0x%02x", b)
+			}
+		}
+	}
+}
+
+func TestTestdataWAVFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join("..", "..", "testdata", "media", "tone_pcm8k.wav")
+	cmd, cfg, err := ParseRTPStreamSpec(path, "")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec(wav) error = %v", err)
+	}
+	if cmd != "start" {
+		t.Fatalf("expected start, got %q", cmd)
+	}
+	packets, err := loadPackets(cfg)
+	if err != nil {
+		t.Fatalf("loadPackets(wav) error = %v", err)
+	}
+	if len(packets) == 0 {
+		t.Fatal("expected packets from wav file")
+	}
+	// 2 seconds * 8000 samples / 160 samples per packet = 100 packets
+	if len(packets) < 90 || len(packets) > 110 {
+		t.Fatalf("expected ~100 packets from 2s WAV, got %d", len(packets))
+	}
+}
+
 func TestBuildSilentPCMU(t *testing.T) {
 	t.Parallel()
 
