@@ -133,9 +133,20 @@ Byte layout (28 bytes, no Report Blocks):
 | `CORRELATION_ID` | SIP `Call-ID` |
 | `RTP_SIP_CALL_ID` | SIP `Call-ID` |
 | `SSRC` | hex string, e.g. `"0x1a2b3c4d"` |
+| `PACKET_COUNT` | cumulative RTP packets sent |
+| `OCTET_COUNT` | cumulative RTP payload octets |
 | `REPORT_NAME` | `"<srcIP>-<srcPort>"` |
 | `SOURCE` | `"GOSSIPPER"` |
 | `TYPE` | `"PERIODIC"` |
+| `REPORT_TS` | Unix millisecond timestamp of the report |
+| `SRC_IP` | source IP of the RTP stream |
+| `SRC_PORT` | source port |
+| `DST_IP` | destination IP |
+| `DST_PORT` | destination port |
+| `RTP_TS` | last RTP timestamp from packet header |
+| `CODEC_PT` | RTP payload type (0=PCMU, 8=PCMA, etc.) |
+| `CLOCK` | clock rate (8000 for audio, 90000 for video) |
+| `CODEC_NAME` | codec name, e.g. `"PCMU/8000"` |
 
 ---
 

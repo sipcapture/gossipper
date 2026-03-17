@@ -119,6 +119,7 @@ func (s *Session) SendDTMF(ctx context.Context, endpoint Endpoint, digits string
 
 	s.mu.Lock()
 	obs := s.hepObserver
+	callID := s.callID
 	s.mu.Unlock()
 
 	ssrc := rand.Uint32()
@@ -141,7 +142,7 @@ func (s *Session) SendDTMF(ctx context.Context, endpoint Endpoint, digits string
 				return err
 			}
 			if obs != nil {
-				_ = obs.SendRTP(time.Now(), connLocalIP, connLocalPort, remoteAddr.IP.String(), remoteAddr.Port, raw)
+				_ = obs.SendRTP(time.Now(), connLocalIP, connLocalPort, remoteAddr.IP.String(), remoteAddr.Port, callID, raw)
 			}
 			s.mu.Lock()
 			s.stats.RTPPacketsSent++

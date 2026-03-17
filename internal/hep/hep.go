@@ -94,6 +94,10 @@ type rtpStreamState struct {
 	dstPort int
 	callID  string
 
+	// RTP header fields (from last packet)
+	lastRTPTimestamp uint32
+	mediaPT          uint8 // payload type for media (PCMU, PCMA, etc.)
+
 	// RTCP SR fields (populated via SendRTCP in JSON mode)
 	ntpMSW     uint32
 	ntpLSW     uint32
@@ -194,7 +198,8 @@ func (c *Client) SendSIP(now time.Time, srcIP string, srcPort int, dstIP string,
 // SendRTP processes an RTP frame for media reporting.
 // In raw mode only RTCP is reported; RTP packets are tracked for stats aggregation.
 // DTMF telephone-event packets (RFC 2833) are detected and accumulated.
-func (c *Client) SendRTP(now time.Time, srcIP string, srcPort int, dstIP string, dstPort int, payload []byte) error {
+// callID is the SIP Call-ID for correlation; when non-empty it is stored in stream state for reports.
+func (c *Client) SendRTP(now time.Time, srcIP string, srcPort int, dstIP string, dstPort int, callID string, payload []byte) error {
 	if c == nil || !c.sendMediaReport {
 		return nil
 	}
@@ -214,13 +219,22 @@ func (c *Client) SendRTP(now time.Time, srcIP string, srcPort int, dstIP string,
 			srcPort: srcPort,
 			dstIP:   dstIP,
 			dstPort: dstPort,
+			callID:  callID,
 			dtmfPT:  pt,
 		}
 		c.rtpStreams[ssrc] = state
+	} else if callID != "" {
+		state.callID = callID
 	}
 	state.packetCount++
 	state.octetCount += uint32(len(payload) - 12)
 	state.lastSeen = now
+	if len(payload) >= 12 {
+		state.lastRTPTimestamp = binary.BigEndian.Uint32(payload[4:8])
+		if pt != 101 { // not telephone-event
+			state.mediaPT = pt
+		}
+	}
 
 	// telephone-event detection (RFC 2833) — only in JSON mode
 	if !c.rawRTCP && len(payload) >= 16 {
@@ -349,6 +363,15 @@ func (c *Client) sendJSONReports(now time.Time) {
 			ReportName:    fmt.Sprintf("%s-%d", state.srcIP, state.srcPort),
 			Source:        "GOSSIPPER",
 			Type:          "PERIODIC",
+			ReportTS:      now.UnixMilli(),
+			SrcIP:         state.srcIP,
+			SrcPort:       state.srcPort,
+			DstIP:         state.dstIP,
+			DstPort:       state.dstPort,
+			RTPTimestamp:  state.lastRTPTimestamp,
+			CodecPT:       state.mediaPT,
+			ClockRate:     payloadTypeClockRate(state.mediaPT),
+			CodecName:     payloadTypeName(state.mediaPT),
 		}
 		if jsonData, err := json.Marshal(rtpReport); err == nil {
 			c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolRTPReport, jsonData)
@@ -363,6 +386,14 @@ func (c *Client) sendJSONReports(now time.Time) {
 			ReportName:    fmt.Sprintf("%s-%d", state.srcIP, state.srcPort),
 			Source:        "GOSSIPPER",
 			Type:          "PERIODIC",
+			ReportTS:      now.UnixMilli(),
+			SrcIP:         state.srcIP,
+			SrcPort:       state.srcPort,
+			DstIP:         state.dstIP,
+			DstPort:       state.dstPort,
+			CodecPT:       state.mediaPT,
+			ClockRate:     payloadTypeClockRate(state.mediaPT),
+			CodecName:     payloadTypeName(state.mediaPT),
 		}
 		if jsonData, err := json.Marshal(rtcpReport); err == nil {
 			c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolRTCPReport, jsonData)
@@ -458,6 +489,53 @@ func (c *Client) sendHEP(now time.Time, srcIP string, srcPort int, dstIP string,
 	_, _ = c.conn.WriteToUDP(packet, c.addr)
 }
 
+// payloadTypeClockRate returns the RTP clock rate for common payload types.
+func payloadTypeClockRate(pt uint8) uint32 {
+	switch pt {
+	case 0: // PCMU
+		return 8000
+	case 3: // GSM
+		return 8000
+	case 8: // PCMA
+		return 8000
+	case 9: // G722
+		return 8000
+	case 18: // G729
+		return 8000
+	case 96, 97, 98: // H264, etc.
+		return 90000
+	default:
+		return 8000
+	}
+}
+
+// payloadTypeName returns the codec name for common RTP payload types.
+func payloadTypeName(pt uint8) string {
+	switch pt {
+	case 0:
+		return "PCMU/8000"
+	case 3:
+		return "GSM/8000"
+	case 8:
+		return "PCMA/8000"
+	case 9:
+		return "G722/8000"
+	case 18:
+		return "G729/8000"
+	case 96:
+		return "H264/90000"
+	case 97:
+		return "H263/90000"
+	case 98:
+		return "H263-1998/90000"
+	default:
+		if pt != 0 {
+			return fmt.Sprintf("PT%d", pt)
+		}
+		return "PCMU/8000"
+	}
+}
+
 // JSON report structures
 
 type rtpShortReport struct {
@@ -469,6 +547,15 @@ type rtpShortReport struct {
 	ReportName    string `json:"REPORT_NAME"`
 	Source        string `json:"SOURCE"`
 	Type          string `json:"TYPE"`
+	ReportTS      int64  `json:"REPORT_TS"`
+	SrcIP         string `json:"SRC_IP"`
+	SrcPort       int    `json:"SRC_PORT"`
+	DstIP         string `json:"DST_IP"`
+	DstPort       int    `json:"DST_PORT"`
+	RTPTimestamp  uint32 `json:"RTP_TS"`
+	CodecPT       uint8  `json:"CODEC_PT"`
+	ClockRate     uint32 `json:"CLOCK"`
+	CodecName     string `json:"CODEC_NAME"`
 }
 
 type rtcpShortReport struct {
@@ -479,6 +566,14 @@ type rtcpShortReport struct {
 	ReportName    string `json:"REPORT_NAME"`
 	Source        string `json:"SOURCE"`
 	Type          string `json:"TYPE"`
+	ReportTS      int64  `json:"REPORT_TS"`
+	SrcIP         string `json:"SRC_IP"`
+	SrcPort       int    `json:"SRC_PORT"`
+	DstIP         string `json:"DST_IP"`
+	DstPort       int    `json:"DST_PORT"`
+	CodecPT       uint8  `json:"CODEC_PT"`
+	ClockRate     uint32 `json:"CLOCK"`
+	CodecName     string `json:"CODEC_NAME"`
 }
 
 type dtmfReport struct {

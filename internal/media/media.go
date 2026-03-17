@@ -57,7 +57,7 @@ type Session struct {
 
 // HEPObserver is implemented by the HEP client to mirror RTP/RTCP traffic to Homer.
 type HEPObserver interface {
-	SendRTP(now time.Time, srcIP string, srcPort int, dstIP string, dstPort int, payload []byte) error
+	SendRTP(now time.Time, srcIP string, srcPort int, dstIP string, dstPort int, callID string, payload []byte) error
 	SendRTCP(now time.Time, callID string, ssrc uint32, srcIP string, srcPort int, dstIP string, dstPort int, packetLoss uint32, payload []byte) error
 }
 
@@ -220,7 +220,7 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 	callID := s.callID
 	s.mu.Unlock()
 
-	go s.streamLoop(childCtx, conn, remoteAddr, cfg, packets, obs)
+	go s.streamLoop(childCtx, conn, remoteAddr, cfg, packets, obs, callID)
 	if rtcpConn != nil {
 		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, cfg, obs, callID)
 		go s.rtcpReceiveLoop(childCtx, rtcpConn)
@@ -310,7 +310,7 @@ func (s *Session) Stop() {
 	}
 }
 
-func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig, packets [][]byte, obs HEPObserver) {
+func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig, packets [][]byte, obs HEPObserver, callID string) {
 	defer s.Stop()
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
@@ -344,7 +344,7 @@ func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net
 				return
 			}
 			if obs != nil {
-				_ = obs.SendRTP(time.Now(), localIP, localPort, remote.IP.String(), remote.Port, frame)
+				_ = obs.SendRTP(time.Now(), localIP, localPort, remote.IP.String(), remote.Port, callID, frame)
 			}
 			s.mu.Lock()
 			s.packetCount++
