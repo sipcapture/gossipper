@@ -361,6 +361,9 @@ func TestSessionPCAPReplay(t *testing.T) {
 		t.Fatalf("expected preserved PCAP timing gap, got %v", gap)
 	}
 
+	if err := session.WaitForRTPActivity(ctx, 2, RTPCheckSend); err != nil {
+		t.Fatalf("WaitForRTPActivity(2 sent) error = %v", err)
+	}
 	stats := session.Snapshot()
 	if stats.RTPPacketsSent < 2 {
 		t.Fatalf("expected RTP packets sent stats, got %+v", stats)
