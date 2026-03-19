@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -14,9 +15,9 @@ import (
 
 const (
 	ProtocolSIP        = 0x01
-	ProtocolRTCP       = 0x05 // raw RTCP binary (type 5), processed by hepagent-go RTCPConverter
-	ProtocolRTPReport  = 0x23 // Short RTP Report JSON = 35 (TypeShortRTPReport in hepagent-go)
-	ProtocolRTCPReport = 0x25 // Short RTCP Report JSON = 37 (TypeShortRTCPReport in hepagent-go)
+	ProtocolRTCP       = 0x05 // raw RTCP binary (type 5)
+	ProtocolRTPReport  = 0x22 // Full RTP Report JSON = 34 (TypeFullRTPReport in hepagent-go)
+	ProtocolRTCPReport = 0x24 // Full RTCP Report JSON = 36 (TypeFullRTCPReport in hepagent-go)
 	ProtocolDTMF       = 0x64 // DTMF Report JSON = 100
 
 	ipFamilyIPv4 = 0x02
@@ -87,6 +88,7 @@ type rtpStreamState struct {
 	packetCount uint32
 	octetCount  uint32
 	lastSeen    time.Time
+	reportStart time.Time // time of first packet in current period
 
 	srcIP   string
 	srcPort int
@@ -96,7 +98,17 @@ type rtpStreamState struct {
 
 	// RTP header fields (from last packet)
 	lastRTPTimestamp uint32
+	lastSeq          uint16
+	lastArrivalTime  time.Time
 	mediaPT          uint8 // payload type for media (PCMU, PCMA, etc.)
+
+	// per-period jitter/delta/skew accumulators (RFC 3550 interarrival jitter)
+	jitter    float64 // current interarrival jitter estimate
+	maxJitter float64
+	sumJitter float64
+	maxDelta  float64 // max inter-packet arrival delta (ms)
+	maxSkew   float64
+	outOrder  uint32
 
 	// RTCP SR fields (populated via SendRTCP in JSON mode)
 	ntpMSW     uint32
@@ -209,31 +221,72 @@ func (c *Client) SendRTP(now time.Time, srcIP string, srcPort int, dstIP string,
 
 	// Parse RTP header fields needed for aggregation.
 	pt := payload[1] & 0x7F
+	seq := binary.BigEndian.Uint16(payload[2:4])
+	rtpTS := binary.BigEndian.Uint32(payload[4:8])
 	ssrc := binary.BigEndian.Uint32(payload[8:12])
 
 	c.mu.Lock()
 	state, ok := c.rtpStreams[ssrc]
 	if !ok {
 		state = &rtpStreamState{
-			srcIP:   srcIP,
-			srcPort: srcPort,
-			dstIP:   dstIP,
-			dstPort: dstPort,
-			callID:  callID,
-			dtmfPT:  pt,
+			srcIP:       srcIP,
+			srcPort:     srcPort,
+			dstIP:       dstIP,
+			dstPort:     dstPort,
+			callID:      callID,
+			dtmfPT:      pt,
+			reportStart: now,
 		}
 		c.rtpStreams[ssrc] = state
 	} else if callID != "" {
 		state.callID = callID
 	}
+
 	state.packetCount++
 	state.octetCount += uint32(len(payload) - 12)
-	state.lastSeen = now
-	if len(payload) >= 12 {
-		state.lastRTPTimestamp = binary.BigEndian.Uint32(payload[4:8])
-		if pt != 101 { // not telephone-event
-			state.mediaPT = pt
+	state.lastRTPTimestamp = rtpTS
+
+	// Compute inter-arrival delta and RFC 3550 jitter estimate.
+	if !state.lastArrivalTime.IsZero() {
+		deltaSec := now.Sub(state.lastArrivalTime).Seconds()
+		deltaMS := deltaSec * 1000
+
+		if deltaMS > state.maxDelta {
+			state.maxDelta = deltaMS
 		}
+
+		// RFC 3550 interarrival jitter using RTP timestamp difference.
+		clockRate := payloadTypeClockRate(pt)
+		if clockRate == 0 {
+			clockRate = 8000
+		}
+		var d float64
+		if state.lastRTPTimestamp != 0 {
+			// transit time difference in ms
+			transitDiff := deltaSec - float64(int32(rtpTS-state.lastRTPTimestamp))/float64(clockRate)
+			if transitDiff < 0 {
+				transitDiff = -transitDiff
+			}
+			d = transitDiff * 1000
+		}
+		state.jitter += (d - state.jitter) / 16.0
+		if state.jitter > state.maxJitter {
+			state.maxJitter = state.jitter
+		}
+		state.sumJitter += state.jitter
+
+		// Out-of-order detection.
+		if seq != 0 && state.lastSeq != 0 && seq < state.lastSeq && (state.lastSeq-seq) < 0x8000 {
+			state.outOrder++
+		}
+	}
+
+	state.lastArrivalTime = now
+	state.lastSeq = seq
+	state.lastSeen = now
+
+	if pt != 101 {
+		state.mediaPT = pt
 	}
 
 	// telephone-event detection (RFC 2833) — only in JSON mode
@@ -353,51 +406,104 @@ func (c *Client) sendJSONReports(now time.Time) {
 			continue
 		}
 
-		// Short RTP Report (type 35)
-		rtpReport := rtpShortReport{
+		codecName, codecChannel := payloadTypeNameChannel(state.mediaPT)
+		clockRate := payloadTypeClockRate(state.mediaPT)
+
+		meanJitter := 0.0
+		if state.packetCount > 1 {
+			meanJitter = state.sumJitter / float64(state.packetCount-1)
+		}
+
+		mos, rfactor := calculateMOS(state.packetLoss, meanJitter)
+
+		reportStart := uint32(state.reportStart.Unix())
+		reportEnd := uint32(now.Unix())
+
+		// RTP Report (type 35) — matches hepagent.go RTPReport field set
+		rpt := rtpReport{
 			CorrelationID: state.callID,
 			RTPSipCallID:  state.callID,
-			SSRC:          fmt.Sprintf("0x%x", ssrc),
-			PacketCount:   state.packetCount,
-			OctetCount:    state.octetCount,
-			ReportName:    fmt.Sprintf("%s-%d", state.srcIP, state.srcPort),
-			Source:        "GOSSIPPER",
-			Type:          "PERIODIC",
-			ReportTS:      now.UnixMilli(),
+			Delta:         round3(state.maxDelta),
+			Jitter:        round3(state.jitter),
+			ReportTS:      now.UnixMicro(),
+			TLByte:        uint64(state.octetCount),
+			Skew:          round3(state.maxSkew),
+			TotalPK:       state.packetCount,
+			ExpectedPK:    state.packetCount,
+			PacketLoss:    state.packetLoss,
+			Seq:           0,
+			MaxJitter:     round3(state.maxJitter),
+			MaxDelta:      round3(state.maxDelta),
+			MaxSkew:       round3(state.maxSkew),
+			MeanJitter:    round3(meanJitter),
+			MinMOS:        round3(mos),
+			MeanMOS:       round3(mos),
+			MOS:           round3(mos),
+			MaxMOS:        round3(mos),
+			RFactor:       round3(rfactor),
+			MinRFactor:    round3(rfactor),
+			MeanRFactor:   round3(rfactor),
 			SrcIP:         state.srcIP,
 			SrcPort:       state.srcPort,
 			DstIP:         state.dstIP,
 			DstPort:       state.dstPort,
-			RTPTimestamp:  state.lastRTPTimestamp,
+			OutOrder:      state.outOrder,
+			SSRC:          fmt.Sprintf("0x%x", ssrc),
+			SSRCChg:       0,
 			CodecPT:       state.mediaPT,
-			ClockRate:     payloadTypeClockRate(state.mediaPT),
-			CodecName:     payloadTypeName(state.mediaPT),
+			ClockRate:     clockRate,
+			CodecName:     codecName,
+			CodecChannel:  codecChannel,
+			Dir:           0,
+			OneWayRTP:     0,
+			ReportName:    fmt.Sprintf("%s-%d", state.srcIP, state.srcPort),
+			Party:         0,
+			SType:         "GOSSIPPER",
+			Type:          "PERIODIC",
+			ReportStart:   reportStart,
+			ReportEnd:     reportEnd,
 		}
-		if jsonData, err := json.Marshal(rtpReport); err == nil {
+		if jsonData, err := json.Marshal(rpt); err == nil {
 			c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolRTPReport, jsonData)
 		}
 
-		// Short RTCP Report (type 37)
+		// RTCP Short Report (type 37) — matches hepagent.go RTCPShortReport
 		rtcpReport := rtcpShortReport{
-			CorrelationID: state.callID,
-			RTPSipCallID:  state.callID,
-			SSRC:          fmt.Sprintf("0x%x", ssrc),
-			CumPacketLoss: state.packetLoss,
-			ReportName:    fmt.Sprintf("%s-%d", state.srcIP, state.srcPort),
-			Source:        "GOSSIPPER",
-			Type:          "PERIODIC",
-			ReportTS:      now.UnixMilli(),
-			SrcIP:         state.srcIP,
-			SrcPort:       state.srcPort,
-			DstIP:         state.dstIP,
-			DstPort:       state.dstPort,
-			CodecPT:       state.mediaPT,
-			ClockRate:     payloadTypeClockRate(state.mediaPT),
-			CodecName:     payloadTypeName(state.mediaPT),
+			CorrelationID:  state.callID,
+			RTPSipCallID:   state.callID,
+			MOS:            round3(mos),
+			RFactor:        round3(rfactor),
+			Dir:            0,
+			ReportName:     fmt.Sprintf("%s-%d", state.srcIP, state.srcPort),
+			Party:          0,
+			SSRC:           fmt.Sprintf("0x%x", ssrc),
+			CumPacketLoss:  state.packetLoss,
+			MeanPacketLoss: 0,
+			Source:         "GOSSIPPER",
+			Type:           "PERIODIC",
+			ReportTS:       now.UnixMilli(),
+			SrcIP:          state.srcIP,
+			SrcPort:        state.srcPort,
+			DstIP:          state.dstIP,
+			DstPort:        state.dstPort,
+			CodecPT:        state.mediaPT,
+			ClockRate:      clockRate,
+			CodecName:      codecName,
 		}
 		if jsonData, err := json.Marshal(rtcpReport); err == nil {
 			c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolRTCPReport, jsonData)
 		}
+
+		// Reset per-period accumulators; preserve stream identity fields.
+		state.packetCount = 0
+		state.octetCount = 0
+		state.jitter = 0
+		state.maxJitter = 0
+		state.sumJitter = 0
+		state.maxDelta = 0
+		state.maxSkew = 0
+		state.outOrder = 0
+		state.reportStart = now
 
 		// DTMF Report (type 100) — only if events were accumulated
 		if len(state.dtmfEvents) > 0 {
@@ -509,71 +615,139 @@ func payloadTypeClockRate(pt uint8) uint32 {
 	}
 }
 
-// payloadTypeName returns the codec name for common RTP payload types.
-func payloadTypeName(pt uint8) string {
+// payloadTypeNameChannel returns the codec name and channel count for common RTP payload types.
+func payloadTypeNameChannel(pt uint8) (string, uint8) {
 	switch pt {
 	case 0:
-		return "PCMU/8000"
+		return "PCMU/8000", 1
 	case 3:
-		return "GSM/8000"
+		return "GSM/8000", 1
 	case 8:
-		return "PCMA/8000"
+		return "PCMA/8000", 1
 	case 9:
-		return "G722/8000"
+		return "G722/8000", 1
 	case 18:
-		return "G729/8000"
+		return "G729/8000", 1
 	case 96:
-		return "H264/90000"
+		return "H264/90000", 1
 	case 97:
-		return "H263/90000"
+		return "H263/90000", 1
 	case 98:
-		return "H263-1998/90000"
+		return "H263-1998/90000", 1
 	default:
 		if pt != 0 {
-			return fmt.Sprintf("PT%d", pt)
+			return fmt.Sprintf("PT%d", pt), 1
 		}
-		return "PCMU/8000"
+		return "PCMU/8000", 1
 	}
 }
 
 // JSON report structures
 
-type rtpShortReport struct {
-	CorrelationID string `json:"CORRELATION_ID"`
-	RTPSipCallID  string `json:"RTP_SIP_CALL_ID"`
-	SSRC          string `json:"SSRC"`
-	PacketCount   uint32 `json:"PACKET_COUNT"`
-	OctetCount    uint32 `json:"OCTET_COUNT"`
-	ReportName    string `json:"REPORT_NAME"`
-	Source        string `json:"SOURCE"`
-	Type          string `json:"TYPE"`
-	ReportTS      int64  `json:"REPORT_TS"`
-	SrcIP         string `json:"SRC_IP"`
-	SrcPort       int    `json:"SRC_PORT"`
-	DstIP         string `json:"DST_IP"`
-	DstPort       int    `json:"DST_PORT"`
-	RTPTimestamp  uint32 `json:"RTP_TS"`
-	CodecPT       uint8  `json:"CODEC_PT"`
-	ClockRate     uint32 `json:"CLOCK"`
-	CodecName     string `json:"CODEC_NAME"`
+// calculateMOS computes MOS and R-Factor from packet loss (count) and mean jitter (ms)
+// using a simplified E-Model (ITU-T G.107).
+func calculateMOS(lostPkts uint32, meanJitterMS float64) (mos, rfactor float64) {
+	lossRate := 0.0
+	if lostPkts > 0 {
+		lossRate = float64(lostPkts) * 100.0
+	}
+	// Simplified R-Factor: R0=93.2, penalty for jitter and loss.
+	r := 93.2 - (meanJitterMS * 0.1) - (lossRate * 2.5)
+	if r < 0 {
+		r = 0
+	}
+	if r > 100 {
+		r = 100
+	}
+	var m float64
+	if r < 0 {
+		m = 1.0
+	} else if r > 100 {
+		m = 4.5
+	} else {
+		m = 1 + 0.035*r + r*(r-60)*(100-r)*7e-6
+	}
+	if m < 1.0 {
+		m = 1.0
+	}
+	if m > 4.5 {
+		m = 4.5
+	}
+	return m, r
 }
 
+// round3 rounds a float64 to 3 decimal places.
+func round3(v float64) float64 {
+	return math.Round(v*1000) / 1000
+}
+
+// rtpReport matches hepagent.go RTPReport (HEP type 35).
+type rtpReport struct {
+	CorrelationID string  `json:"CORRELATION_ID"`
+	RTPSipCallID  string  `json:"RTP_SIP_CALL_ID"`
+	Delta         float64 `json:"DELTA"`
+	Jitter        float64 `json:"JITTER"`
+	ReportTS      int64   `json:"REPORT_TS"`
+	TLByte        uint64  `json:"TL_BYTE"`
+	Skew          float64 `json:"SKEW"`
+	TotalPK       uint32  `json:"TOTAL_PK"`
+	ExpectedPK    uint32  `json:"EXPECTED_PK"`
+	PacketLoss    uint32  `json:"PACKET_LOSS"`
+	Seq           uint32  `json:"SEQ"`
+	MaxJitter     float64 `json:"MAX_JITTER"`
+	MaxDelta      float64 `json:"MAX_DELTA"`
+	MaxSkew       float64 `json:"MAX_SKEW"`
+	MeanJitter    float64 `json:"MEAN_JITTER"`
+	MinMOS        float64 `json:"MIN_MOS"`
+	MeanMOS       float64 `json:"MEAN_MOS"`
+	MOS           float64 `json:"MOS"`
+	MaxMOS        float64 `json:"MAX_MOS"`
+	RFactor       float64 `json:"RFACTOR"`
+	MinRFactor    float64 `json:"MIN_RFACTOR"`
+	MeanRFactor   float64 `json:"MEAN_RFACTOR"`
+	SrcIP         string  `json:"SRC_IP"`
+	SrcPort       int     `json:"SRC_PORT"`
+	DstIP         string  `json:"DST_IP"`
+	DstPort       int     `json:"DST_PORT"`
+	OutOrder      uint32  `json:"OUT_ORDER"`
+	SSRC          string  `json:"SSRC"`
+	SSRCChg       uint8   `json:"SSRC_CHG"`
+	CodecPT       uint8   `json:"CODEC_PT"`
+	ClockRate     uint32  `json:"CLOCK"`
+	CodecName     string  `json:"CODEC_NAME"`
+	CodecChannel  uint8   `json:"CODEC_CHANNEL"`
+	Dir           uint8   `json:"DIR"`
+	OneWayRTP     uint8   `json:"ONE_WAY_RTP"`
+	ReportName    string  `json:"REPORT_NAME"`
+	Party         uint8   `json:"PARTY"`
+	SType         string  `json:"STYPE"`
+	Type          string  `json:"TYPE"`
+	ReportStart   uint32  `json:"REPORT_START"`
+	ReportEnd     uint32  `json:"REPORT_END"`
+}
+
+// rtcpShortReport matches hepagent.go RTCPShortReport (HEP type 37).
 type rtcpShortReport struct {
-	CorrelationID string `json:"CORRELATION_ID"`
-	RTPSipCallID  string `json:"RTP_SIP_CALL_ID"`
-	SSRC          string `json:"SSRC"`
-	CumPacketLoss uint32 `json:"CUM_PACKET_LOSS"`
-	ReportName    string `json:"REPORT_NAME"`
-	Source        string `json:"SOURCE"`
-	Type          string `json:"TYPE"`
-	ReportTS      int64  `json:"REPORT_TS"`
-	SrcIP         string `json:"SRC_IP"`
-	SrcPort       int    `json:"SRC_PORT"`
-	DstIP         string `json:"DST_IP"`
-	DstPort       int    `json:"DST_PORT"`
-	CodecPT       uint8  `json:"CODEC_PT"`
-	ClockRate     uint32 `json:"CLOCK"`
-	CodecName     string `json:"CODEC_NAME"`
+	CorrelationID  string  `json:"CORRELATION_ID"`
+	RTPSipCallID   string  `json:"RTP_SIP_CALL_ID"`
+	MOS            float64 `json:"MOS"`
+	RFactor        float64 `json:"RFACTOR"`
+	Dir            int     `json:"DIR"`
+	ReportName     string  `json:"REPORT_NAME"`
+	Party          int     `json:"PARTY"`
+	SSRC           string  `json:"SSRC"`
+	CumPacketLoss  uint32  `json:"CUM_PACKET_LOSS"`
+	MeanPacketLoss float64 `json:"MEAN_PACKET_LOSS"`
+	Source         string  `json:"SOURCE"`
+	Type           string  `json:"TYPE"`
+	ReportTS       int64   `json:"REPORT_TS"`
+	SrcIP          string  `json:"SRC_IP"`
+	SrcPort        int     `json:"SRC_PORT"`
+	DstIP          string  `json:"DST_IP"`
+	DstPort        int     `json:"DST_PORT"`
+	CodecPT        uint8   `json:"CODEC_PT"`
+	ClockRate      uint32  `json:"CLOCK"`
+	CodecName      string  `json:"CODEC_NAME"`
 }
 
 type dtmfReport struct {
