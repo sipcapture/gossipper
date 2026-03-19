@@ -325,12 +325,22 @@ func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net
 
 	sequence := cfg.Sequence
 	timestamp := cfg.Timestamp
+
+	ticker := time.NewTicker(cfg.PacketDuration)
+	defer ticker.Stop()
+
 	for loop := 0; infinite || loop < loops; loop++ {
 		for _, payload := range packets {
-			if err := ctx.Err(); err != nil {
+			// Wait for the next tick before sending — keeps inter-packet
+			// delta stable at cfg.PacketDuration (default 20ms).
+			select {
+			case <-ctx.Done():
 				return
+			case <-ticker.C:
 			}
+
 			s.waitIfPaused(ctx)
+
 			frame, err := BuildPacket(StreamConfig{
 				PayloadType: cfg.PayloadType,
 				SSRC:        cfg.SSRC,
@@ -355,13 +365,6 @@ func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net
 			s.mu.Unlock()
 			sequence++
 			timestamp += cfg.SamplesPerPkt
-			timer := time.NewTimer(cfg.PacketDuration)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
 		}
 	}
 }
