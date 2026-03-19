@@ -98,17 +98,21 @@ type rtpStreamState struct {
 
 	// RTP header fields (from last packet)
 	lastRTPTimestamp uint32
+	prevRTPTimestamp uint32 // RTP timestamp of previous packet for jitter calc
 	lastSeq          uint16
 	lastArrivalTime  time.Time
+	firstPacket      bool // true until second packet arrives
 	mediaPT          uint8 // payload type for media (PCMU, PCMA, etc.)
 
 	// per-period jitter/delta/skew accumulators (RFC 3550 interarrival jitter)
-	jitter    float64 // current interarrival jitter estimate
-	maxJitter float64
-	sumJitter float64
-	maxDelta  float64 // max inter-packet arrival delta (ms)
-	maxSkew   float64
-	outOrder  uint32
+	jitter     float64 // current interarrival jitter estimate (RFC 3550)
+	maxJitter  float64
+	sumJitter  float64
+	sumDelta   float64 // sum of inter-arrival deltas (ms) for mean calc
+	deltaCount uint32
+	maxDelta   float64 // max inter-packet arrival delta (ms)
+	maxSkew    float64
+	outOrder   uint32
 
 	// RTCP SR fields (populated via SendRTCP in JSON mode)
 	ntpMSW     uint32
@@ -244,43 +248,45 @@ func (c *Client) SendRTP(now time.Time, srcIP string, srcPort int, dstIP string,
 
 	state.packetCount++
 	state.octetCount += uint32(len(payload) - 12)
-	state.lastRTPTimestamp = rtpTS
 
 	// Compute inter-arrival delta and RFC 3550 jitter estimate.
 	if !state.lastArrivalTime.IsZero() {
 		deltaSec := now.Sub(state.lastArrivalTime).Seconds()
 		deltaMS := deltaSec * 1000
 
+		state.sumDelta += deltaMS
+		state.deltaCount++
 		if deltaMS > state.maxDelta {
 			state.maxDelta = deltaMS
 		}
 
-		// RFC 3550 interarrival jitter using RTP timestamp difference.
+		// RFC 3550 §6.4.1 interarrival jitter: D(i,j) = |transit(j) - transit(i)|
 		clockRate := payloadTypeClockRate(pt)
 		if clockRate == 0 {
 			clockRate = 8000
 		}
-		var d float64
-		if state.lastRTPTimestamp != 0 {
-			// transit time difference in ms
-			transitDiff := deltaSec - float64(int32(rtpTS-state.lastRTPTimestamp))/float64(clockRate)
-			if transitDiff < 0 {
-				transitDiff = -transitDiff
-			}
-			d = transitDiff * 1000
+		transitDiff := deltaSec - float64(int32(rtpTS-state.prevRTPTimestamp))/float64(clockRate)
+		if transitDiff < 0 {
+			transitDiff = -transitDiff
 		}
+		d := transitDiff * 1000
 		state.jitter += (d - state.jitter) / 16.0
 		if state.jitter > state.maxJitter {
 			state.maxJitter = state.jitter
 		}
 		state.sumJitter += state.jitter
 
-		// Out-of-order detection.
-		if seq != 0 && state.lastSeq != 0 && seq < state.lastSeq && (state.lastSeq-seq) < 0x8000 {
+		// Out-of-order: seq wrapped correctly with int16 arithmetic.
+		if !state.firstPacket && int16(seq-state.lastSeq) < 0 {
 			state.outOrder++
 		}
+	} else {
+		state.firstPacket = true
 	}
+	state.firstPacket = false
 
+	state.prevRTPTimestamp = state.lastRTPTimestamp
+	state.lastRTPTimestamp = rtpTS
 	state.lastArrivalTime = now
 	state.lastSeq = seq
 	state.lastSeen = now
@@ -414,16 +420,21 @@ func (c *Client) sendJSONReports(now time.Time) {
 			meanJitter = state.sumJitter / float64(state.packetCount-1)
 		}
 
+		meanDelta := 0.0
+		if state.deltaCount > 0 {
+			meanDelta = state.sumDelta / float64(state.deltaCount)
+		}
+
 		mos, rfactor := calculateMOS(state.packetLoss, meanJitter)
 
 		reportStart := uint32(state.reportStart.Unix())
 		reportEnd := uint32(now.Unix())
 
-		// RTP Report (type 35) — matches hepagent.go RTPReport field set
+		// RTP Report (type 34) — matches hepagent.go RTPReport field set
 		rpt := rtpReport{
 			CorrelationID: state.callID,
 			RTPSipCallID:  state.callID,
-			Delta:         round3(state.maxDelta),
+			Delta:         round3(meanDelta),
 			Jitter:        round3(state.jitter),
 			ReportTS:      now.UnixMicro(),
 			TLByte:        uint64(state.octetCount),
@@ -500,6 +511,8 @@ func (c *Client) sendJSONReports(now time.Time) {
 		state.jitter = 0
 		state.maxJitter = 0
 		state.sumJitter = 0
+		state.sumDelta = 0
+		state.deltaCount = 0
 		state.maxDelta = 0
 		state.maxSkew = 0
 		state.outOrder = 0
