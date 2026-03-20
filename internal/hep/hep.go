@@ -37,9 +37,10 @@ const (
 	chunkTimeSec   = 0x0009
 	chunkTimeUsec  = 0x000a
 	chunkProtoType = 0x000b
-	chunkCaptureID = 0x000c
-	chunkAuthKey   = 0x000e
-	chunkPayload   = 0x000f
+	chunkCaptureID      = 0x000c
+	chunkAuthKey        = 0x000e
+	chunkPayload        = 0x000f
+	chunkCorrelationID  = 0x0011
 
 	// streamPruneAge is how long a stream can be idle before being pruned.
 	streamPruneAge = 60 * time.Second
@@ -56,31 +57,33 @@ type Config struct {
 
 // Message is a HEP message to encode.
 type Message struct {
-	Time       time.Time
-	SrcIP      string
-	DstIP      string
-	SrcPort    int
-	DstPort    int
-	IPProtocol uint8
-	ProtoType  uint8
-	CaptureID  uint32
-	AuthKey    string
-	Payload    []byte
+	Time          time.Time
+	SrcIP         string
+	DstIP         string
+	SrcPort       int
+	DstPort       int
+	IPProtocol    uint8
+	ProtoType     uint8
+	CaptureID     uint32
+	AuthKey       string
+	CorrelationID string
+	Payload       []byte
 }
 
 // Decoded is a parsed HEP message.
 type Decoded struct {
-	IPFamily   uint8
-	IPProtocol uint8
-	SrcIP      net.IP
-	DstIP      net.IP
-	SrcPort    uint16
-	DstPort    uint16
-	Time       time.Time
-	ProtoType  uint8
-	CaptureID  uint32
-	AuthKey    string
-	Payload    []byte
+	IPFamily      uint8
+	IPProtocol    uint8
+	SrcIP         net.IP
+	DstIP         net.IP
+	SrcPort       uint16
+	DstPort       uint16
+	Time          time.Time
+	ProtoType     uint8
+	CaptureID     uint32
+	AuthKey       string
+	CorrelationID string
+	Payload       []byte
 }
 
 // rtpStreamState tracks per-SSRC RTP/RTCP statistics for aggregated reporting.
@@ -122,6 +125,21 @@ type rtpStreamState struct {
 	// DTMF accumulation (JSON mode only)
 	dtmfEvents []string
 	dtmfPT     uint8 // payload type for telephone-event (usually 101)
+
+	// cumulative (global) stats — accumulated across all periodic periods for FINAL report
+	globalPacketCount uint32
+	globalOctetCount  uint64
+	globalPacketLoss  uint32
+	globalMaxJitter   float64
+	globalSumJitter   float64
+	globalJitterCount uint32
+	globalMaxDelta    float64
+	globalMaxSkew     float64
+	globalMinMOS      float64
+	globalSumMOS      float64
+	globalMOSCount    uint32
+	globalMinRFactor  float64
+	globalSumRFactor  float64
 }
 
 // Client is a HEP UDP client.
@@ -188,21 +206,23 @@ func (c *Client) Close() error {
 }
 
 // SendSIP sends a SIP message via HEP.
-func (c *Client) SendSIP(now time.Time, srcIP string, srcPort int, dstIP string, dstPort int, transport string, payload []byte) error {
+// callID is the SIP Call-ID used as correlation_id in the HEP header (chunk 0x0011).
+func (c *Client) SendSIP(now time.Time, srcIP string, srcPort int, dstIP string, dstPort int, transport string, callID string, payload []byte) error {
 	if c == nil {
 		return nil
 	}
 	packet, err := Encode(Message{
-		Time:       now,
-		SrcIP:      srcIP,
-		DstIP:      dstIP,
-		SrcPort:    srcPort,
-		DstPort:    dstPort,
-		IPProtocol: transportProtocol(transport),
-		ProtoType:  ProtocolSIP,
-		CaptureID:  c.captureID,
-		AuthKey:    c.password,
-		Payload:    payload,
+		Time:          now,
+		SrcIP:         srcIP,
+		DstIP:         dstIP,
+		SrcPort:       srcPort,
+		DstPort:       dstPort,
+		IPProtocol:    transportProtocol(transport),
+		ProtoType:     ProtocolSIP,
+		CaptureID:     c.captureID,
+		AuthKey:       c.password,
+		CorrelationID: callID,
+		Payload:       payload,
 	})
 	if err != nil {
 		return err
@@ -326,16 +346,17 @@ func (c *Client) SendRTCP(now time.Time, callID string, ssrc uint32, srcIP strin
 	if c.rawRTCP {
 		// Send raw binary RTCP immediately.
 		packet, err := Encode(Message{
-			Time:       now,
-			SrcIP:      srcIP,
-			DstIP:      dstIP,
-			SrcPort:    srcPort,
-			DstPort:    dstPort,
-			IPProtocol: ipProtoUDP,
-			ProtoType:  ProtocolRTCP,
-			CaptureID:  c.captureID,
-			AuthKey:    c.password,
-			Payload:    rawPayload,
+			Time:          now,
+			SrcIP:         srcIP,
+			DstIP:         dstIP,
+			SrcPort:       srcPort,
+			DstPort:       dstPort,
+			IPProtocol:    ipProtoUDP,
+			ProtoType:     ProtocolRTCP,
+			CaptureID:     c.captureID,
+			AuthKey:       c.password,
+			CorrelationID: callID,
+			Payload:       rawPayload,
 		})
 		if err != nil {
 			return err
@@ -411,134 +432,238 @@ func (c *Client) sendJSONReports(now time.Time) {
 		if state.packetCount == 0 {
 			continue
 		}
+		c.sendPeriodReportLocked(now, ssrc, state, "PERIODIC")
+	}
+}
+
+// sendPeriodReportLocked sends RTP + RTCP short reports for one period interval.
+// reportType is "PERIODIC" or "HANGUP". Must be called with c.mu held.
+// It resets per-period accumulators and updates cumulative (global) stats.
+func (c *Client) sendPeriodReportLocked(now time.Time, ssrc uint32, state *rtpStreamState, reportType string) {
+	codecName, codecChannel := payloadTypeNameChannel(state.mediaPT)
+	clockRate := payloadTypeClockRate(state.mediaPT)
+
+	meanJitter := 0.0
+	if state.packetCount > 1 {
+		meanJitter = state.sumJitter / float64(state.packetCount-1)
+	}
+
+	meanDelta := 0.0
+	if state.deltaCount > 0 {
+		meanDelta = state.sumDelta / float64(state.deltaCount)
+	}
+
+	mos, rfactor := calculateMOS(state.packetLoss, meanJitter)
+
+	reportStart := uint32(state.reportStart.Unix())
+	reportEnd := uint32(now.Unix())
+
+	// RTP Report (type 34) — matches hepagent.go RTPReport field set
+	rpt := rtpReport{
+		CorrelationID: state.callID,
+		RTPSipCallID:  state.callID,
+		Delta:         round3(meanDelta),
+		Jitter:        round3(state.jitter),
+		ReportTS:      now.UnixMicro(),
+		TLByte:        uint64(state.octetCount),
+		Skew:          round3(state.maxSkew),
+		TotalPK:       state.packetCount,
+		ExpectedPK:    state.packetCount,
+		PacketLoss:    state.packetLoss,
+		Seq:           0,
+		MaxJitter:     round3(state.maxJitter),
+		MaxDelta:      round3(state.maxDelta),
+		MaxSkew:       round3(state.maxSkew),
+		MeanJitter:    round3(meanJitter),
+		MinMOS:        round3(mos),
+		MeanMOS:       round3(mos),
+		MOS:           round3(mos),
+		MaxMOS:        round3(mos),
+		RFactor:       round3(rfactor),
+		MinRFactor:    round3(rfactor),
+		MeanRFactor:   round3(rfactor),
+		SrcIP:         state.srcIP,
+		SrcPort:       state.srcPort,
+		DstIP:         state.dstIP,
+		DstPort:       state.dstPort,
+		OutOrder:      state.outOrder,
+		SSRC:          fmt.Sprintf("0x%x", ssrc),
+		SSRCChg:       0,
+		CodecPT:       state.mediaPT,
+		ClockRate:     clockRate,
+		CodecName:     codecName,
+		CodecChannel:  codecChannel,
+		Dir:           0,
+		OneWayRTP:     0,
+		ReportName:    fmt.Sprintf("%s-%d", state.srcIP, state.srcPort),
+		Party:         0,
+		SType:         "GOSSIPPER",
+		Type:          reportType,
+		ReportStart:   reportStart,
+		ReportEnd:     reportEnd,
+	}
+	if jsonData, err := json.Marshal(rpt); err == nil {
+		c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolRTPReport, state.callID, jsonData)
+	}
+
+	// RTCP Short Report (type 37) — matches hepagent.go RTCPShortReport
+	rtcpRpt := rtcpShortReport{
+		CorrelationID:  state.callID,
+		RTPSipCallID:   state.callID,
+		MOS:            round3(mos),
+		RFactor:        round3(rfactor),
+		Dir:            0,
+		ReportName:     fmt.Sprintf("%s-%d", state.srcIP, state.srcPort),
+		Party:          0,
+		SSRC:           fmt.Sprintf("0x%x", ssrc),
+		CumPacketLoss:  state.packetLoss,
+		MeanPacketLoss: 0,
+		Source:         "GOSSIPPER",
+		Type:           reportType,
+		ReportTS:       now.UnixMilli(),
+		SrcIP:          state.srcIP,
+		SrcPort:        state.srcPort,
+		DstIP:          state.dstIP,
+		DstPort:        state.dstPort,
+		CodecPT:        state.mediaPT,
+		ClockRate:      clockRate,
+		CodecName:      codecName,
+	}
+	if jsonData, err := json.Marshal(rtcpRpt); err == nil {
+		c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolRTCPReport, state.callID, jsonData)
+	}
+
+	// Accumulate into global (cumulative) stats for the FINAL report.
+	state.globalPacketCount += state.packetCount
+	state.globalOctetCount += uint64(state.octetCount)
+	state.globalPacketLoss += state.packetLoss
+	if state.maxJitter > state.globalMaxJitter {
+		state.globalMaxJitter = state.maxJitter
+	}
+	state.globalSumJitter += meanJitter
+	state.globalJitterCount++
+	if state.maxDelta > state.globalMaxDelta {
+		state.globalMaxDelta = state.maxDelta
+	}
+	if state.maxSkew > state.globalMaxSkew {
+		state.globalMaxSkew = state.maxSkew
+	}
+	if state.globalMOSCount == 0 || mos < state.globalMinMOS {
+		state.globalMinMOS = mos
+	}
+	state.globalSumMOS += mos
+	state.globalMOSCount++
+	if state.globalMOSCount == 1 || rfactor < state.globalMinRFactor {
+		state.globalMinRFactor = rfactor
+	}
+	state.globalSumRFactor += rfactor
+
+	// Reset per-period accumulators; preserve stream identity and global fields.
+	state.packetCount = 0
+	state.octetCount = 0
+	state.jitter = 0
+	state.maxJitter = 0
+	state.sumJitter = 0
+	state.sumDelta = 0
+	state.deltaCount = 0
+	state.maxDelta = 0
+	state.maxSkew = 0
+	state.outOrder = 0
+	state.reportStart = now
+
+	// DTMF Report (type 100) — only if events were accumulated.
+	if len(state.dtmfEvents) > 0 {
+		dtmfRpt := dtmfReport{
+			CorrelationID: state.callID,
+			ReportTS:      now.UnixMilli(),
+			DTMF:          strings.Join(state.dtmfEvents, ";"),
+			SrcIP:         state.srcIP,
+			SrcPort:       uint16(state.srcPort),
+			DstIP:         state.dstIP,
+			DstPort:       uint16(state.dstPort),
+			CodecPT:       state.dtmfPT,
+			CodecName:     "telephone-event",
+			Party:         1,
+			SType:         "GOSSIPPER-DTMF",
+			Type:          reportType,
+		}
+		if jsonData, err := json.Marshal(dtmfRpt); err == nil {
+			c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolDTMF, state.callID, jsonData)
+		}
+		state.dtmfEvents = state.dtmfEvents[:0]
+	}
+}
+
+// SendFinalReports flushes HANGUP and FINAL RTP reports for all streams matching callID.
+// It is called when a call ends (SIP BYE / session teardown).
+// In rawRTCP mode only a raw RTCP SR is sent; FINAL JSON is JSON-mode only.
+func (c *Client) SendFinalReports(callID string) {
+	if c == nil || !c.sendMediaReport || c.rawRTCP {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+
+	for ssrc, state := range c.rtpStreams {
+		if state.callID != callID {
+			continue
+		}
+
+		// Send HANGUP report for the last (possibly incomplete) period.
+		if state.packetCount > 0 {
+			c.sendPeriodReportLocked(now, ssrc, state, "HANGUP")
+		}
+
+		// Build FINAL report only if there were any packets across all periods.
+		if state.globalPacketCount == 0 {
+			delete(c.rtpStreams, ssrc)
+			continue
+		}
 
 		codecName, codecChannel := payloadTypeNameChannel(state.mediaPT)
 		clockRate := payloadTypeClockRate(state.mediaPT)
 
+		meanMOS := state.globalMinMOS
+		meanRFactor := state.globalMinRFactor
+		if state.globalMOSCount > 0 {
+			meanMOS = state.globalSumMOS / float64(state.globalMOSCount)
+			meanRFactor = state.globalSumRFactor / float64(state.globalMOSCount)
+		}
 		meanJitter := 0.0
-		if state.packetCount > 1 {
-			meanJitter = state.sumJitter / float64(state.packetCount-1)
+		if state.globalJitterCount > 0 {
+			meanJitter = state.globalSumJitter / float64(state.globalJitterCount)
 		}
 
-		meanDelta := 0.0
-		if state.deltaCount > 0 {
-			meanDelta = state.sumDelta / float64(state.deltaCount)
-		}
-
-		mos, rfactor := calculateMOS(state.packetLoss, meanJitter)
-
-		reportStart := uint32(state.reportStart.Unix())
-		reportEnd := uint32(now.Unix())
-
-		// RTP Report (type 34) — matches hepagent.go RTPReport field set
-		rpt := rtpReport{
+		final := rtpFinalReport{
 			CorrelationID: state.callID,
 			RTPSipCallID:  state.callID,
-			Delta:         round3(meanDelta),
-			Jitter:        round3(state.jitter),
-			ReportTS:      now.UnixMicro(),
-			TLByte:        uint64(state.octetCount),
-			Skew:          round3(state.maxSkew),
-			TotalPK:       state.packetCount,
-			ExpectedPK:    state.packetCount,
-			PacketLoss:    state.packetLoss,
-			Seq:           0,
-			MaxJitter:     round3(state.maxJitter),
-			MaxDelta:      round3(state.maxDelta),
-			MaxSkew:       round3(state.maxSkew),
+			TLByte:        state.globalOctetCount,
+			TotalPK:       state.globalPacketCount,
+			ExpectedPK:    state.globalPacketCount,
+			PacketLoss:    state.globalPacketLoss,
+			MinRFactor:    round3(state.globalMinRFactor),
+			MeanRFactor:   round3(meanRFactor),
+			MaxSkew:       round3(state.globalMaxSkew),
+			MaxDelta:      round3(state.globalMaxDelta),
 			MeanJitter:    round3(meanJitter),
-			MinMOS:        round3(mos),
-			MeanMOS:       round3(mos),
-			MOS:           round3(mos),
-			MaxMOS:        round3(mos),
-			RFactor:       round3(rfactor),
-			MinRFactor:    round3(rfactor),
-			MeanRFactor:   round3(rfactor),
-			SrcIP:         state.srcIP,
-			SrcPort:       state.srcPort,
-			DstIP:         state.dstIP,
-			DstPort:       state.dstPort,
-			OutOrder:      state.outOrder,
-			SSRC:          fmt.Sprintf("0x%x", ssrc),
-			SSRCChg:       0,
+			MaxJitter:     round3(state.globalMaxJitter),
+			MinMOS:        round3(state.globalMinMOS),
+			MeanMOS:       round3(meanMOS),
 			CodecPT:       state.mediaPT,
 			ClockRate:     clockRate,
 			CodecName:     codecName,
 			CodecChannel:  codecChannel,
-			Dir:           0,
-			OneWayRTP:     0,
+			SSRC:          fmt.Sprintf("0x%x", ssrc),
 			ReportName:    fmt.Sprintf("%s-%d", state.srcIP, state.srcPort),
-			Party:         0,
 			SType:         "GOSSIPPER",
-			Type:          "PERIODIC",
-			ReportStart:   reportStart,
-			ReportEnd:     reportEnd,
+			Type:          "FINAL",
 		}
-		if jsonData, err := json.Marshal(rpt); err == nil {
-			c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolRTPReport, jsonData)
+		if jsonData, err := json.Marshal(final); err == nil {
+			c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolRTPReport, state.callID, jsonData)
 		}
 
-		// RTCP Short Report (type 37) — matches hepagent.go RTCPShortReport
-		rtcpReport := rtcpShortReport{
-			CorrelationID:  state.callID,
-			RTPSipCallID:   state.callID,
-			MOS:            round3(mos),
-			RFactor:        round3(rfactor),
-			Dir:            0,
-			ReportName:     fmt.Sprintf("%s-%d", state.srcIP, state.srcPort),
-			Party:          0,
-			SSRC:           fmt.Sprintf("0x%x", ssrc),
-			CumPacketLoss:  state.packetLoss,
-			MeanPacketLoss: 0,
-			Source:         "GOSSIPPER",
-			Type:           "PERIODIC",
-			ReportTS:       now.UnixMilli(),
-			SrcIP:          state.srcIP,
-			SrcPort:        state.srcPort,
-			DstIP:          state.dstIP,
-			DstPort:        state.dstPort,
-			CodecPT:        state.mediaPT,
-			ClockRate:      clockRate,
-			CodecName:      codecName,
-		}
-		if jsonData, err := json.Marshal(rtcpReport); err == nil {
-			c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolRTCPReport, jsonData)
-		}
-
-		// Reset per-period accumulators; preserve stream identity fields.
-		state.packetCount = 0
-		state.octetCount = 0
-		state.jitter = 0
-		state.maxJitter = 0
-		state.sumJitter = 0
-		state.sumDelta = 0
-		state.deltaCount = 0
-		state.maxDelta = 0
-		state.maxSkew = 0
-		state.outOrder = 0
-		state.reportStart = now
-
-		// DTMF Report (type 100) — only if events were accumulated
-		if len(state.dtmfEvents) > 0 {
-			dtmfRpt := dtmfReport{
-				CorrelationID: state.callID,
-				ReportTS:      now.UnixMilli(),
-				DTMF:          strings.Join(state.dtmfEvents, ";"),
-				SrcIP:         state.srcIP,
-				SrcPort:       uint16(state.srcPort),
-				DstIP:         state.dstIP,
-				DstPort:       uint16(state.dstPort),
-				CodecPT:       state.dtmfPT,
-				CodecName:     "telephone-event",
-				Party:         1,
-				SType:         "GOSSIPPER-DTMF",
-				Type:          "PERIODIC",
-			}
-			if jsonData, err := json.Marshal(dtmfRpt); err == nil {
-				c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolDTMF, jsonData)
-			}
-			state.dtmfEvents = state.dtmfEvents[:0]
-		}
+		delete(c.rtpStreams, ssrc)
 	}
 }
 
@@ -555,7 +680,7 @@ func (c *Client) sendRawRTCPReports(now time.Time) {
 			continue
 		}
 		sr := buildRTCPSR(ssrc, state, now)
-		c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolRTCP, sr)
+		c.sendHEP(now, state.srcIP, state.srcPort, state.dstIP, state.dstPort, ProtocolRTCP, state.callID, sr)
 	}
 }
 
@@ -589,18 +714,19 @@ func buildRTCPSR(ssrc uint32, state *rtpStreamState, now time.Time) []byte {
 
 // sendHEP encodes and sends a HEP packet. Must be called with c.mu held or from a
 // context where concurrent access to conn is safe (conn itself is goroutine-safe).
-func (c *Client) sendHEP(now time.Time, srcIP string, srcPort int, dstIP string, dstPort int, protoType uint8, payload []byte) {
+func (c *Client) sendHEP(now time.Time, srcIP string, srcPort int, dstIP string, dstPort int, protoType uint8, correlationID string, payload []byte) {
 	packet, err := Encode(Message{
-		Time:       now,
-		SrcIP:      srcIP,
-		DstIP:      dstIP,
-		SrcPort:    srcPort,
-		DstPort:    dstPort,
-		IPProtocol: ipProtoUDP,
-		ProtoType:  protoType,
-		CaptureID:  c.captureID,
-		AuthKey:    c.password,
-		Payload:    payload,
+		Time:          now,
+		SrcIP:         srcIP,
+		DstIP:         dstIP,
+		SrcPort:       srcPort,
+		DstPort:       dstPort,
+		IPProtocol:    ipProtoUDP,
+		ProtoType:     protoType,
+		CaptureID:     c.captureID,
+		AuthKey:       c.password,
+		CorrelationID: correlationID,
+		Payload:       payload,
 	})
 	if err != nil {
 		return
@@ -778,6 +904,37 @@ type dtmfReport struct {
 	Type          string `json:"TYPE"`
 }
 
+// rtpFinalReport matches hepagent.go RTPFinalReport — cumulative stats over the entire call.
+// Sent once at call teardown with TYPE="FINAL" using ProtocolRTPReport (HEP type 34).
+type rtpFinalReport struct {
+	CorrelationID string  `json:"CORRELATION_ID"`
+	RTPSipCallID  string  `json:"RTP_SIP_CALL_ID"`
+	TLByte        uint64  `json:"TOTAL_BYTES"`
+	TotalPK       uint32  `json:"TOTAL_PACKETS"`
+	ExpectedPK    uint32  `json:"TOTAL_EXPECTED_PK"`
+	PacketLoss    uint32  `json:"TOTAL_PACKET_LOSS"`
+	MinRFactor    float64 `json:"MIN_RFACTOR"`
+	MeanRFactor   float64 `json:"MEAN_RFACTOR"`
+	MaxSkew       float64 `json:"MAX_SKEW"`
+	MaxDelta      float64 `json:"MAX_DELTA"`
+	MeanJitter    float64 `json:"MEAN_JITTER"`
+	MaxJitter     float64 `json:"MAX_JITTER"`
+	MinMOS        float64 `json:"MIN_MOS"`
+	MeanMOS       float64 `json:"MEAN_MOS"`
+	OneWayRTP     uint8   `json:"ONE_WAY_RTP"`
+	CodecChg      uint8   `json:"CODEC_CH"`
+	CodecPT       uint8   `json:"CODEC_PT"`
+	ClockRate     uint32  `json:"CLOCK"`
+	CodecName     string  `json:"CODEC_NAME"`
+	CodecChannel  uint8   `json:"CODEC_CHANNEL"`
+	SSRC          string  `json:"SSRC"`
+	ReportName    string  `json:"REPORT_NAME"`
+	Dir           uint8   `json:"DIR"`
+	Party         uint8   `json:"PARTY"`
+	SType         string  `json:"STYPE"`
+	Type          string  `json:"TYPE"`
+}
+
 // Encode encodes a HEP3 packet.
 func Encode(msg Message) ([]byte, error) {
 	srcIP, family, err := parseIP(msg.SrcIP)
@@ -816,6 +973,9 @@ func Encode(msg Message) ([]byte, error) {
 	writeChunkUint32(&chunks, chunkCaptureID, msg.CaptureID)
 	if msg.AuthKey != "" {
 		writeChunkBytes(&chunks, chunkAuthKey, []byte(msg.AuthKey))
+	}
+	if msg.CorrelationID != "" {
+		writeChunkBytes(&chunks, chunkCorrelationID, []byte(msg.CorrelationID))
 	}
 	writeChunkBytes(&chunks, chunkPayload, msg.Payload)
 
@@ -897,6 +1057,8 @@ func Decode(packet []byte) (Decoded, error) {
 			}
 		case chunkAuthKey:
 			out.AuthKey = string(payload)
+		case chunkCorrelationID:
+			out.CorrelationID = string(payload)
 		case chunkPayload:
 			out.Payload = append([]byte(nil), payload...)
 		}
