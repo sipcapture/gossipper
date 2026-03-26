@@ -40,7 +40,6 @@ func Run() error {
 	state := &runtimeState{screen: "config"}
 	profiles := loadProfiles()
 	filteredProfiles := filterProfiles(profiles, "client")
-	selectedProfile := filteredProfiles[0]
 
 	configStatus := tview.NewTextView().
 		SetDynamicColors(true).
@@ -78,18 +77,13 @@ func Run() error {
 	transports := []string{"u1", "un", "ui", "t1", "tn", "l1", "ln", "s1", "sn"}
 	modeField.SetOptions([]string{"client", "server"}, func(text string, _ int) {
 		filteredProfiles = filterProfiles(profiles, text)
-		selectedProfile = filteredProfiles[0]
-		profileField.SetOptions(profileLabels(filteredProfiles), func(_ string, idx int) {
-			selectedProfile = filteredProfiles[idx]
-		})
+		profileField.SetOptions(profileLabels(filteredProfiles), nil)
 		profileField.SetCurrentOption(0)
 		transportField.SetCurrentOption(defaultTransportIndex(text, transports))
 	})
 	modeField.SetCurrentOption(0)
 
-	profileField.SetOptions(profileLabels(filteredProfiles), func(_ string, idx int) {
-		selectedProfile = filteredProfiles[idx]
-	})
+	profileField.SetOptions(profileLabels(filteredProfiles), nil)
 	profileField.SetCurrentOption(0)
 	transportField.SetOptions(transports, nil)
 	transportField.SetCurrentOption(defaultTransportIndex("client", transports))
