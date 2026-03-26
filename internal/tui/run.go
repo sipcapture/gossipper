@@ -120,6 +120,11 @@ func Run() error {
 		AddFormItem(traceMsgField).
 		AddFormItem(traceErrField)
 	form.AddButton("Start", func() {
+		selectedProfile, err := currentProfile(profileField, filteredProfiles)
+		if err != nil {
+			configStatus.SetText(fmt.Sprintf("[red]%v", err))
+			return
+		}
 		args, err := buildArgs(
 			selectedProfile,
 			currentText(modeField),
@@ -593,6 +598,14 @@ func defaultTransportIndex(mode string, options []string) int {
 func currentText(dropdown *tview.DropDown) string {
 	_, text := dropdown.GetCurrentOption()
 	return text
+}
+
+func currentProfile(dropdown *tview.DropDown, profiles []profile) (profile, error) {
+	idx, _ := dropdown.GetCurrentOption()
+	if idx < 0 || idx >= len(profiles) {
+		return profile{}, fmt.Errorf("selected profile index is out of range: %d", idx)
+	}
+	return profiles[idx], nil
 }
 
 func defaultString(value string, fallback string) string {
