@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/rivo/tview"
 )
 
 func TestBumpRateUsesScaleAndSteps(t *testing.T) {
@@ -179,5 +181,40 @@ func TestBuildArgsIncludesHEPMediaFlags(t *testing.T) {
 	}
 	if !strings.Contains(joined, "-hep_raw_rtcp=false") {
 		t.Fatalf("missing hep_raw_rtcp=false: %v", args)
+	}
+}
+
+func TestCurrentProfileUsesActiveOption(t *testing.T) {
+	t.Parallel()
+
+	profiles := []profile{
+		{Name: "builtin-uac"},
+		{Name: "builtin-uas"},
+		{Name: "custom-xml"},
+	}
+
+	dropdown := tview.NewDropDown()
+	dropdown.SetOptions([]string{"builtin-uac", "builtin-uas", "custom-xml"}, nil)
+	dropdown.SetCurrentOption(2)
+
+	selected, err := currentProfile(dropdown, profiles)
+	if err != nil {
+		t.Fatalf("currentProfile() error = %v", err)
+	}
+	if selected.Name != "custom-xml" {
+		t.Fatalf("expected custom-xml, got %q", selected.Name)
+	}
+}
+
+func TestCurrentProfileErrorsOnOutOfRange(t *testing.T) {
+	t.Parallel()
+
+	dropdown := tview.NewDropDown()
+	dropdown.SetOptions([]string{"builtin-uac"}, nil)
+	dropdown.SetCurrentOption(0)
+
+	_, err := currentProfile(dropdown, []profile{})
+	if err == nil {
+		t.Fatal("expected error for empty profile list")
 	}
 }
