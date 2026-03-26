@@ -46,10 +46,24 @@ jobs:
       - name: Set version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "VERSION=${{ inputs.ref_name }}" >> "$GITHUB_ENV"
+            VERSION="${{ inputs.ref_name }}"
           else
-            echo "VERSION=${{ github.ref_name }}" >> "$GITHUB_ENV"
+            VERSION="${{ github.ref_name }}"
           fi
+          VERSION="${VERSION#v}"
+          if [ -z "${VERSION}" ]; then
+            echo "::error::VERSION is empty. Provide version via ref_name input or valid tag."
+            exit 1
+          fi
+          VERSION_ESCAPED=$(printf '%s' "$VERSION" | sed -e 's/[\/&\\]/\\&/g')
+          sed -i \
+            "s|^\\([[:space:]]*Version[[:space:]]*=\\)\"[^\"]*\"|\\1\"${VERSION_ESCAPED}\"|" \
+            cmd/gossip/version.go
+          if ! grep -qF "\"${VERSION}\"" cmd/gossip/version.go; then
+            echo "::error::failed to update cmd/gossip/version.go to ${VERSION}"
+            exit 1
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
       - name: Test
         run: go test ./...
@@ -132,10 +146,24 @@ jobs:
       - name: Set version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "VERSION=${{ inputs.ref_name }}" >> "$GITHUB_ENV"
+            VERSION="${{ inputs.ref_name }}"
           else
-            echo "VERSION=${{ github.ref_name }}" >> "$GITHUB_ENV"
+            VERSION="${{ github.ref_name }}"
           fi
+          VERSION="${VERSION#v}"
+          if [ -z "${VERSION}" ]; then
+            echo "::error::VERSION is empty. Provide version via ref_name input or valid tag."
+            exit 1
+          fi
+          VERSION_ESCAPED=$(printf '%s' "$VERSION" | sed -e 's/[\/&\\]/\\&/g')
+          sed -i \
+            "s|^\\([[:space:]]*Version[[:space:]]*=\\)\"[^\"]*\"|\\1\"${VERSION_ESCAPED}\"|" \
+            cmd/gossip/version.go
+          if ! grep -qF "\"${VERSION}\"" cmd/gossip/version.go; then
+            echo "::error::failed to update cmd/gossip/version.go to ${VERSION}"
+            exit 1
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
       - name: Test
         run: go test ./...
