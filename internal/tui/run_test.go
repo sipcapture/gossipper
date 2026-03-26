@@ -48,6 +48,8 @@ func TestBuildArgsIncludesUIInfSettings(t *testing.T) {
 		"",
 		"",
 		"",
+		false,
+		true,
 		"/tmp/ui.csv",
 		"2",
 		false,
@@ -84,6 +86,8 @@ func TestBuildArgsRejectsUIWithoutInf(t *testing.T) {
 		"",
 		"",
 		"",
+		false,
+		true,
 		"",
 		"0",
 		false,
@@ -116,6 +120,8 @@ func TestBuildArgsServerKeepsUITransport(t *testing.T) {
 		"",
 		"",
 		"",
+		false,
+		true,
 		"/tmp/ui.csv",
 		"0",
 		false,
@@ -129,5 +135,49 @@ func TestBuildArgsServerKeepsUITransport(t *testing.T) {
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "-t ui") {
 		t.Fatalf("expected server ui transport to remain ui, got args: %v", args)
+	}
+}
+
+func TestBuildArgsIncludesHEPMediaFlags(t *testing.T) {
+	t.Parallel()
+
+	args, err := buildArgs(
+		profile{Name: "builtin-uac", ScenarioName: "uac"},
+		"client",
+		"u1",
+		"127.0.0.1:5060",
+		"127.0.0.1",
+		"0",
+		"service",
+		"1",
+		"1",
+		"1",
+		"1",
+		"1",
+		"",
+		"",
+		"",
+		"127.0.0.1:9060",
+		true,
+		false,
+		"",
+		"0",
+		false,
+		false,
+		false,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("buildArgs() error = %v", err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-hep_addr 127.0.0.1:9060") {
+		t.Fatalf("missing hep_addr: %v", args)
+	}
+	if !strings.Contains(joined, "-send_media_report") {
+		t.Fatalf("missing send_media_report: %v", args)
+	}
+	if !strings.Contains(joined, "-hep_raw_rtcp=false") {
+		t.Fatalf("missing hep_raw_rtcp=false: %v", args)
 	}
 }

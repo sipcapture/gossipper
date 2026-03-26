@@ -66,6 +66,8 @@ func Run() error {
 	authPassField := tview.NewInputField().SetLabel("Auth pass: ").SetText(defaults.AuthPassword)
 	customXMLField := tview.NewInputField().SetLabel("Custom XML: ").SetText("")
 	hepAddrField := tview.NewInputField().SetLabel("HEP addr: ").SetText("")
+	sendMediaReportField := tview.NewCheckbox().SetLabel("send_media_report ")
+	hepRawRTCPField := tview.NewCheckbox().SetLabel("hep_raw_rtcp ").SetChecked(true)
 	infField := tview.NewInputField().SetLabel("UI inf CSV: ").SetText("")
 	ipFieldField := tview.NewInputField().SetLabel("UI ip_field: ").SetText("0")
 	traceStatField := tview.NewCheckbox().SetLabel("trace_stat ")
@@ -109,6 +111,8 @@ func Run() error {
 		AddFormItem(authPassField).
 		AddFormItem(customXMLField).
 		AddFormItem(hepAddrField).
+		AddFormItem(sendMediaReportField).
+		AddFormItem(hepRawRTCPField).
 		AddFormItem(infField).
 		AddFormItem(ipFieldField).
 		AddFormItem(traceStatField).
@@ -133,6 +137,8 @@ func Run() error {
 			authPassField.GetText(),
 			customXMLField.GetText(),
 			hepAddrField.GetText(),
+			sendMediaReportField.IsChecked(),
+			hepRawRTCPField.IsChecked(),
 			infField.GetText(),
 			ipFieldField.GetText(),
 			traceStatField.IsChecked(),
@@ -477,6 +483,8 @@ func buildArgs(
 	authPass string,
 	customXML string,
 	hepAddr string,
+	sendMediaReport bool,
+	hepRawRTCP bool,
 	infPath string,
 	ipField string,
 	traceStat bool,
@@ -531,6 +539,14 @@ func buildArgs(
 	}
 	if hep := strings.TrimSpace(hepAddr); hep != "" {
 		args = append(args, "-hep_addr", hep)
+		if sendMediaReport {
+			args = append(args, "-send_media_report")
+		}
+		if hepRawRTCP {
+			args = append(args, "-hep_raw_rtcp=true")
+		} else {
+			args = append(args, "-hep_raw_rtcp=false")
+		}
 	}
 	if transport == "ui" {
 		infPath = strings.TrimSpace(infPath)
