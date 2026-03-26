@@ -30,6 +30,12 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref_name || github.ref }}
 
+      - name: Use isolated Go cache paths
+        run: |
+          mkdir -p "${RUNNER_TEMP}/gomodcache" "${RUNNER_TEMP}/gocache"
+          echo "GOMODCACHE=${RUNNER_TEMP}/gomodcache" >> "$GITHUB_ENV"
+          echo "GOCACHE=${RUNNER_TEMP}/gocache" >> "$GITHUB_ENV"
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -109,6 +115,12 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref_name || github.ref }}
 
+      - name: Use isolated Go cache paths
+        run: |
+          mkdir -p "${RUNNER_TEMP}/gomodcache" "${RUNNER_TEMP}/gocache"
+          echo "GOMODCACHE=${RUNNER_TEMP}/gomodcache" >> "$GITHUB_ENV"
+          echo "GOCACHE=${RUNNER_TEMP}/gocache" >> "$GITHUB_ENV"
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -138,8 +150,6 @@ jobs:
       - name: Install nfpm
         if: github.event_name == 'release' || inputs.release
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget tar
           wget -qO- https://github.com/goreleaser/nfpm/releases/download/v2.41.1/nfpm_2.41.1_Linux_x86_64.tar.gz | tar --directory ./ -xz nfpm
           chmod +x nfpm
           echo "$PWD" >> "$GITHUB_PATH"
