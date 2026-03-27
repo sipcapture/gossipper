@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"unsafe"
 	"time"
 
 	"github.com/qxip/gossipper/internal/cli"
@@ -49,9 +51,9 @@ func Run() error {
 		SetDynamicColors(true).
 		SetWrap(false)
 
-	modeField := tview.NewDropDown().SetLabel("Mode: ")
-	profileField := tview.NewDropDown().SetLabel("Profile: ")
-	transportField := tview.NewDropDown().SetLabel("Transport: ")
+	modeField := styleDropdown(tview.NewDropDown().SetLabel("Mode: "))
+	profileField := styleDropdown(tview.NewDropDown().SetLabel("Profile: "))
+	transportField := styleDropdown(tview.NewDropDown().SetLabel("Transport: "))
 	remoteField := tview.NewInputField().SetLabel("Remote addr: ").SetText("")
 	localIPField := tview.NewInputField().SetLabel("Local IP: ").SetText(defaults.LocalIP)
 	localPortField := tview.NewInputField().SetLabel("Local port: ").SetText(strconv.Itoa(defaults.LocalPort))
@@ -114,6 +116,10 @@ func Run() error {
 		AddFormItem(traceMsgField).
 		AddFormItem(traceErrField)
 	form.AddButton("Start", func() {
+		commitDropdownSelection(modeField, 0)
+		commitDropdownSelection(transportField, defaultTransportIndex(currentText(modeField), transports))
+		commitDropdownSelection(profileField, 0)
+
 		selectedProfile, err := currentProfile(profileField, filteredProfiles)
 		if err != nil {
 			configStatus.SetText(fmt.Sprintf("[red]%v", err))
@@ -592,6 +598,78 @@ func defaultTransportIndex(mode string, options []string) int {
 func currentText(dropdown *tview.DropDown) string {
 	_, text := dropdown.GetCurrentOption()
 	return text
+}
+
+func styleDropdown(dropdown *tview.DropDown) *tview.DropDown {
+	if dropdown == nil {
+		return nil
+	}
+
+	dropdown.SetListStyles(
+		tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite),
+		tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorGreen),
+	)
+	dropdown.SetFieldStyle(
+		tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorWhite),
+	)
+	dropdown.SetFocusedStyle(
+		tcell.StyleDefault.Foreground(tcell.ColorBlack).Background(tcell.ColorGreen),
+	)
+
+	return dropdown
+}
+
+func commitDropdownSelection(dropdown *tview.DropDown, fallback int) {
+	if dropdown == nil {
+		return
+	}
+
+	idx, ok := dropdownListCurrentItem(dropdown)
+	if !ok {
+		return
+	}
+
+	count := dropdown.GetOptionCount()
+	if idx < 0 || idx >= count {
+		if fallback >= 0 && fallback < count {
+			dropdown.SetCurrentOption(fallback)
+		}
+		return
+	}
+
+	if current, _ := dropdown.GetCurrentOption(); current == idx {
+		return
+	}
+	dropdown.SetCurrentOption(idx)
+}
+
+func dropdownListCurrentItem(dropdown *tview.DropDown) (int, bool) {
+	if dropdown == nil {
+		return -1, false
+	}
+
+	value := reflect.ValueOf(dropdown)
+	if value.Kind() != reflect.Ptr || value.IsNil() {
+		return -1, false
+	}
+
+	elem := value.Elem()
+	if !elem.IsValid() {
+		return -1, false
+	}
+
+	listField := elem.FieldByName("list")
+	if !listField.IsValid() || !listField.CanAddr() {
+		return -1, false
+	}
+
+	listValue := reflect.NewAt(listField.Type(), unsafe.Pointer(listField.UnsafeAddr())).Elem()
+	list, ok := listValue.Interface().(*tview.List)
+	if !ok || list == nil {
+		return -1, false
+	}
+
+	return list.GetCurrentItem(), true
 }
 
 func currentProfile(dropdown *tview.DropDown, profiles []profile) (profile, error) {
