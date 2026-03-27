@@ -55,10 +55,14 @@ jobs:
             echo "::error::VERSION is empty. Provide version via ref_name input or valid tag."
             exit 1
           fi
-          VERSION_ESCAPED=$(printf '%s' "$VERSION" | sed -e 's/[\/&\\]/\\&/g')
-          sed -i \
-            "s|^\\([[:space:]]*Version[[:space:]]*=\\)\"[^\"]*\"|\\1\"${VERSION_ESCAPED}\"|" \
-            cmd/gossip/version.go
+          TMP_FILE=$(mktemp)
+          awk -v version="$VERSION" '
+            $0 ~ /^[[:space:]]*Version[[:space:]]*=/ {
+              sub(/"[^"]*"/, "\"" version "\"")
+            }
+            { print }
+          ' cmd/gossip/version.go > "$TMP_FILE"
+          mv "$TMP_FILE" cmd/gossip/version.go
           if ! grep -qF "\"${VERSION}\"" cmd/gossip/version.go; then
             echo "::error::failed to update cmd/gossip/version.go to ${VERSION}"
             exit 1
@@ -155,10 +159,14 @@ jobs:
             echo "::error::VERSION is empty. Provide version via ref_name input or valid tag."
             exit 1
           fi
-          VERSION_ESCAPED=$(printf '%s' "$VERSION" | sed -e 's/[\/&\\]/\\&/g')
-          sed -i \
-            "s|^\\([[:space:]]*Version[[:space:]]*=\\)\"[^\"]*\"|\\1\"${VERSION_ESCAPED}\"|" \
-            cmd/gossip/version.go
+          TMP_FILE=$(mktemp)
+          awk -v version="$VERSION" '
+            $0 ~ /^[[:space:]]*Version[[:space:]]*=/ {
+              sub(/"[^"]*"/, "\"" version "\"")
+            }
+            { print }
+          ' cmd/gossip/version.go > "$TMP_FILE"
+          mv "$TMP_FILE" cmd/gossip/version.go
           if ! grep -qF "\"${VERSION}\"" cmd/gossip/version.go; then
             echo "::error::failed to update cmd/gossip/version.go to ${VERSION}"
             exit 1
