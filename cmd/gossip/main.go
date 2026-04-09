@@ -48,22 +48,15 @@ func run(args []string) error {
 		return nil
 	}
 
-	prepared, err := launcher.Prepare(cfg)
-	if err != nil {
-		return err
-	}
-
-	// Profiling: pprof HTTP server for live profiling
-	if prepared.CLIConfig.PprofAddr != "" {
+	// Profiling setup is common to all run modes.
+	if cfg.PprofAddr != "" {
 		go func() {
-			fmt.Fprintf(os.Stderr, "pprof: listening on %s (e.g. go tool pprof http://localhost%s/debug/pprof/profile?seconds=30)\n", prepared.CLIConfig.PprofAddr, prepared.CLIConfig.PprofAddr)
-			_ = http.ListenAndServe(prepared.CLIConfig.PprofAddr, nil)
+			fmt.Fprintf(os.Stderr, "pprof: listening on %s (e.g. go tool pprof http://localhost%s/debug/pprof/profile?seconds=30)\n", cfg.PprofAddr, cfg.PprofAddr)
+			_ = http.ListenAndServe(cfg.PprofAddr, nil)
 		}()
 	}
-
-	// Profiling: CPU profile to file at exit
-	if prepared.CLIConfig.CPUProfile != "" {
-		f, err := os.Create(prepared.CLIConfig.CPUProfile)
+	if cfg.CPUProfile != "" {
+		f, err := os.Create(cfg.CPUProfile)
 		if err != nil {
 			return fmt.Errorf("cpuprofile: %w", err)
 		}
@@ -76,11 +69,9 @@ func run(args []string) error {
 			_ = f.Close()
 		}()
 	}
-
-	// Profiling: memory profile to file at exit
-	if prepared.CLIConfig.MemProfile != "" {
+	if cfg.MemProfile != "" {
 		defer func() {
-			f, err := os.Create(prepared.CLIConfig.MemProfile)
+			f, err := os.Create(cfg.MemProfile)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "memprofile: %v\n", err)
 				return
@@ -97,12 +88,28 @@ func run(args []string) error {
 	defer stop()
 	ctx := baseCtx
 	cancelTimeout := func() {}
-	if prepared.CLIConfig.GlobalTimeout > 0 {
+	if cfg.GlobalTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(baseCtx, prepared.CLIConfig.GlobalTimeout)
+		ctx, cancel = context.WithTimeout(baseCtx, cfg.GlobalTimeout)
 		cancelTimeout = cancel
 	}
 	defer cancelTimeout()
+
+	// Standalone RTP sender — bypasses SIP scenario engine entirely.
+	if cfg.RTPSend {
+		err := launcher.RunRTPSender(ctx, cfg)
+		stop()
+		cancelTimeout()
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return nil
+	}
+
+	prepared, err := launcher.Prepare(cfg)
+	if err != nil {
+		return err
+	}
 
 	app := engine.New(prepared.EngineConfig)
 	screenDumpSignals := make(chan os.Signal, 1)
@@ -125,7 +132,7 @@ func run(args []string) error {
 	stop()
 	cancelTimeout()
 	<-dumpDone
-	if err != nil && !errors.Is(err, context.Canceled) && !(errors.Is(err, context.DeadlineExceeded) && prepared.CLIConfig.GlobalTimeout > 0) {
+	if err != nil && !errors.Is(err, context.Canceled) && !(errors.Is(err, context.DeadlineExceeded) && cfg.GlobalTimeout > 0) {
 		return err
 	}
 

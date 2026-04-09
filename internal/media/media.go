@@ -33,6 +33,15 @@ type StreamConfig struct {
 	PacketDuration time.Duration
 	LoopCount      int
 	Path           string
+	// Synthetic controls whether RTP payloads are generated without a media file.
+	// When true, silence frames are produced based on PayloadType and Channels.
+	Synthetic bool
+	// Duration is the total streaming time. Zero means unlimited (stop only via
+	// context cancellation or LoopCount exhaustion).
+	Duration time.Duration
+	// Channels is the number of audio channels (1 = mono, 2 = stereo).
+	// Zero is treated as 1.
+	Channels uint8
 }
 
 type Session struct {
@@ -122,6 +131,32 @@ func BuildSilentPCMU(cfg StreamConfig, payloadBytes int) ([]byte, error) {
 	return BuildPacket(cfg, payload)
 }
 
+// buildSyntheticPayload creates a single silence RTP payload frame according to
+// cfg.PayloadType, cfg.SamplesPerPkt and cfg.Channels.
+func buildSyntheticPayload(cfg StreamConfig) []byte {
+	channels := int(cfg.Channels)
+	if channels < 1 {
+		channels = 1
+	}
+	size := int(cfg.SamplesPerPkt) * channels
+	if size <= 0 {
+		size = 160
+	}
+	payload := make([]byte, size)
+	switch cfg.PayloadType {
+	case 0: // PCMU — μ-law silence
+		for i := range payload {
+			payload[i] = 0xFF
+		}
+	case 8: // PCMA — A-law silence
+		for i := range payload {
+			payload[i] = 0xD5
+		}
+	// All other codecs: zero bytes are a reasonable silence representation.
+	}
+	return payload
+}
+
 func DefaultConfig(path string) StreamConfig {
 	return StreamConfig{
 		PayloadType:    0,
@@ -137,6 +172,21 @@ func DefaultConfig(path string) StreamConfig {
 	}
 }
 
+// ParseRTPStreamSpec parses the value of an rtp_stream action.
+//
+// Control commands (no config):
+//
+//	pause | resume | stop | echo
+//
+// File-based streaming (existing behaviour):
+//
+//	<path>[,<loopCount>[,<pt>[,<codecName>]]]
+//
+// Synthetic streaming (no file required):
+//
+//	synthetic[,<loopCount>[,<pt>[,<codecName>[,<freqMs>[,<durationMs>[,<channels>]]]]]]
+//
+// All numeric parts are optional and default to sensible values.
 func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, error) {
 	spec = strings.TrimSpace(spec)
 	switch strings.ToLower(spec) {
@@ -145,11 +195,51 @@ func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, err
 	}
 
 	parts := strings.Split(spec, ",")
-	path := strings.TrimSpace(parts[0])
-	if path == "" {
-		return "", StreamConfig{}, errors.New("rtp_stream requires a path")
+	first := strings.TrimSpace(parts[0])
+	if first == "" {
+		return "", StreamConfig{}, errors.New("rtp_stream requires a path or 'synthetic'")
 	}
-	cfg := DefaultConfig(ResolvePath(basePath, path))
+
+	if strings.ToLower(first) == "synthetic" {
+		cfg := DefaultConfig("")
+		cfg.Synthetic = true
+		// part[1]: loopCount — accepted but ignored for synthetic (Duration is the stop
+		// condition); kept for spec symmetry with file-based streaming.
+		if len(parts) > 2 {
+			var pt int
+			fmt.Sscanf(strings.TrimSpace(parts[2]), "%d", &pt)
+			cfg.PayloadType = uint8(pt)
+		}
+		if len(parts) > 3 {
+			ApplyPayloadParams(&cfg, strings.TrimSpace(parts[3]))
+		} else {
+			ApplyPayloadParams(&cfg, cfg.PayloadName)
+		}
+		if len(parts) > 4 {
+			var freqMs int
+			fmt.Sscanf(strings.TrimSpace(parts[4]), "%d", &freqMs)
+			if freqMs > 0 {
+				cfg.PacketDuration = time.Duration(freqMs) * time.Millisecond
+			}
+		}
+		if len(parts) > 5 {
+			var durMs int
+			fmt.Sscanf(strings.TrimSpace(parts[5]), "%d", &durMs)
+			if durMs > 0 {
+				cfg.Duration = time.Duration(durMs) * time.Millisecond
+			}
+		}
+		if len(parts) > 6 {
+			var ch int
+			fmt.Sscanf(strings.TrimSpace(parts[6]), "%d", &ch)
+			if ch > 0 {
+				cfg.Channels = uint8(ch)
+			}
+		}
+		return "start", cfg, nil
+	}
+
+	cfg := DefaultConfig(ResolvePath(basePath, first))
 	if len(parts) > 1 {
 		fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &cfg.LoopCount)
 	}
@@ -160,9 +250,9 @@ func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, err
 	}
 	if len(parts) > 3 {
 		payloadName := strings.TrimSpace(parts[3])
-		applyPayloadParams(&cfg, payloadName)
+		ApplyPayloadParams(&cfg, payloadName)
 	} else {
-		applyPayloadParams(&cfg, cfg.PayloadName)
+		ApplyPayloadParams(&cfg, cfg.PayloadName)
 	}
 	return "start", cfg, nil
 }
@@ -172,9 +262,13 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 		return fmt.Errorf("invalid RTP endpoint %s:%d", endpoint.IP, endpoint.Port)
 	}
 
-	packets, err := loadPackets(cfg)
-	if err != nil {
-		return err
+	var packets [][]byte
+	if !cfg.Synthetic {
+		var err error
+		packets, err = loadPackets(cfg)
+		if err != nil {
+			return err
+		}
 	}
 
 	s.Stop()
@@ -313,6 +407,19 @@ func (s *Session) Stop() {
 func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig, packets [][]byte, obs HEPObserver, callID string) {
 	defer s.Stop()
 
+	// Limit total stream time when Duration is set.
+	if cfg.Duration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.Duration)
+		defer cancel()
+	}
+
+	// Synthetic mode: generate a single silence frame and loop indefinitely
+	// (Duration or external context cancellation controls the stop).
+	if cfg.Synthetic {
+		packets = [][]byte{buildSyntheticPayload(cfg)}
+	}
+
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	localIP := localAddr.IP.String()
 	localPort := localAddr.Port
@@ -321,7 +428,8 @@ func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net
 	if loops == 0 {
 		loops = 1
 	}
-	infinite := loops < 0
+	// Synthetic streams always loop; Duration (or ctx) is the only stop condition.
+	infinite := loops < 0 || cfg.Synthetic
 
 	sequence := cfg.Sequence
 	timestamp := cfg.Timestamp
@@ -683,7 +791,12 @@ func linearToALaw(sample int16) byte {
 	return (sign | (exponent << 4) | mantissa) ^ 0xD5
 }
 
-func applyPayloadParams(cfg *StreamConfig, payloadName string) {
+// ApplyPayloadParams updates cfg with clock rate, samples-per-packet, packet
+// duration and (where defined by a static assignment in RFC 3551) payload type
+// for the given payloadName (e.g. "PCMU/8000", "PCMA/8000", "G722/8000",
+// "ILBC/8000", "H264/90000").  Dynamic PT codecs (ILBC, H264) are assigned
+// common defaults that can be overridden by the caller afterwards.
+func ApplyPayloadParams(cfg *StreamConfig, payloadName string) {
 	payloadName = strings.ToUpper(strings.TrimSpace(payloadName))
 	if payloadName == "" {
 		return
@@ -706,10 +819,12 @@ func applyPayloadParams(cfg *StreamConfig, payloadName string) {
 		cfg.SamplesPerPkt = 160
 		cfg.PacketDuration = 20 * time.Millisecond
 	case strings.HasPrefix(payloadName, "ILBC/8000"):
+		cfg.PayloadType = 97 // common dynamic PT per RFC 3952
 		cfg.ClockRate = 8000
 		cfg.SamplesPerPkt = 240
 		cfg.PacketDuration = 30 * time.Millisecond
 	case strings.HasPrefix(payloadName, "H264/90000"):
+		cfg.PayloadType = 96 // common dynamic PT per RFC 6184
 		cfg.ClockRate = 90000
 		cfg.SamplesPerPkt = 3000
 		cfg.PacketDuration = 33 * time.Millisecond

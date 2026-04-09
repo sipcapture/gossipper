@@ -86,6 +86,15 @@ type Config struct {
 	PprofAddr              string
 	CPUProfile             string
 	MemProfile             string
+
+	// Standalone RTP sender mode — bypasses SIP scenario engine entirely.
+	RTPSend     bool   // -rtp_send
+	RTPAddr     string // -rtp_addr  target "host:port"
+	RTPPT       int    // -rtp_pt    payload type (0 = PCMU)
+	RTPCodec    string // -rtp_codec codec name (e.g. "PCMU/8000")
+	RTPFreqMs   int    // -rtp_freq  packet interval ms (default 20)
+	RTPDurMs    int    // -rtp_dur   total duration ms (0 = unlimited)
+	RTPChannels int    // -rtp_ch    audio channels (default 1)
 }
 
 func DefaultConfig() Config {
@@ -107,6 +116,9 @@ func DefaultConfig() Config {
 		RTTDumpFrequency: 200,
 		TLSSkipVerify:    true,
 		IPField:          -1,
+		RTPCodec:         "PCMU/8000",
+		RTPFreqMs:        20,
+		RTPChannels:      1,
 	}
 }
 
@@ -189,6 +201,14 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.PprofAddr, "pprof", "", "pprof HTTP address (e.g. :6060) for live CPU/memory/goroutine profiling")
 	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "write CPU profile to file at exit")
 	fs.StringVar(&cfg.MemProfile, "memprofile", "", "write memory profile to file at exit")
+
+	fs.BoolVar(&cfg.RTPSend, "rtp_send", false, "enable standalone RTP sender mode (no SIP scenario required)")
+	fs.StringVar(&cfg.RTPAddr, "rtp_addr", "", "target RTP address host:port for standalone RTP sender")
+	fs.IntVar(&cfg.RTPPT, "rtp_pt", 0, "RTP payload type for standalone sender (0 = PCMU; applies after -rtp_codec)")
+	fs.StringVar(&cfg.RTPCodec, "rtp_codec", cfg.RTPCodec, "codec name for standalone RTP sender (e.g. PCMU/8000, PCMA/8000, G722/8000)")
+	fs.IntVar(&cfg.RTPFreqMs, "rtp_freq", cfg.RTPFreqMs, "packet interval in milliseconds for standalone RTP sender")
+	fs.IntVar(&cfg.RTPDurMs, "rtp_dur", 0, "total duration in milliseconds for standalone RTP sender (0 = run until interrupted)")
+	fs.IntVar(&cfg.RTPChannels, "rtp_ch", cfg.RTPChannels, "number of audio channels for standalone RTP sender (1 = mono)")
 
 	if err := fs.Parse(normalizedArgs); err != nil {
 		return Config{}, err
@@ -380,6 +400,21 @@ func Parse(args []string) (Config, error) {
 		case "t1", "l1":
 		default:
 			return Config{}, errors.New("max_reconnect/reconnect_sleep/reconnect_close are only supported with t1 or l1 transport")
+		}
+	}
+
+	if cfg.RTPSend {
+		if cfg.RTPAddr == "" {
+			return Config{}, errors.New("-rtp_addr is required for standalone RTP sender")
+		}
+		if cfg.RTPFreqMs <= 0 {
+			return Config{}, errors.New("rtp_freq must be greater than zero")
+		}
+		if cfg.RTPChannels <= 0 {
+			return Config{}, errors.New("rtp_ch must be greater than zero")
+		}
+		if cfg.RTPDurMs < 0 {
+			return Config{}, errors.New("rtp_dur must be greater than or equal to zero")
 		}
 	}
 

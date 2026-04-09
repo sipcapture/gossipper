@@ -20,6 +20,10 @@ The primary way to control an audio RTP stream from a scenario is the
 `exec rtp_stream` action inside any command that supports `<action>` blocks
 (`<nop>`, `<recv>`, etc.).
 
+> **Synthetic streams** — to stream without a media file, use the `synthetic`
+> keyword instead of a file path.  See [synthetic-rtp-sender.md](synthetic-rtp-sender.md)
+> for the full reference.
+
 ### Start a stream from a file
 
 ```xml
@@ -56,8 +60,8 @@ Supported payload descriptors:
 | `PCMU/8000` | 0 | 8000 Hz | 20 ms |
 | `PCMA/8000` | 8 | 8000 Hz | 20 ms |
 | `G722/8000` | 9 | 8000 Hz | 20 ms |
-| `ILBC/8000` | – | 8000 Hz | 30 ms |
-| `H264/90000` | – | 90000 Hz | 33 ms |
+| `ILBC/8000` | 97 | 8000 Hz | 30 ms |
+| `H264/90000` | 96 | 90000 Hz | 33 ms |
 
 Examples:
 
