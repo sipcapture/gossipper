@@ -12,9 +12,12 @@ import (
 	"runtime/pprof"
 	"syscall"
 
+	"flag"
+
 	"github.com/qxip/gossipper/internal/cli"
 	"github.com/qxip/gossipper/internal/engine"
 	"github.com/qxip/gossipper/internal/launcher"
+	"github.com/qxip/gossipper/internal/pcap2scenario"
 	templ "github.com/qxip/gossipper/internal/template"
 	"github.com/qxip/gossipper/internal/tui"
 )
@@ -33,6 +36,9 @@ func run(args []string) error {
 	}
 	if shouldRunTUI(args) {
 		return tui.Run()
+	}
+	if len(args) > 0 && args[0] == "pcap2scenario" {
+		return runPCAP2Scenario(args[1:])
 	}
 
 	cfg, err := cli.Parse(args)
@@ -168,4 +174,20 @@ func shouldRunTUI(args []string) bool {
 		}
 	}
 	return false
+}
+
+// runPCAP2Scenario implements the `gossipper pcap2scenario` sub-command.
+func runPCAP2Scenario(args []string) error {
+	fs := flag.NewFlagSet("pcap2scenario", flag.ContinueOnError)
+	outDir := fs.String("out", ".", "output directory for generated scenario files")
+	sipPort := fs.Int("sip-port", 0, "SIP signalling port (0 = auto-detect)")
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: gossipper pcap2scenario <file.pcap> [-out <dir>] [-sip-port <port>]")
+	}
+
+	return pcap2scenario.Run(fs.Arg(0), *outDir, *sipPort)
 }
