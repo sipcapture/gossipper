@@ -46,9 +46,10 @@ engine is bypassed entirely.
 | `G722/8000` | 9 | 8 000 Hz | 20 ms | 160 B (zero) |
 | `ILBC/8000` | 97 | 8 000 Hz | 30 ms | 240 B (zero) |
 | `H264/90000` | 96 | 90 000 Hz | 33 ms | 3000 B (zero) |
+| `OPUS/48000` | 111 | 48 000 Hz | 20 ms | 3 B (Opus DTX silence frame) |
 
-> **Dynamic payload types** — for ILBC and H264 the PT values above are common
-> defaults.  Use `-rtp_pt` to override when the remote party negotiates a
+> **Dynamic payload types** — for ILBC, H264 and Opus the PT values above are
+> common defaults.  Use `-rtp_pt` to override when the remote party negotiates a
 > different PT in the SDP offer.
 
 ### Examples
@@ -223,14 +224,21 @@ Content-Length: 0
 
 Synthetic payloads contain codec-appropriate silence bytes:
 
-| Codec | Silence byte | Rationale |
+| Codec | Payload | Rationale |
 |---|---|---|
-| PCMU (G.711 μ-law) | `0xFF` | μ-law encoding of zero-amplitude signal |
-| PCMA (G.711 A-law) | `0xD5` | A-law encoding of zero-amplitude signal |
-| All others | `0x00` | Zero-filled; most codecs treat this as silence or a degenerate frame |
+| PCMU (G.711 μ-law) | `0xFF` × `SamplesPerPkt × Channels` | μ-law encoding of zero-amplitude signal |
+| PCMA (G.711 A-law) | `0xD5` × `SamplesPerPkt × Channels` | A-law encoding of zero-amplitude signal |
+| Opus | `{0xF8, 0xFF, 0xFE}` (3 bytes) | Valid CELT FB 20 ms mono DTX frame (RFC 6716) |
+| All others | `0x00` × `SamplesPerPkt × Channels` | Zero-filled; most codecs treat this as silence or a degenerate frame |
 
-The payload size is `SamplesPerPkt × Channels`.  For mono PCMU/PCMA at 20 ms
-this is `160 × 1 = 160` bytes per packet.
+For PCM-based codecs (PCMU, PCMA, G722) the payload size is
+`SamplesPerPkt × Channels`.  For mono PCMU/PCMA at 20 ms this is
+`160 × 1 = 160` bytes per packet.
+
+For Opus, the payload is always 3 bytes regardless of channel count.  Opus is a
+variable-bitrate codec; its frames are not raw PCM and their size does not follow
+the PCM formula.  The `SamplesPerPkt` value (960 for 20 ms at 48 kHz) is used
+only for the RTP timestamp increment.
 
 ---
 

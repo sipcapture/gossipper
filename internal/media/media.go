@@ -132,8 +132,20 @@ func BuildSilentPCMU(cfg StreamConfig, payloadBytes int) ([]byte, error) {
 }
 
 // buildSyntheticPayload creates a single silence RTP payload frame according to
-// cfg.PayloadType, cfg.SamplesPerPkt and cfg.Channels.
+// cfg.PayloadType, cfg.PayloadName, cfg.SamplesPerPkt and cfg.Channels.
+//
+// For PCM-based codecs (PCMU, PCMA, G722) the payload is SamplesPerPkt×Channels
+// bytes of codec-appropriate silence.  For Opus, a structurally valid minimal
+// DTX frame is returned instead because Opus frames are not raw PCM.
 func buildSyntheticPayload(cfg StreamConfig) []byte {
+	// Opus requires a structurally valid packet rather than a fixed-size PCM
+	// silence buffer.  The three bytes below encode a CELT Full-Band 20 ms
+	// mono single-frame TOC (0xF8) followed by a minimal payload that most
+	// Opus decoders accept as comfort noise / DTX.
+	if strings.HasPrefix(strings.ToUpper(cfg.PayloadName), "OPUS") {
+		return []byte{0xF8, 0xFF, 0xFE}
+	}
+
 	channels := int(cfg.Channels)
 	if channels < 1 {
 		channels = 1
@@ -828,6 +840,14 @@ func ApplyPayloadParams(cfg *StreamConfig, payloadName string) {
 		cfg.ClockRate = 90000
 		cfg.SamplesPerPkt = 3000
 		cfg.PacketDuration = 33 * time.Millisecond
+	case strings.HasPrefix(payloadName, "OPUS/48000"):
+		cfg.PayloadType = 111 // common dynamic PT per WebRTC convention
+		cfg.ClockRate = 48000
+		// SamplesPerPkt drives the RTP timestamp increment only; the actual
+		// payload bytes are produced by buildSyntheticPayload independently
+		// of this value (Opus frames are not raw PCM).
+		cfg.SamplesPerPkt = 960 // 20 ms × 48 kHz
+		cfg.PacketDuration = 20 * time.Millisecond
 	}
 }
 

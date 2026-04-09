@@ -62,6 +62,7 @@ Supported payload descriptors:
 | `G722/8000` | 9 | 8000 Hz | 20 ms |
 | `ILBC/8000` | 97 | 8000 Hz | 30 ms |
 | `H264/90000` | 96 | 90000 Hz | 33 ms |
+|| `OPUS/48000` | 111 | 48000 Hz | 20 ms |
 
 Examples:
 
