@@ -1,18 +1,18 @@
-# pcap2scenario — генерация сценариев из PCAP
+# pcap2scenario — Generate Scenarios from a PCAP File
 
-`gossipper pcap2scenario` читает PCAP-файл с SIP+RTP трафиком и создаёт пару
-готовых к воспроизведению сценариев (UAC + UAS) вместе с извлечёнными
-RTP-потоками.
+`gossipper pcap2scenario` reads a PCAP file containing SIP+RTP traffic and
+produces a pair of ready-to-replay scenarios (UAC + UAS) together with the
+extracted RTP streams.
 
 ---
 
-## Быстрый старт
+## Quick Start
 
 ```bash
 gossipper pcap2scenario call.pcap
 ```
 
-Или с явными параметрами:
+With explicit options:
 
 ```bash
 gossipper pcap2scenario call.pcap -out ./scenarios -sip-port 5060
@@ -20,32 +20,32 @@ gossipper pcap2scenario call.pcap -out ./scenarios -sip-port 5060
 
 ---
 
-## Флаги
+## Flags
 
-| Флаг | По умолчанию | Описание |
-|------|-------------|----------|
-| `<file.pcap>` | — | Входной PCAP-файл (обязателен) |
-| `-out <dir>` | `.` (текущая папка) | Директория для выходных файлов |
-| `-sip-port <port>` | `0` (авто) | Порт SIP; `0` — эвристическое определение |
-
----
-
-## Выходные файлы
-
-После успешного запуска в выходной директории появятся:
-
-| Файл | Описание |
-|------|----------|
-| `scenario_uac.xml` | Сценарий звонящего (client mode) |
-| `scenario_uas.xml` | Сценарий принимающего (server mode) |
-| `caller_rtp.pcap` | RTP-пакеты со стороны caller |
-| `callee_rtp.pcap` | RTP-пакеты со стороны callee |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `<file.pcap>` | — | Input PCAP file (required) |
+| `-out <dir>` | `.` (current directory) | Output directory for generated files |
+| `-sip-port <port>` | `0` (auto) | SIP port; `0` enables heuristic detection |
 
 ---
 
-## Использование сценариев
+## Output Files
 
-### UAC (звонящий)
+After a successful run the output directory contains:
+
+| File | Description |
+|------|-------------|
+| `scenario_uac.xml` | Caller-side scenario (client mode) |
+| `scenario_uas.xml` | Callee-side scenario (server mode) |
+| `caller_rtp.pcap` | RTP packets from the caller's media stream |
+| `callee_rtp.pcap` | RTP packets from the callee's media stream |
+
+---
+
+## Running the Generated Scenarios
+
+### UAC (caller side)
 
 ```bash
 gossipper -scenario scenarios/scenario_uac.xml \
@@ -55,7 +55,7 @@ gossipper -scenario scenarios/scenario_uac.xml \
           -r 1
 ```
 
-### UAS (принимающий)
+### UAS (callee side)
 
 ```bash
 gossipper -scenario scenarios/scenario_uas.xml \
@@ -64,12 +64,13 @@ gossipper -scenario scenarios/scenario_uas.xml \
           -r 1
 ```
 
-> Файлы `caller_rtp.pcap` / `callee_rtp.pcap` должны лежать в той же директории,
-> из которой запускается gossipper (или по которой он ищет ресурсы сценария).
+> The `caller_rtp.pcap` / `callee_rtp.pcap` files must reside in the same
+> directory from which gossipper is run, or in the path where it resolves
+> scenario resources.
 
 ---
 
-## Поток обработки
+## Processing Pipeline
 
 ```
 call.pcap
@@ -77,17 +78,17 @@ call.pcap
     ▼
 ┌─────────────────────────────────────────┐
 │  Extractor                              │
-│  • SIP по UDP  → sip.Parse()            │
-│  • SIP по TCP  → tcpassembly +          │
-│                  sip.ReadMessage()       │
-│  • все UDP-пакеты (для RTP)             │
+│  • SIP over UDP  → sip.Parse()          │
+│  • SIP over TCP  → tcpassembly +        │
+│                    sip.ReadMessage()    │
+│  • all UDP frames retained for RTP      │
 └───────────────┬─────────────────────────┘
                 │
     ┌───────────▼──────────┐
     │  Dialog Builder      │
     │  INVITE → 200 → ACK  │
-    │  BYE → 200           │
-    │  SDP: RTP IP + порты │
+    │  BYE    → 200        │
+    │  SDP: RTP IP + ports │
     └───────────┬──────────┘
                 │
     ┌───────────▼──────────────────────────────┐
@@ -98,37 +99,38 @@ call.pcap
                 │
     ┌───────────▼──────────────────────────────┐
     │  Generator                               │
-    │  scenario_uac.xml  (темплатиз. SIP)      │
-    │  scenario_uas.xml  (last_Via/From паттерн)│
+    │  scenario_uac.xml  (templatised SIP)     │
+    │  scenario_uas.xml  ([last_Via:] pattern) │
     └──────────────────────────────────────────┘
 ```
 
 ---
 
-## Темплатизация SIP-сообщений
+## SIP Message Templatisation
 
-Конкретные значения из PCAP заменяются на переменные gossipper:
+Concrete values from the capture are replaced with gossipper template
+variables:
 
-| Поле в PCAP | Переменная в сценарии |
+| PCAP value | Scenario variable |
 |---|---|
-| IP caller | `[local_ip]` |
-| IP callee | `[remote_ip]` |
-| SIP-порт caller | `[local_port]` |
-| SIP-порт callee | `[remote_port]` |
+| Caller IP | `[local_ip]` |
+| Callee IP | `[remote_ip]` |
+| Caller SIP port | `[local_port]` |
+| Callee SIP port | `[remote_port]` |
 | Call-ID | `[call_id]` |
 | Via branch | `[branch]` |
-| Via транспорт | `[transport]` |
+| Via transport | `[transport]` |
 | From tag | `[pid]GossipTag00[call_number]` |
 | To tag (ACK/BYE) | `[peer_tag_param]` |
-| SDP `c=` адрес | `[local_ip]` |
+| SDP `c=` address | `[local_ip]` |
 | SDP `m=audio <port>` | `[media_port]` |
-| Content-Length | `[len]` (пересчитывается) |
-| CSeq номер | оставляется как есть |
-| Прочие заголовки | оставляются как есть |
+| Content-Length | `[len]` (recalculated at send time) |
+| CSeq number | preserved as-is |
+| All other headers | preserved as-is |
 
 ---
 
-## Пример генерируемого UAC-сценария
+## Generated UAC Scenario Example
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -161,7 +163,7 @@ call.pcap
   <recv response="100" optional="true"/>
   <recv response="180" optional="true"/>
 
-  <!-- На 200 OK сразу запускаем RTP-воспроизведение -->
+  <!-- On 200 OK, start replaying caller RTP immediately -->
   <recv response="200" rtd="true">
     <action>
       <exec play_pcap_audio="caller_rtp.pcap"/>
@@ -175,7 +177,7 @@ call.pcap
     ]]>
   </send>
 
-  <!-- Пауза = длительность звонка из оригинального PCAP -->
+  <!-- Pause matches the original call duration from the PCAP -->
   <pause milliseconds="5000"/>
 
   <nop>
@@ -194,7 +196,9 @@ call.pcap
 </scenario>
 ```
 
-## Пример генерируемого UAS-сценария
+---
+
+## Generated UAS Scenario Example
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -202,7 +206,7 @@ call.pcap
 
   <recv request="INVITE"/>
 
-  <!-- 180 Ringing -->
+  <!-- 180 Ringing — headers copied from the received INVITE -->
   <send>
     <![CDATA[
     SIP/2.0 180 Ringing
@@ -216,7 +220,7 @@ call.pcap
     ]]>
   </send>
 
-  <!-- 200 OK с SDP (кодеки из оригинального PCAP) -->
+  <!-- 200 OK with SDP — codec list taken from the original PCAP -->
   <send retrans="500">
     <![CDATA[
     SIP/2.0 200 OK
@@ -241,7 +245,7 @@ call.pcap
     ]]>
   </send>
 
-  <!-- На ACK запускаем RTP со стороны callee -->
+  <!-- On ACK, start replaying callee RTP -->
   <recv request="ACK">
     <action>
       <exec play_pcap_audio="callee_rtp.pcap"/>
@@ -273,28 +277,28 @@ call.pcap
 
 ---
 
-## Поддерживаемые форматы
+## Feature Support
 
-| Параметр | Поддержка |
+| Feature | Support |
 |---|---|
 | SIP over UDP | ✅ |
-| SIP over TCP (с reassembly) | ✅ |
+| SIP over TCP (with stream reassembly) | ✅ |
 | RTP audio (`m=audio`) | ✅ |
 | IPv4 | ✅ |
-| Pcap (libpcap format) | ✅ |
-| IPv6 | ⚠️ Парсируется, но темплатизация адресов не проверена |
-| Несколько звонков в одном PCAP | ⚠️ Берётся первый найденный Call-ID |
-| Re-INVITE / hold / transfer | ❌ v1 не поддерживает |
-| Аутентификация 407/401 | ❌ v1 не поддерживает |
-| SRTP | ❌ v1 не поддерживает |
-| Видео RTP (`m=video`) | ❌ только audio |
+| libpcap format (`.pcap`) | ✅ |
+| IPv6 | ⚠️ Parsed, but address templatisation is untested |
+| Multiple calls in one PCAP | ⚠️ First Call-ID found is used |
+| Re-INVITE / hold / transfer | ❌ Not supported in v1 |
+| 407/401 authentication challenge | ❌ Not supported in v1 |
+| SRTP | ❌ Not supported in v1 |
+| Video RTP (`m=video`) | ❌ Audio only |
 
 ---
 
-## Как работает определение SIP
+## SIP Detection
 
-Если `-sip-port` не задан (значение `0`), SIP-датаграммы определяются
-эвристически по началу payload:
+When `-sip-port` is not set (value `0`), SIP datagrams are identified
+heuristically by the start of the UDP payload:
 
 ```
 INVITE   ACK   BYE   CANCEL   OPTIONS   REGISTER
@@ -302,7 +306,8 @@ NOTIFY   SUBSCRIBE   PUBLISH   REFER   INFO   UPDATE   PRACK
 SIP/2.0 ...
 ```
 
-Если SIP идёт на нестандартном порту, укажите его явно:
+If SIP runs on a non-standard port, specify it explicitly to avoid false
+positives and speed up extraction:
 
 ```bash
 gossipper pcap2scenario call.pcap -sip-port 5080
@@ -310,7 +315,7 @@ gossipper pcap2scenario call.pcap -sip-port 5080
 
 ---
 
-## Связанная документация
+## Related Documentation
 
-- [RTP in scenarios](rtp-in-scenarios.md) — как использовать `play_pcap_audio` и `rtp_stream` в сценариях
-- [Synthetic RTP sender](synthetic-rtp-sender.md) — генерация тишины без PCAP-файла
+- [RTP in scenarios](rtp-in-scenarios.md) — using `play_pcap_audio` and `rtp_stream` actions
+- [Synthetic RTP sender](synthetic-rtp-sender.md) — generating silence frames without a PCAP file
