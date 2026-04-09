@@ -51,10 +51,17 @@ type Dialog struct {
 
 	// SIP messages from the dialog
 	INVITE RawSIPPacket
-	OK     RawSIPPacket  // 200 OK to INVITE
+	OK     RawSIPPacket // 200 OK to INVITE
 	ACK    RawSIPPacket
 	BYE    RawSIPPacket
-	BYEOK  RawSIPPacket  // 200 OK to BYE
+	BYEOK  RawSIPPacket // 200 OK to BYE
+
+	// Authentication challenge (401/407 flow).
+	// AuthChallengeCode is 0 when no challenge was detected.
+	AuthChallengeCode int
+	AuthChallenge     RawSIPPacket // 401 or 407 response to the first INVITE
+	AuthACK           RawSIPPacket // ACK sent to the 4xx response
+	AuthINVITE        RawSIPPacket // second INVITE that carries the credentials
 
 	CallDuration time.Duration
 }
@@ -90,6 +97,8 @@ func BuildDialog(messages []RawSIPPacket) (Dialog, error) {
 		INVITE:        invite,
 	}
 
+	inviteCSeqNum := parseCSeqNum(invite.Message.Headers)
+
 	// Caller RTP info from INVITE SDP.
 	if invite.Message.Body != "" {
 		ip, port := parseSDP(invite.Message.Body)
@@ -109,8 +118,41 @@ func BuildDialog(messages []RawSIPPacket) (Dialog, error) {
 		}
 		cseq, _ := sip.Header(m.Message.Headers, "CSeq")
 		cseqUpper := strings.ToUpper(cseq)
+		mCSeqNum := parseCSeqNum(m.Message.Headers)
 
 		switch {
+		// ── Auth challenge: 401 or 407 in response to the first INVITE ───
+		case (m.Message.StatusCode == 401 || m.Message.StatusCode == 407) &&
+			strings.Contains(cseqUpper, "INVITE") &&
+			mCSeqNum == inviteCSeqNum &&
+			dlg.AuthChallengeCode == 0:
+			dlg.AuthChallengeCode = m.Message.StatusCode
+			dlg.AuthChallenge = m
+
+		// ── ACK to the 4xx (same CSeq number as first INVITE) ────────────
+		case m.Message.Method == "ACK" &&
+			mCSeqNum == inviteCSeqNum &&
+			dlg.AuthChallengeCode != 0 &&
+			dlg.AuthACK.Message.Method == "":
+			dlg.AuthACK = m
+
+		// ── Second INVITE carrying credentials ────────────────────────────
+		case m.Message.Method == "INVITE" &&
+			mCSeqNum > inviteCSeqNum &&
+			dlg.AuthINVITE.Message.Method == "":
+			dlg.AuthINVITE = m
+			// Prefer SDP from the authenticated re-INVITE for RTP port.
+			if m.Message.Body != "" {
+				ip, port := parseSDP(m.Message.Body)
+				if port > 0 {
+					dlg.CallerRTPPort = port
+					if ip != "" {
+						dlg.CallerRTPIP = ip
+					}
+				}
+			}
+
+		// ── 200 OK to INVITE ──────────────────────────────────────────────
 		case m.Message.StatusCode == 200 &&
 			strings.Contains(cseqUpper, "INVITE") &&
 			dlg.OK.Message.StatusCode == 0:
@@ -125,7 +167,10 @@ func BuildDialog(messages []RawSIPPacket) (Dialog, error) {
 				}
 			}
 
-		case m.Message.Method == "ACK" && dlg.ACK.Message.Method == "":
+		// ── ACK to the 200 OK ─────────────────────────────────────────────
+		case m.Message.Method == "ACK" &&
+			dlg.OK.Message.StatusCode != 0 &&
+			dlg.ACK.Message.Method == "":
 			dlg.ACK = m
 
 		case m.Message.Method == "BYE" && dlg.BYE.Message.Method == "":
@@ -199,6 +244,19 @@ func sdpCodecLines(body string) []string {
 		}
 	}
 	return out
+}
+
+// parseCSeqNum extracts the sequence number from a CSeq header value.
+// e.g. "2 INVITE" → 2.  Returns 0 on any parse error.
+func parseCSeqNum(headers map[string][]string) int {
+	cseq, _ := sip.Header(headers, "CSeq")
+	fields := strings.Fields(cseq)
+	if len(fields) >= 1 {
+		if n, err := strconv.Atoi(fields[0]); err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 // sdpMediaLine returns the m=audio line payload types from a body.

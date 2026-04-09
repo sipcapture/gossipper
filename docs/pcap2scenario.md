@@ -277,6 +277,70 @@ variables:
 
 ---
 
+## Authentication Challenge (401 / 407)
+
+When the capture contains a digest authentication exchange, `pcap2scenario`
+detects it automatically and generates the correct two-INVITE flow in the UAC
+scenario.
+
+**Detected pattern in the PCAP:**
+
+```
+UAC → UAS   INVITE (CSeq: 1)
+UAC ← UAS   401 Unauthorized  or  407 Proxy Auth Required
+UAC → UAS   ACK (CSeq: 1)
+UAC → UAS   INVITE (CSeq: 2)  ← carries Authorization header
+UAC ← UAS   200 OK
+...
+```
+
+**Generated UAC scenario:**
+
+```xml
+<!-- First INVITE (no credentials) -->
+<send retrans="500">...</send>
+
+<!-- Receive the challenge -->
+<recv response="401"/>   <!-- or 407 -->
+
+<!-- ACK to the 4xx -->
+<send>...</send>
+
+<!-- Re-INVITE with [authentication] — gossipper computes Digest
+     from LastMessage using -au / -ap credentials -->
+<send retrans="500">
+  <![CDATA[
+  INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+  ...
+  CSeq: 2 INVITE
+  [authentication]
+  ...
+  ]]>
+</send>
+
+<!-- Normal flow continues -->
+<recv response="100" optional="true"/>
+<recv response="180" optional="true"/>
+<recv response="200" rtd="true">...</recv>
+...
+```
+
+`[authentication]` replaces the `Authorization` / `Proxy-Authorization`
+header captured in the PCAP.  The actual Digest response is **computed at
+run time** from the received challenge using the credentials you supply via
+`-au` / `-ap`:
+
+```bash
+gossipper -scenario scenarios/scenario_uac.xml \
+          -d 192.168.1.20 -p 5060 \
+          -au alice -ap secret
+```
+
+If the PCAP does not contain a 401/407 response the generator falls back to
+the simple single-INVITE flow automatically.
+
+---
+
 ## Feature Support
 
 | Feature | Support |
@@ -286,10 +350,10 @@ variables:
 | RTP audio (`m=audio`) | ✅ |
 | IPv4 | ✅ |
 | libpcap format (`.pcap`) | ✅ |
+| 401/407 digest authentication challenge | ✅ |
 | IPv6 | ⚠️ Parsed, but address templatisation is untested |
 | Multiple calls in one PCAP | ⚠️ First Call-ID found is used |
 | Re-INVITE / hold / transfer | ❌ Not supported in v1 |
-| 407/401 authentication challenge | ❌ Not supported in v1 |
 | SRTP | ❌ Not supported in v1 |
 | Video RTP (`m=video`) | ❌ Audio only |
 

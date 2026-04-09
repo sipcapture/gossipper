@@ -42,13 +42,42 @@ func buildUAC(dlg Dialog, rtpFile, pcapName string) string {
 	fmt.Fprintf(&sb, `<scenario name="pcap-uac (from %s)">`, xmlEscape(pcapName))
 	sb.WriteString("\n\n")
 
-	// Send INVITE
-	sb.WriteString("  <send retrans=\"500\">\n")
-	sb.WriteString("    <![CDATA[\n")
-	sb.WriteString(indent(invite, "    "))
-	sb.WriteString("\n    ]]>\n  </send>\n\n")
+	// ── Auth challenge flow (401/407) ─────────────────────────────────────
+	if dlg.AuthChallengeCode != 0 {
+		// 1. Send first INVITE (without credentials)
+		sb.WriteString("  <send retrans=\"500\">\n")
+		sb.WriteString("    <![CDATA[\n")
+		sb.WriteString(indent(invite, "    "))
+		sb.WriteString("\n    ]]>\n  </send>\n\n")
 
-	// Receive 100 / 180 (optional) then 200
+		// 2. Receive the challenge
+		fmt.Fprintf(&sb, "  <recv response=\"%d\"/>\n\n", dlg.AuthChallengeCode)
+
+		// 3. Send ACK to the 4xx
+		ackTo4xx := templatizeUAC(dlg.AuthACK.Message.Raw, dlg)
+		if ackTo4xx == "" {
+			ackTo4xx = synthACKToChal(dlg)
+		}
+		sb.WriteString("  <send>\n")
+		sb.WriteString("    <![CDATA[\n")
+		sb.WriteString(indent(ackTo4xx, "    "))
+		sb.WriteString("\n    ]]>\n  </send>\n\n")
+
+		// 4. Send second INVITE with [authentication]
+		authInvite := buildAuthINVITE(dlg)
+		sb.WriteString("  <send retrans=\"500\">\n")
+		sb.WriteString("    <![CDATA[\n")
+		sb.WriteString(indent(authInvite, "    "))
+		sb.WriteString("\n    ]]>\n  </send>\n\n")
+	} else {
+		// ── Normal flow (no auth challenge) ──────────────────────────────
+		sb.WriteString("  <send retrans=\"500\">\n")
+		sb.WriteString("    <![CDATA[\n")
+		sb.WriteString(indent(invite, "    "))
+		sb.WriteString("\n    ]]>\n  </send>\n\n")
+	}
+
+	// Receive 100 / 180 (optional) then 200 OK — start RTP
 	sb.WriteString("  <recv response=\"100\" optional=\"true\"/>\n")
 	sb.WriteString("  <recv response=\"180\" optional=\"true\"/>\n")
 	sb.WriteString("  <recv response=\"200\" rtd=\"true\">\n")
@@ -57,7 +86,7 @@ func buildUAC(dlg Dialog, rtpFile, pcapName string) string {
 	sb.WriteString("    </action>\n")
 	sb.WriteString("  </recv>\n\n")
 
-	// Send ACK
+	// Send ACK to 200 OK
 	sb.WriteString("  <send>\n")
 	sb.WriteString("    <![CDATA[\n")
 	sb.WriteString(indent(ack, "    "))
@@ -212,6 +241,8 @@ var (
 	reSDPAudioPort = regexp.MustCompile(`(?m)^m=audio \d+`)
 	reSDPO         = regexp.MustCompile(`(?m)^o=[^\r\n]+`)
 	reSDPC         = regexp.MustCompile(`(?m)^c=IN IP4 \S+`)
+	// Authorization / Proxy-Authorization headers → replaced with [authentication].
+	reAuthorization = regexp.MustCompile(`(?im)^(Authorization|Proxy-Authorization):\s*[^\r\n]+`)
 )
 
 // templatizeUAC transforms a raw SIP message (from the PCAP) into a gossipper
@@ -289,7 +320,80 @@ func templatizeUAC(raw string, dlg Dialog) string {
 	// 10. SDP: m=audio port.
 	s = reSDPAudioPort.ReplaceAllString(s, "m=audio [media_port]")
 
+	// 11. Authorization / Proxy-Authorization → [authentication].
+	//     This covers the re-INVITE from an auth-challenge flow.
+	s = reAuthorization.ReplaceAllString(s, "[authentication]")
+
 	return strings.TrimRight(s, "\r\n")
+}
+
+// buildAuthINVITE builds the second INVITE (with [authentication]) for the
+// auth-challenge flow.  It prefers the captured AuthINVITE from the PCAP;
+// if that is empty it derives the message from the first INVITE by bumping
+// the CSeq and inserting [authentication].
+func buildAuthINVITE(dlg Dialog) string {
+	if dlg.AuthINVITE.Message.Raw != "" {
+		return templatizeUAC(dlg.AuthINVITE.Message.Raw, dlg)
+	}
+	// Synthesise from the first INVITE: increment CSeq, add [authentication].
+	base := templatizeUAC(dlg.INVITE.Message.Raw, dlg)
+	if base == "" {
+		base = synthINVITE(dlg)
+	}
+	// Bump CSeq: "CSeq: 1 INVITE" → "CSeq: 2 INVITE"
+	reCSeq := regexp.MustCompile(`(?im)^CSeq:\s*(\d+)\s+INVITE`)
+	base = reCSeq.ReplaceAllStringFunc(base, func(m string) string {
+		parts := strings.Fields(m)
+		if len(parts) >= 3 {
+			if n, err := strconv.Atoi(parts[1]); err == nil {
+				return fmt.Sprintf("CSeq: %d INVITE", n+1)
+			}
+		}
+		return m
+	})
+	// Insert [authentication] after the CSeq line.
+	base = reCSeq.ReplaceAllStringFunc(base, func(m string) string {
+		return m // no-op now; header already bumped above
+	})
+	// Add [authentication] before Contact or Content-Length, whichever comes first.
+	reInsert := regexp.MustCompile(`(?im)^(Contact:|Content-Length:|Content-Type:)`)
+	inserted := false
+	base = reInsert.ReplaceAllStringFunc(base, func(m string) string {
+		if !inserted {
+			inserted = true
+			return "[authentication]\r\n" + m
+		}
+		return m
+	})
+	if !inserted {
+		// Fallback: append before the blank line that separates headers from body.
+		base = strings.Replace(base, "\r\n\r\n", "\r\n[authentication]\r\n\r\n", 1)
+		if !strings.Contains(base, "[authentication]") {
+			base = strings.Replace(base, "\n\n", "\n[authentication]\n\n", 1)
+		}
+	}
+	return base
+}
+
+// synthACKToChal builds a minimal ACK directed at the 4xx challenge response.
+// The CSeq number matches the first INVITE (not the re-INVITE).
+func synthACKToChal(dlg Dialog) string {
+	cseqNum := parseCSeqNum(dlg.INVITE.Message.Headers)
+	if cseqNum == 0 {
+		cseqNum = 1
+	}
+	return fmt.Sprintf(
+		"ACK sip:[service]@[remote_ip]:[remote_port] SIP/2.0\r\n"+
+			"Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]\r\n"+
+			"From: <sip:[service]@[local_ip]:[local_port]>;tag=[pid]GossipTag00[call_number]\r\n"+
+			"To: <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]\r\n"+
+			"Call-ID: [call_id]\r\n"+
+			"CSeq: %d ACK\r\n"+
+			"Max-Forwards: 70\r\n"+
+			"Content-Length: 0\r\n"+
+			"\r\n",
+		cseqNum,
+	)
 }
 
 // ── Fallback synthetic messages ───────────────────────────────────────────────
