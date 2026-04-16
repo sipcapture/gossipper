@@ -23,70 +23,70 @@ const (
 )
 
 type Config struct {
-	ScenarioFile     string
-	ScenarioName     string
-	Service          string
-	Transport        string
-	LocalIP          string
-	LocalPort        int
-	RemoteHost       string
-	RemotePort       int
-	AuthUsername     string
-	AuthPassword     string
-	Rate             float64
-	RateScale        float64
-	RateIncrease     float64
-	RateIncreaseStep time.Duration
-	RateMax          float64
-	MaxReconnect     int
-	ReconnectSleep   time.Duration
-	ReconnectClose   bool
-	BaseCSeq         int
-	TotalCalls       int
-	MaxConcurrent    int
-	MaxSockets       int
-	Users            int
-	DefaultPause     time.Duration
-	DefaultRecvTO    time.Duration
-	GlobalTimeout    time.Duration
-	SummaryJSON      string
-	TraceMessages    bool
-	TraceShortMsg    bool
-	TraceCounts      bool
-	MessageFile      string
-	TraceErrors      bool
-	ErrorFile        string
-	TraceErrorCodes  bool
-	TraceLogs        bool
-	LogFile          string
-	TraceStats       bool
-	TraceRTT         bool
-	TraceScreen      bool
-	StatsDumpPeriod  time.Duration
-	StatPrintPeriod  time.Duration // periodic SummaryLine to stderr (UAC/UAS); 0 = off
-	RTTDumpFrequency int
-	ScreenFile       string
-	HEPAddr          string
-	HEPCaptureID     uint32
-	HEPPassword      string
-	HEPRawRTCP       bool
-	SendMediaReport  bool
-	TLSCertFile      string
-	TLSKeyFile       string
-	TLSCAFile        string
-	TLSSkipVerify    bool
-	CommandName      string
-	CommandPeers     map[string]string
-	CommandRole      string
-	InfIndexFile     string
-	InfIndexField    int
-	InjectionFile          string
-	IPField                int
-	UISourceIPs            []string
+	ScenarioFile            string
+	ScenarioName            string
+	Service                 string
+	Transport               string
+	LocalIP                 string
+	LocalPort               int
+	RemoteHost              string
+	RemotePort              int
+	AuthUsername            string
+	AuthPassword            string
+	Rate                    float64
+	RateScale               float64
+	RateIncrease            float64
+	RateIncreaseStep        time.Duration
+	RateMax                 float64
+	MaxReconnect            int
+	ReconnectSleep          time.Duration
+	ReconnectClose          bool
+	BaseCSeq                int
+	TotalCalls              int
+	MaxConcurrent           int
+	MaxSockets              int
+	Users                   int
+	DefaultPause            time.Duration
+	DefaultRecvTO           time.Duration
+	GlobalTimeout           time.Duration
+	SummaryJSON             string
+	TraceMessages           bool
+	TraceShortMsg           bool
+	TraceCounts             bool
+	MessageFile             string
+	TraceErrors             bool
+	ErrorFile               string
+	TraceErrorCodes         bool
+	TraceLogs               bool
+	LogFile                 string
+	TraceStats              bool
+	TraceRTT                bool
+	TraceScreen             bool
+	StatsDumpPeriod         time.Duration
+	StatPrintPeriod         time.Duration // periodic SummaryLine to stderr (UAC/UAS); 0 = off
+	RTTDumpFrequency        int
+	ScreenFile              string
+	HEPAddr                 string
+	HEPCaptureID            uint32
+	HEPPassword             string
+	HEPRawRTCP              bool
+	SendMediaReport         bool
+	TLSCertFile             string
+	TLSKeyFile              string
+	TLSCAFile               string
+	TLSSkipVerify           bool
+	CommandName             string
+	CommandPeers            map[string]string
+	CommandRole             string
+	InfIndexFile            string
+	InfIndexField           int
+	InjectionFile           string
+	IPField                 int
+	UISourceIPs             []string
 	TotalCallsSetExplicitly bool
-	PprofAddr              string
-	CPUProfile             string
-	MemProfile             string
+	PprofAddr               string
+	CPUProfile              string
+	MemProfile              string
 
 	// Standalone RTP sender mode — bypasses SIP scenario engine entirely.
 	RTPSend     bool   // -rtp_send
@@ -133,6 +133,11 @@ func Parse(args []string) (Config, error) {
 	cfg.InfIndexField = infIndexField
 
 	fs := flag.NewFlagSet("gossIpper", flag.ContinueOnError)
+	fs.SetOutput(os.Stdout)
+	fs.Usage = func() {
+		writeHelpPreamble(fs.Output())
+		fs.PrintDefaults()
+	}
 	fs.StringVar(&cfg.ScenarioFile, "sf", "", "path to XML scenario file")
 	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas)")
 	fs.StringVar(&cfg.Service, "s", cfg.Service, "service name used in templates")
@@ -213,6 +218,9 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.RTPChannels, "rtp_ch", cfg.RTPChannels, "number of audio channels for standalone RTP sender (1 = mono)")
 
 	if err := fs.Parse(normalizedArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fs.Usage()
+		}
 		return Config{}, err
 	}
 	providedFlags := make(map[string]struct{})
@@ -531,6 +539,21 @@ func extractInfIndexArgs(args []string) ([]string, string, int, error) {
 		return nil, "", 0, errors.New("infindex field must be greater than or equal to zero")
 	}
 	return normalized, fileName, field, nil
+}
+
+func writeHelpPreamble(w io.Writer) {
+	fmt.Fprintln(w, "gossIpper — SIP load generator (https://github.com/QXIP/gossipper)")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Subcommands (run before any flags):")
+	fmt.Fprintln(w, "  gossipper shell              interactive line shell: set flags, wizard, hint, run")
+	fmt.Fprintln(w, "  gossipper cli                alias for shell")
+	fmt.Fprintln(w, "  gossipper tui                full-screen launcher / runtime UI")
+	fmt.Fprintln(w, "  gossipper -interactive       same as tui")
+	fmt.Fprintln(w, "  gossipper pcap2scenario ...  PCAP → XML scenarios")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "See also: docs/interactive-shell.md, docs/tui.md")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Flags:")
 }
 
 func splitHostPort(input string) (string, int, error) {

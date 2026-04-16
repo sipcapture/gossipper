@@ -65,6 +65,7 @@ The current MVP implements:
 - `docs/statistics-mapping.md`: mapping between current `gossIpper` stats exports and SIPp-style counters
 - `docs/trace-schema-contract.md`: stable CSV header/order contract for `-trace_stat`, `-trace_rtt`, and `-trace_screen`
 - `docs/tui.md`: interactive TUI usage guide with launcher and runtime screen examples
+- `docs/interactive-shell.md`: line shell (`gossipper shell` / `cli`) with `set`, `wizard`, `hint`, and `run`
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
 - `milestone.md`: prioritized roadmap for SIPp features that are still missing in `gossIpper`
 

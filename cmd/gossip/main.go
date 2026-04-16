@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
@@ -11,8 +12,6 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"syscall"
-
-	"flag"
 
 	"github.com/qxip/gossipper/internal/cli"
 	"github.com/qxip/gossipper/internal/launcher"
@@ -46,6 +45,9 @@ func run(args []string) error {
 
 	cfg, err := cli.Parse(args)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if cfg.InfIndexFile != "" {
