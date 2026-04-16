@@ -22,6 +22,12 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 		return err
 	}
 
+	// runCtx is cancelled as soon as app.Run returns so SIGUSR1 / stat-print
+	// goroutines can exit before we wait on them. Parent ctx still drives app.Run
+	// (SIGINT) and is inherited by runCtx.
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+
 	app := engine.New(prepared.EngineConfig)
 	screenDumpSignals := make(chan os.Signal, 1)
 	signal.Notify(screenDumpSignals, syscall.SIGUSR1)
@@ -31,7 +37,7 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 		defer close(dumpDone)
 		for {
 			select {
-			case <-ctx.Done():
+			case <-runCtx.Done():
 				return
 			case <-screenDumpSignals:
 				app.DumpScreenSnapshot()
@@ -48,7 +54,7 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 			defer ticker.Stop()
 			for {
 				select {
-				case <-ctx.Done():
+				case <-runCtx.Done():
 					return
 				case <-ticker.C:
 					fmt.Fprintln(os.Stderr, SummaryLine(app.Stats().Snapshot()))
@@ -58,6 +64,7 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 	}
 
 	runErr := app.Run(ctx)
+	cancelRun()
 	statWG.Wait()
 	<-dumpDone
 
