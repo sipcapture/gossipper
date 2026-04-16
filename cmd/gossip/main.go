@@ -15,9 +15,9 @@ import (
 	"flag"
 
 	"github.com/qxip/gossipper/internal/cli"
-	"github.com/qxip/gossipper/internal/engine"
 	"github.com/qxip/gossipper/internal/launcher"
 	"github.com/qxip/gossipper/internal/pcap2scenario"
+	"github.com/qxip/gossipper/internal/shell"
 	templ "github.com/qxip/gossipper/internal/template"
 	"github.com/qxip/gossipper/internal/tui"
 )
@@ -39,6 +39,9 @@ func run(args []string) error {
 	}
 	if len(args) > 0 && args[0] == "pcap2scenario" {
 		return runPCAP2Scenario(args[1:])
+	}
+	if len(args) > 0 && (args[0] == "shell" || args[0] == "cli") {
+		return shell.Run(os.Stdin, os.Stdout, os.Stderr)
 	}
 
 	cfg, err := cli.Parse(args)
@@ -112,45 +115,12 @@ func run(args []string) error {
 		return nil
 	}
 
-	prepared, err := launcher.Prepare(cfg)
-	if err != nil {
-		return err
-	}
-
-	app := engine.New(prepared.EngineConfig)
-	screenDumpSignals := make(chan os.Signal, 1)
-	signal.Notify(screenDumpSignals, syscall.SIGUSR1)
-	defer signal.Stop(screenDumpSignals)
-	dumpDone := make(chan struct{})
-	go func() {
-		defer close(dumpDone)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-screenDumpSignals:
-				app.DumpScreenSnapshot()
-			}
-		}
-	}()
-
-	err = app.Run(ctx)
+	err = launcher.RunSIPScenario(ctx, cfg)
 	stop()
 	cancelTimeout()
-	<-dumpDone
 	if err != nil && !errors.Is(err, context.Canceled) && !(errors.Is(err, context.DeadlineExceeded) && cfg.GlobalTimeout > 0) {
 		return err
 	}
-
-	if prepared.CLIConfig.SummaryJSON != "" {
-		if err := app.Stats().WriteJSON(prepared.CLIConfig.SummaryJSON); err != nil {
-			return err
-		}
-	}
-
-	summary := app.Stats().Snapshot()
-	fmt.Println(launcher.SummaryLine(summary))
-
 	return nil
 }
 

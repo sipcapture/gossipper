@@ -63,6 +63,7 @@ type Config struct {
 	TraceRTT         bool
 	TraceScreen      bool
 	StatsDumpPeriod  time.Duration
+	StatPrintPeriod  time.Duration // periodic SummaryLine to stderr (UAC/UAS); 0 = off
 	RTTDumpFrequency int
 	ScreenFile       string
 	HEPAddr          string
@@ -171,6 +172,7 @@ func Parse(args []string) (Config, error) {
 	fs.BoolVar(&cfg.TraceRTT, "trace_rtt", false, "write RTD samples to a compact CSV log")
 	fs.BoolVar(&cfg.TraceScreen, "trace_screen", false, "write periodic non-interactive runtime screen snapshots")
 	statsDumpFrequency := fs.Int("fd", 1, "statistics dump frequency in seconds (SIPp-compatible for -trace_stat)")
+	fs.DurationVar(&cfg.StatPrintPeriod, "stat_period", 0, "print running stats summary line to stderr every interval (e.g. 5s, 1m30s); 0 disables (works for UAC and UAS)")
 	rttDumpFrequency := fs.Int("rtt_freq", 200, "dump RTD samples every N completed calls when -trace_rtt is enabled")
 	fs.StringVar(&cfg.ScreenFile, "screen_file", "", "path to runtime screen trace log file")
 	fs.StringVar(&cfg.HEPAddr, "hep_addr", "", "HEP3 collector address host:port for SIP mirroring to Homer")
@@ -298,6 +300,9 @@ func Parse(args []string) (Config, error) {
 	cfg.StatsDumpPeriod = time.Duration(*statsDumpFrequency) * time.Second
 	cfg.RTTDumpFrequency = *rttDumpFrequency
 	cfg.HEPCaptureID = uint32(*hepCaptureID)
+	if cfg.StatPrintPeriod < 0 {
+		return Config{}, errors.New("stat_period must be greater than or equal to zero")
+	}
 
 	cfg.Transport = strings.ToLower(strings.TrimSpace(cfg.Transport))
 	cfg.InjectionFile = strings.TrimSpace(cfg.InjectionFile)

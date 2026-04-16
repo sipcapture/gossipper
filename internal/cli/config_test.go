@@ -1077,3 +1077,31 @@ func TestParseRejectsInvalidReconnectSleep(t *testing.T) {
 		t.Fatal("expected Parse() to reject reconnect_sleep < 0")
 	}
 }
+
+func TestParseStatPeriod(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-stat_period", "7s",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.StatPrintPeriod != 7*time.Second {
+		t.Fatalf("StatPrintPeriod = %v, want 7s", cfg.StatPrintPeriod)
+	}
+}
+
+func TestParseRejectsNegativeStatPeriod(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-stat_period", "-1s",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject negative stat_period")
+	}
+}
