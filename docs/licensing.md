@@ -1,6 +1,6 @@
 # Licensing notes
 
-`gossIpper` is distributed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+`Gossipper` is distributed under the GNU Affero General Public License v3.0 (AGPL-3.0).
 The full license text lives in the repository root at `LICENSE`.
 
 ## What this means in practice

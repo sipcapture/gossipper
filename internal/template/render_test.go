@@ -242,7 +242,7 @@ func TestRenderMessageStrictSupportsM6P0Keywords(t *testing.T) {
 	t.Parallel()
 
 	ctx := Context{
-		SIPpVersion: "gossIpper-0.6.0",
+		SIPpVersion: "Gossipper-0.6.0",
 		ClockTick:   1200,
 		DynamicID:   42,
 	}
@@ -254,7 +254,7 @@ func TestRenderMessageStrictSupportsM6P0Keywords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderMessageStrict() error = %v", err)
 	}
-	if !strings.Contains(got, "X-Version: gossIpper-0.6.0") {
+	if !strings.Contains(got, "X-Version: Gossipper-0.6.0") {
 		t.Fatalf("expected sipp_version helper, got %q", got)
 	}
 	if !strings.Contains(got, "X-Tick: 1202") {
@@ -269,7 +269,7 @@ func TestRenderMessageSupportsM6P0KeywordDefaults(t *testing.T) {
 	t.Parallel()
 
 	got := RenderMessage("X-Version: [sipp_version]\r\nX-Tick: [clock_tick]\r\nX-Dynamic: [dynamic_id]\r\n\r\n", Context{})
-	if !strings.Contains(got, "X-Version: gossIpper") {
+	if !strings.Contains(got, "X-Version: Gossipper") {
 		t.Fatalf("expected default sipp_version helper, got %q", got)
 	}
 	if !strings.Contains(got, "X-Tick: 0") || !strings.Contains(got, "X-Dynamic: 0") {

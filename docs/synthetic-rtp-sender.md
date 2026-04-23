@@ -1,6 +1,6 @@
 # Synthetic RTP sender
 
-gossIpper can generate and transmit RTP streams **without a media file**.  Silence
+Gossipper can generate and transmit RTP streams **without a media file**.  Silence
 frames are produced programmatically at the configured codec rate, which lets you
 load-test media paths, validate RTP reachability, and verify HEP/RTCP plumbing
 without preparing `.wav` or `.raw` fixtures.
@@ -16,7 +16,7 @@ There are two independent entry points:
 
 ## Standalone CLI mode
 
-Run gossIpper as a pure RTP generator by passing `-rtp_send`.  The SIP scenario
+Run Gossipper as a pure RTP generator by passing `-rtp_send`.  The SIP scenario
 engine is bypassed entirely.
 
 ### Required flag
@@ -75,7 +75,7 @@ gossipper -rtp_send -rtp_addr 192.168.1.10:20000 -i 10.0.0.5 -rtp_dur 3000
 
 ### Output
 
-gossIpper prints a start line and a summary when the stream stops:
+Gossipper prints a start line and a summary when the stream stops:
 
 ```
 rtp_sender: streaming to 192.168.1.10:20000  codec=PCMA/8000 pt=8 freq=20ms duration=5000ms channels=1

@@ -147,6 +147,28 @@ func TestPreparePropagatesReconnectSettings(t *testing.T) {
 	}
 }
 
+func TestPrepareUnlimitedCallsFromExplicitZero(t *testing.T) {
+	t.Parallel()
+
+	cfg := cli.DefaultConfig()
+	cfg.ScenarioName = "uac"
+	cfg.RemoteHost = "127.0.0.1"
+	cfg.RemotePort = 5060
+	cfg.TotalCalls = 0
+	cfg.TotalCallsSetExplicitly = true
+
+	prepared, err := Prepare(cfg)
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	if !prepared.EngineConfig.UnlimitedCalls {
+		t.Fatal("expected EngineConfig.UnlimitedCalls")
+	}
+	if prepared.EngineConfig.TotalCalls != 0 {
+		t.Fatalf("expected TotalCalls 0 for unlimited, got %d", prepared.EngineConfig.TotalCalls)
+	}
+}
+
 func TestSummaryLineFormatsKeyCounters(t *testing.T) {
 	t.Parallel()
 

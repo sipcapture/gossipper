@@ -44,72 +44,72 @@ func RunWizard(in *bufio.Reader, out, errOut io.Writer, s *Session) error {
 		fmt.Fprintf(errOut, "unknown role %q, using uac\n", role)
 		role = "uac"
 	}
-	if err := s.Set("sn", role); err != nil {
+	if err := s.Set("builtin_scenario", role); err != nil {
 		return err
 	}
 
 	if role == "uac" {
 		fmt.Fprintln(out)
-		fmt.Fprintln(out, "UAC: sends INVITE to -rsa. Use the real IP:port of the peer that listens for SIP.")
-		rsa, err := readLine(in, out, "Remote SIP address (host:port)", "")
+		fmt.Fprintln(out, "UAC: sends INVITE to the remote peer. Use the real host:port that listens for SIP.")
+		rsa, err := readLine(in, out, "Remote SIP address (host:port, maps to -rsa)", "")
 		if err != nil {
 			return err
 		}
 		if rsa == "" {
 			fmt.Fprintln(errOut, "remote address is required for UAC")
-			return fmt.Errorf("wizard: missing -rsa")
+			return fmt.Errorf("wizard: missing destination (host:port)")
 		}
-		if err := s.Set("rsa", rsa); err != nil {
+		if err := s.Set("destination", rsa); err != nil {
 			return err
 		}
 
 		fmt.Fprintln(out, "Local IP in Via/Contact: avoid 0.0.0.0 on multi-host UDP (use this machine's routable IP).")
-		ip, err := readLine(in, out, "Local bind IP (-i)", "127.0.0.1")
+		ip, err := readLine(in, out, "Local bind IP (local_bind_ip / -i)", "127.0.0.1")
 		if err != nil {
 			return err
 		}
 		if ip != "" {
-			if err := s.Set("i", ip); err != nil {
+			if err := s.Set("local_bind_ip", ip); err != nil {
 				return err
 			}
 		}
 
-		p, err := readLine(in, out, "Local UDP port (-p)", "5060")
+		p, err := readLine(in, out, "Local UDP port (listen_port / -p)", "5060")
 		if err != nil {
 			return err
 		}
 		if p != "" {
-			if err := s.Set("p", p); err != nil {
+			if err := s.Set("listen_port", p); err != nil {
 				return err
 			}
 		}
 
-		t, err := readLine(in, out, "Transport (-t): u1 un ui t1 tn l1 ln", "u1")
+		t, err := readLine(in, out, "Transport (transport / -t): u1 un ui t1 tn l1 ln", "u1")
 		if err != nil {
 			return err
 		}
 		if t != "" {
-			if err := s.Set("t", t); err != nil {
+			if err := s.Set("transport", t); err != nil {
 				return err
 			}
 		}
 
-		m, err := readLine(in, out, "Total calls (-m)", "1")
+		m, err := readLine(in, out, "Total calls (total_calls / -m)", "1")
 		if err != nil {
 			return err
 		}
 		if m != "" {
-			if err := s.Set("m", m); err != nil {
+			if err := s.Set("total_calls", m); err != nil {
 				return err
 			}
 		}
 
-		r, err := readLine(in, out, "Calls per second (-r)", "1")
+		r, err := readLine(in, out, "Calls per second (calls_per_second / -r)", "1")
 		if err != nil {
 			return err
 		}
 		if r != "" {
-			if err := s.Set("r", r); err != nil {
+			if err := s.Set("calls_per_second", r); err != nil {
 				return err
 			}
 		}
@@ -127,44 +127,44 @@ func RunWizard(in *bufio.Reader, out, errOut io.Writer, s *Session) error {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "UAS: listens for INVITE. Bind to the IP peers reach (not only 0.0.0.0 in Via).")
 
-		ip, err := readLine(in, out, "Local bind IP (-i)", "127.0.0.1")
+		ip, err := readLine(in, out, "Local bind IP (local_bind_ip / -i)", "127.0.0.1")
 		if err != nil {
 			return err
 		}
 		if ip == "" {
 			fmt.Fprintln(errOut, "local IP is required for UAS in most setups")
-			return fmt.Errorf("wizard: missing -i")
+			return fmt.Errorf("wizard: missing local_bind_ip")
 		}
-		if err := s.Set("i", ip); err != nil {
+		if err := s.Set("local_bind_ip", ip); err != nil {
 			return err
 		}
 
-		p, err := readLine(in, out, "Local UDP port (-p)", "5060")
+		p, err := readLine(in, out, "Local UDP port (listen_port / -p)", "5060")
 		if err != nil {
 			return err
 		}
 		if p != "" {
-			if err := s.Set("p", p); err != nil {
+			if err := s.Set("listen_port", p); err != nil {
 				return err
 			}
 		}
 
-		t, err := readLine(in, out, "Server transport (-t): s1 or sn (UDP server)", "s1")
+		t, err := readLine(in, out, "Server transport (transport / -t): s1 or sn (UDP server)", "s1")
 		if err != nil {
 			return err
 		}
 		if t != "" {
-			if err := s.Set("t", t); err != nil {
+			if err := s.Set("transport", t); err != nil {
 				return err
 			}
 		}
 
-		m, err := readLine(in, out, "Max calls to accept before exit (-m)", "10000")
+		m, err := readLine(in, out, "Max calls to accept before exit (total_calls / -m)", "10000")
 		if err != nil {
 			return err
 		}
 		if m != "" {
-			if err := s.Set("m", m); err != nil {
+			if err := s.Set("total_calls", m); err != nil {
 				return err
 			}
 		}

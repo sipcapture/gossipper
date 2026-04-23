@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	Version   = "0.1.17"
+	Version   = "0.1.18"
 	BuildDate = "1970-01-01"
 	BuildTime = "00:00:00"
 	GitCommit = "unknown"
@@ -39,12 +39,12 @@ func GetVersionInfo() VersionInfo {
 }
 
 func GetVersionString() string {
-	return fmt.Sprintf("gossIpper %s\nbuilt %s %s, commit %s, go %s, %s/%s",
+	return fmt.Sprintf("Gossipper %s\nbuilt %s %s, commit %s, go %s, %s/%s",
 		Version, BuildDate, BuildTime, GitCommit, GoVersion, BuildOS, BuildArch)
 }
 
 func GetShortVersionString() string {
-	return fmt.Sprintf("gossIpper %s", Version)
+	return fmt.Sprintf("Gossipper %s", Version)
 }
 
 func PrintVersion() {

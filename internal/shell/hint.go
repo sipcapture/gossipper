@@ -39,23 +39,23 @@ func WriteHints(out io.Writer, sess *Session) {
 	var lines []string
 
 	if len(argv) == 0 {
-		lines = append(lines, "Session is empty. Quick start: wizard   or at least: set sn uac + set rsa IP:5060 + set i LOCAL_IP")
+		lines = append(lines, "Session is empty. Quick start: wizard   or at least: set builtin_scenario uac + set destination HOST:PORT + set local_bind_ip THIS_IP")
 	} else {
 		if mode == scenario.ModeClient {
 			if cfg.RemoteHost == "" {
-				lines = append(lines, "UAC needs a remote peer:  set rsa HOST:PORT   (where to send INVITE)")
+				lines = append(lines, "UAC needs a remote peer:  set destination HOST:PORT   or  set destination_host HOST + set destination_port PORT")
 			}
 			if cfg.LocalIP == "0.0.0.0" || cfg.LocalIP == "::" {
-				lines = append(lines, "Prefer an explicit local IP in Via/Contact:  set i THIS_HOST_IP   (otherwise a UAS may send responses to the wrong place because of Via)")
+				lines = append(lines, "Prefer an explicit local IP in Via/Contact:  set local_bind_ip THIS_HOST_IP   (otherwise a UAS may send responses to the wrong place because of Via)")
 			}
 		}
 		if mode == scenario.ModeServer {
 			if cfg.LocalIP == "0.0.0.0" || cfg.LocalIP == "::" {
-				lines = append(lines, "UAS: bind to a real routable IP:  set i ADDRESS   (not only 0.0.0.0 in Via)")
+				lines = append(lines, "UAS: bind to a real routable IP:  set local_bind_ip ADDRESS   (not only 0.0.0.0 in Via)")
 			}
 			t := strings.ToLower(strings.TrimSpace(cfg.Transport))
 			if t != "s1" && t != "sn" {
-				lines = append(lines, "For incoming UDP as a server, consider:  set t s1  or  set t sn")
+				lines = append(lines, "For incoming UDP as a server, consider:  set transport s1  or  set transport sn")
 			}
 		}
 	}
@@ -84,15 +84,16 @@ func loadScenarioForHint(cfg cli.Config) (scenario.Scenario, error) {
 
 // printSetCheatsheet lists common flags when the user types "set" alone.
 func printSetCheatsheet(out io.Writer) {
-	fmt.Fprintln(out, "Common flags (cheatsheet):")
-	fmt.Fprintln(out, "  set sn uac|uas          — built-in scenario name")
-	fmt.Fprintln(out, "  set rsa HOST:PORT     — remote SIP peer (UAC); alias: remote")
-	fmt.Fprintln(out, "  set i IP              — local IP in SIP; alias: bind")
-	fmt.Fprintln(out, "  set p 5060            — local UDP/TCP port")
-	fmt.Fprintln(out, "  set t u1|s1|sn|…      — transport (UAS: often s1/sn)")
-	fmt.Fprintln(out, "  set m N               — total calls (UAS: how many to accept before exit)")
-	fmt.Fprintln(out, "  set r R               — calls per second (UAC)")
-	fmt.Fprintln(out, "  set stat_period 5s    — periodic stats line to stderr")
-	fmt.Fprintln(out, "  set trace_msg         — SIP trace (off: set trace_msg false)")
+	fmt.Fprintln(out, "Common flags (cheatsheet, readable names):")
+	fmt.Fprintln(out, "  set builtin_scenario uac|uas   — built-in scenario (short: sn)")
+	fmt.Fprintln(out, "  set destination HOST:PORT      — remote SIP peer / UAC target (short: rsa)")
+	fmt.Fprintln(out, "  set destination_host HOST + set destination_port PORT — same as destination (port defaults to 5060 if omitted)")
+	fmt.Fprintln(out, "  set local_bind_ip IP           — local IP in SIP (short: i)")
+	fmt.Fprintln(out, "  set listen_port 5060           — local UDP/TCP port (short: p)")
+	fmt.Fprintln(out, "  set transport u1|s1|sn|…       — transport (short: t; UAS UDP: often s1/sn)")
+	fmt.Fprintln(out, "  set total_calls N              — total calls; 0 = unlimited (short: m)")
+	fmt.Fprintln(out, "  set calls_per_second R         — UAC rate (short: r)")
+	fmt.Fprintln(out, "  set stat_period 5s             — periodic stats line to stderr")
+	fmt.Fprintln(out, "  set trace_msg                  — SIP trace (off: set trace_msg false)")
 	fmt.Fprintln(out, "Full flag list: gossipper -h. Smarter review:  hint")
 }

@@ -36,7 +36,7 @@ func (e *Engine) runClientSharedTLS(ctx context.Context) error {
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
-	for i := 1; i <= e.cfg.TotalCalls; i++ {
+	for i := 1; e.clientShouldSpawnAnother(i); i++ {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -88,7 +88,7 @@ func (e *Engine) runClientPerCallTLS(ctx context.Context) error {
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
-	for i := 1; i <= e.cfg.TotalCalls; i++ {
+	for i := 1; e.clientShouldSpawnAnother(i); i++ {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -166,7 +166,7 @@ func (e *Engine) runServerTLSShared(ctx context.Context) error {
 			sess, exists := sessions[callID]
 			if !exists {
 				firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
-				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) || len(sessions) >= e.cfg.TotalCalls {
+				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(len(sessions)) {
 					mu.Unlock()
 					continue
 				}
@@ -228,7 +228,7 @@ func (e *Engine) runServerTLSPerConn(ctx context.Context) error {
 		return fmt.Errorf("server scenario must start with a recv command")
 	}
 	var wg sync.WaitGroup
-	for accepted := 0; accepted < e.cfg.TotalCalls; accepted++ {
+	for accepted := 0; e.cfg.UnlimitedCalls || accepted < e.cfg.TotalCalls; accepted++ {
 		conn, err := server.Accept(ctx)
 		if err != nil {
 			return err

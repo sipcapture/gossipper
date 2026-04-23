@@ -25,6 +25,71 @@ func TestSessionSetArgv(t *testing.T) {
 	}
 }
 
+func TestSessionReadableDestinationSplit(t *testing.T) {
+	t.Parallel()
+	s := newSession()
+	if err := s.Set("destination_host", "10.0.0.2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set("destination_port", "5088"); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(s.Argv(), " ")
+	want := "-rsa 10.0.0.2:5088"
+	if got != want {
+		t.Fatalf("Argv() = %q want %q", got, want)
+	}
+}
+
+func TestSessionDestinationHostDefaultPort(t *testing.T) {
+	t.Parallel()
+	s := newSession()
+	if err := s.Set("destination_host", "10.0.0.3"); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(s.Argv(), " ")
+	want := "-rsa 10.0.0.3:5060"
+	if got != want {
+		t.Fatalf("Argv() = %q want %q", got, want)
+	}
+}
+
+func TestSessionRSAOverridesSplitDestination(t *testing.T) {
+	t.Parallel()
+	s := newSession()
+	_ = s.Set("destination_host", "10.0.0.2")
+	_ = s.Set("destination_port", "5060")
+	if err := s.Set("rsa", "192.0.2.1:5099"); err != nil {
+		t.Fatal(err)
+	}
+	if s.destHost != "" || s.destPort != "" {
+		t.Fatalf("expected split destination cleared, got host=%q port=%q", s.destHost, s.destPort)
+	}
+	if strings.Join(s.Argv(), " ") != "-rsa 192.0.2.1:5099" {
+		t.Fatalf("Argv() = %q", strings.Join(s.Argv(), " "))
+	}
+}
+
+func TestSessionReadableAliasesRoundTripArgv(t *testing.T) {
+	t.Parallel()
+	s := newSession()
+	if err := s.Set("builtin_scenario", "uac"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set("destination", "1.1.1.1:5060"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set("local_bind_ip", "10.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(s.Argv(), " ")
+	for _, frag := range []string{"-sn uac", "-rsa 1.1.1.1:5060", "-i 10.0.0.1"} {
+		if !strings.Contains(got, frag) {
+			t.Fatalf("Argv() = %q, missing %q", got, frag)
+		}
+	}
+}
+
 func TestSessionBoolUnset(t *testing.T) {
 	t.Parallel()
 	s := newSession()

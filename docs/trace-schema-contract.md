@@ -1,6 +1,6 @@
 # Trace CSV schema contract
 
-This document defines the stable CSV schema contract for `gossIpper` trace files
+This document defines the stable CSV schema contract for `Gossipper` trace files
 used by automation and CI integrations.
 
 If any column name or order changes, the contract has changed and downstream
@@ -54,7 +54,7 @@ When changing these headers:
 
 ## Backward-compatible alias policy
 
-To keep parser behavior deterministic, `gossIpper` does not emit parallel
+To keep parser behavior deterministic, `Gossipper` does not emit parallel
 "legacy alias" CSV columns for old field names/order.
 
 Policy:

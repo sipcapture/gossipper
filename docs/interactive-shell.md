@@ -17,7 +17,7 @@ gossipper cli
 | `help` | Command list |
 | `wizard` | Guided prompts for a minimal UAC or UAS profile |
 | `hint` | Suggestions for missing or risky flags from the current session |
-| `set <flag> [value]` | Set a flag (aliases: `remote` → `rsa`, `bind` → `i`, `calls` → `m`, …) |
+| `set <flag> [value]` | Set a flag (readable names: `destination`, `builtin_scenario`, `local_bind_ip`, `destination_host` + `destination_port`, …; short `rsa` / `sn` / `i` still work) |
 | `set` | With no args: short cheatsheet of common flags |
 | `unset <flag>` | Remove a flag from the session |
 | `show` | Print effective argv and values |
@@ -34,16 +34,16 @@ Lines starting with `#` are comments.
 gossipper shell — type help, hint, or wizard. Ctrl+D or quit to exit.
 gossipper> hint
 Hints for the current session:
-  • Session is empty. Quick start: wizard   or at least: set sn uac + set rsa IP:5060 + set i LOCAL_IP
-gossipper> set sn uac
+  • Session is empty. Quick start: wizard   or at least: set builtin_scenario uac + set destination HOST:PORT + set local_bind_ip LOCAL_IP
+gossipper> set builtin_scenario uac
 ok: -sn
-gossipper> set rsa 127.0.0.1:5060
+gossipper> set destination 127.0.0.1:5060
 ok: -rsa
-gossipper> set i 127.0.0.1
+gossipper> set local_bind_ip 127.0.0.1
 ok: -i
-gossipper> set p 5060
+gossipper> set listen_port 5060
 ok: -p
-gossipper> set m 1
+gossipper> set total_calls 1
 ok: -m
 gossipper> set stat_period 5s
 ok: -stat_period

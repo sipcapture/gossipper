@@ -1,6 +1,6 @@
 # Runtime architecture
 
-`gossIpper` intentionally separates concerns that are tightly coupled inside SIPp.
+`Gossipper` intentionally separates concerns that are tightly coupled inside SIPp.
 
 ## Main components
 

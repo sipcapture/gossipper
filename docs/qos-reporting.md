@@ -1,6 +1,6 @@
 # QoS media reporting
 
-`gossIpper` can mirror RTP and RTCP quality statistics to a Homer/hepic
+`Gossipper` can mirror RTP and RTCP quality statistics to a Homer/hepic
 collector via HEP3. This allows call-quality metrics to appear alongside SIP
 traces in the Homer UI without a separate network capture agent.
 
@@ -42,7 +42,7 @@ mirrored if `-hep_addr` is set.
 -send_media_report=true -hep_raw_rtcp=false
 ```
 
-`gossIpper` accumulates per-SSRC statistics in the HEP client and emits
+`Gossipper` accumulates per-SSRC statistics in the HEP client and emits
 three JSON report types every **10 seconds** per active RTP stream:
 
 - **HEP type 35** — Short RTP Report. Contains packet count, octet count,
@@ -50,7 +50,7 @@ three JSON report types every **10 seconds** per active RTP stream:
   to the SIP `Call-ID` of the originating call.
 - **HEP type 37** — Short RTCP Report. Contains RTCP Sender Report fields
   (NTP timestamp, packet count, octet count) plus cumulative packet loss
-  (reported as `0` because `gossIpper` is a sender and does not measure
+  (reported as `0` because `Gossipper` is a sender and does not measure
   loss on its own outbound stream).
 - **HEP type 100** — DTMF Report (emitted only when `telephone-event` RFC 2833
   packets were detected during the interval). Contains the accumulated digit
@@ -66,7 +66,7 @@ to the SIP call.
 -send_media_report=true -hep_raw_rtcp=true
 ```
 
-`gossIpper` accumulates per-SSRC RTP counters and emits a synthetic
+`Gossipper` accumulates per-SSRC RTP counters and emits a synthetic
 **binary RTCP Sender Report** every **5 seconds** per active stream:
 
 - **HEP type 5** — raw binary RTCP. The payload is a standard 28-byte
@@ -166,7 +166,7 @@ Byte layout (28 bytes, no Report Blocks):
 
 ## DTMF reporting
 
-In JSON mode (`-send_media_report=true -hep_raw_rtcp=false`), `gossIpper`
+In JSON mode (`-send_media_report=true -hep_raw_rtcp=false`), `Gossipper`
 detects RFC 2833 `telephone-event` RTP packets sent during a call and
 reports them as a **HEP type 100** `DTMFReport` JSON message.
 
@@ -233,10 +233,10 @@ RTCP stream it processes.
 
 ## Known limits
 
-- **No jitter measurement.** `gossIpper` is a pure sender for its own RTP
+- **No jitter measurement.** `Gossipper` is a pure sender for its own RTP
   streams. It does not receive its own packets back on the same path, so
   it cannot compute inter-arrival jitter for the outbound stream.
-- **Packet loss is reported as 0** in JSON mode. As a sender, `gossIpper`
+- **Packet loss is reported as 0** in JSON mode. As a sender, `Gossipper`
   has no visibility into whether the remote side received every packet.
 - **Incoming RTCP Receiver Reports** from the remote leg are received and
   counted in the session stats (`rtcp_rr` counter) but are not forwarded

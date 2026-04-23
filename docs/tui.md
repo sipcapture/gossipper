@@ -1,6 +1,6 @@
 # TUI Guide
 
-`gossIpper` now includes an interactive terminal UI that lets an operator:
+`Gossipper` now includes an interactive terminal UI that lets an operator:
 
 - choose launch parameters without building a long CLI command
 - start client or server scenarios from built-in or XML-based profiles
@@ -40,9 +40,9 @@ fields from the current CLI:
 - trace toggles such as `trace_stat`, `trace_rtt`, `trace_msg`, and `trace_err`
 
 ```text
-gossIpper interactive launcher
+Gossipper interactive launcher
 
-┌──────────────────────────── gossIpper TUI ────────────────────────────┐
+┌──────────────────────────── Gossipper TUI ────────────────────────────┐
 │ Mode:            client                                              │
 │ Profile:         builtin-uac (uac)                                   │
 │ Transport:       u1                                                  │
@@ -123,4 +123,4 @@ CPS control is naturally only meaningful for client-side traffic generation.
   scenarios and repository XML fixtures.
 - The runtime dashboard is driven by the same `stats.Snapshot()` data that the
   non-interactive CLI uses for summary output.
-- Dynamic CPS changes are applied without restarting `gossIpper`.
+- Dynamic CPS changes are applied without restarting `Gossipper`.

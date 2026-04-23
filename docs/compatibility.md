@@ -1,6 +1,6 @@
 # XML compatibility matrix
 
-This document defines the currently supported SIPp subset in `gossIpper`.
+This document defines the currently supported SIPp subset in `Gossipper`.
 
 Unsupported XML actions now fail during scenario parsing, and unsupported
 scenario keywords fail during template rendering instead of silently degrading
@@ -115,7 +115,7 @@ into no-ops or empty strings.
 | `[dynamic_id]` | partial | Pragmatic M6 support renders a deterministic per-message helper value from runtime context; full SIPp wraparound/global semantics remain deferred |
 | `[routes]` | partial | Pragmatic M6 support: when a `recv` command uses `rrs="true"`, captured `Record-Route` headers are replayed as `Route` headers (reverse order) in subsequent rendered messages |
 | `[clock_tick]` | partial | Pragmatic M6 support renders runtime-provided tick values (supports arithmetic offsets) |
-| `[sipp_version]` | supported | Renders runtime version string (defaults to `gossIpper` when not explicitly provided) |
+| `[sipp_version]` | supported | Renders runtime version string (defaults to `Gossipper` when not explicitly provided) |
 | `[tdmmap]` | deferred | Not implemented yet |
 | `[fill]` | partial | Pragmatic M6 support for `variable=` length and optional `text=` seed in message templating; broader SIPp edge semantics remain deferred |
 

@@ -1,5 +1,5 @@
 // Package pcap2scenario converts a SIP+RTP PCAP capture into a pair of
-// replayable gossIpper scenario files (UAC + UAS) with extracted RTP mini-PCAPs.
+// replayable Gossipper scenario files (UAC + UAS) with extracted RTP mini-PCAPs.
 package pcap2scenario
 
 import (

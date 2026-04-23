@@ -1,12 +1,12 @@
-# gossIpper vs SIPp
+# Gossipper vs SIPp
 
-`gossIpper` is a Go-based SIP traffic generator and scenario runner inspired by
+`Gossipper` is a Go-based SIP traffic generator and scenario runner inspired by
 [`SIPp`](https://github.com/SIPp/sipp). The project does not try to be a
 line-by-line port. Instead, it focuses on a practical subset of SIPp features,
 cleaner internals, and incremental compatibility for real-world SIP and media
 testing.
 
-## What `gossIpper` already does well
+## What `Gossipper` already does well
 
 - Runs SIP XML scenarios with `send`, `recv`, `pause`, `nop`, `timewait`,
   `label`, and `init`
@@ -16,7 +16,7 @@ testing.
   `urldecode`, `verifyauth`, and `exec`
 - Handles UDP, TCP, TLS, and server-side UDP aliases `s1` / `sn`
 - Supports 3PCC-style `sendCmd` / `recvCmd` flows, including external peer
-  communication between multiple `gossIpper` instances
+  communication between multiple `Gossipper` instances
 - Handles out-of-call SIP exchanges such as stateless `OPTIONS`
 - Supports Digest auth retries with `[authentication]`, inline auth params,
   CLI credentials from `-au` / `-ap`, and server-side auth validation through
@@ -31,7 +31,7 @@ testing.
 
 ## Comparison summary
 
-| Area | `gossIpper` | `SIPp` |
+| Area | `Gossipper` | `SIPp` |
 | --- | --- | --- |
 | Implementation language | Go | C++ |
 | Goal | Clean Go rewrite with incremental compatibility | Mature original reference implementation |
@@ -44,11 +44,11 @@ testing.
 | Reporting | JSON summary, RTD, failure classes, CSV stats, RTT dumps, tracing | Rich CLI stats and long-standing reporting model |
 | Compatibility scope | Explicit and documented | De facto full reference behavior |
 
-## Where `gossIpper` is intentionally different
+## Where `Gossipper` is intentionally different
 
 ### 1. Smaller compatibility surface
 
-`gossIpper` only implements the SIPp subset that is currently useful and tested in
+`Gossipper` only implements the SIPp subset that is currently useful and tested in
 this repository. The idea is to grow compatibility intentionally instead of
 pretending to support every legacy corner case from day one.
 
@@ -68,19 +68,19 @@ tests, and reproducible compatibility work.
 ## Where `SIPp` is still ahead
 
 - Wider XML and CLI compatibility
-- More complete media coverage beyond the currently implemented `gossIpper`
+- More complete media coverage beyond the currently implemented `Gossipper`
   subset
 - Longer production history and more community examples
 - Better parity for obscure or legacy scenario semantics
 
 If you need exact behavior from a complex existing SIPp scenario, SIPp is still
 the safer default. If you want a simpler Go-native codebase with enough SIPp
-surface for modern integration tests and incremental extension, `gossIpper` is the
+surface for modern integration tests and incremental extension, `Gossipper` is the
 better fit.
 
 ## Current practical position
 
-Today, `gossIpper` is a strong fit for:
+Today, `Gossipper` is a strong fit for:
 
 - targeted SIP regression scenarios
 - 3PCC and command-orchestrated test flows

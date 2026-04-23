@@ -56,6 +56,7 @@ type Config struct {
 	ReconnectClose   bool
 	BaseCSeq         int
 	TotalCalls       int
+	UnlimitedCalls   bool // if true, ignore TotalCalls as a cap (stress until ctx cancel)
 	MaxConcurrent    int
 	MaxSockets       int
 	Users            int
@@ -257,7 +258,7 @@ func (e *Engine) runClientCommandOnly(ctx context.Context) error {
 	var once sync.Once
 	var runErr error
 
-	for i := 1; i <= e.cfg.TotalCalls; i++ {
+	for i := 1; e.clientShouldSpawnAnother(i); i++ {
 		if err := e.waitForNextCall(ctx); err != nil {
 			if errors.Is(err, scheduler.ErrStopped) {
 				break
@@ -324,7 +325,7 @@ func (e *Engine) runClientShared(ctx context.Context) error {
 	var once sync.Once
 	var runErr error
 
-	for i := 1; i <= e.cfg.TotalCalls; i++ {
+	for i := 1; e.clientShouldSpawnAnother(i); i++ {
 		if err := e.waitForNextCall(ctx); err != nil {
 			if errors.Is(err, scheduler.ErrStopped) {
 				break
@@ -388,7 +389,7 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 	var once sync.Once
 	var runErr error
 
-	for i := 1; i <= e.cfg.TotalCalls; i++ {
+	for i := 1; e.clientShouldSpawnAnother(i); i++ {
 		if err := e.waitForNextCall(ctx); err != nil {
 			if errors.Is(err, scheduler.ErrStopped) {
 				break
@@ -475,7 +476,7 @@ func (e *Engine) runClientPerSourceIP(ctx context.Context) error {
 	var once sync.Once
 	var runErr error
 
-	for i := 1; i <= e.cfg.TotalCalls; i++ {
+	for i := 1; e.clientShouldSpawnAnother(i); i++ {
 		if err := e.waitForNextCall(ctx); err != nil {
 			if errors.Is(err, scheduler.ErrStopped) {
 				break
@@ -555,7 +556,7 @@ func (e *Engine) runClientSharedTCP(ctx context.Context) error {
 	var once sync.Once
 	var runErr error
 
-	for i := 1; i <= e.cfg.TotalCalls; i++ {
+	for i := 1; e.clientShouldSpawnAnother(i); i++ {
 		if err := e.waitForNextCall(ctx); err != nil {
 			if errors.Is(err, scheduler.ErrStopped) {
 				break
@@ -611,7 +612,7 @@ func (e *Engine) runClientPerCallTCP(ctx context.Context) error {
 	var once sync.Once
 	var runErr error
 
-	for i := 1; i <= e.cfg.TotalCalls; i++ {
+	for i := 1; e.clientShouldSpawnAnother(i); i++ {
 		if err := e.waitForNextCall(ctx); err != nil {
 			if errors.Is(err, scheduler.ErrStopped) {
 				break
@@ -670,6 +671,30 @@ func (e *Engine) callConcurrencyLimit(perCallSocket bool) int {
 		return e.cfg.MaxSockets
 	}
 	return limit
+}
+
+// clientShouldSpawnAnother is true while the UAC side should schedule another call (1-based index).
+func (e *Engine) clientShouldSpawnAnother(callIndex int) bool {
+	if e.cfg.UnlimitedCalls {
+		return true
+	}
+	return callIndex <= e.cfg.TotalCalls
+}
+
+// serverRejectNew returns true when no more incoming calls should be accepted (capacity reached).
+func (e *Engine) serverRejectNew(currentCount int) bool {
+	if e.cfg.UnlimitedCalls {
+		return false
+	}
+	return currentCount >= e.cfg.TotalCalls
+}
+
+// serverFinishedAll returns true when exactly TotalCalls sessions have completed (UAS shutdown).
+func (e *Engine) serverFinishedAll(finished int) bool {
+	if e.cfg.UnlimitedCalls {
+		return false
+	}
+	return finished >= e.cfg.TotalCalls
 }
 
 func (e *Engine) runServer(ctx context.Context) error {
@@ -777,7 +802,7 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 			sess, exists := sessions[callID]
 			if !exists {
 				firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
-				if !sip.Match(*msg, firstCmd.RecvReq, firstCmd.RecvResp) || accepted >= e.cfg.TotalCalls {
+				if !sip.Match(*msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(accepted) {
 					mu.Unlock()
 					sip.PutMessage(msg)
 					continue
@@ -804,7 +829,7 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 						mu.Lock()
 						delete(sessions, id)
 						finished++
-						if finished >= e.cfg.TotalCalls {
+						if e.serverFinishedAll(finished) {
 							doneOnce.Do(func() { close(done) })
 						}
 						mu.Unlock()
@@ -931,7 +956,7 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 				sess, exists := sessions[packet.callID]
 				if !exists {
 					firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
-				if !sip.Match(*packet.msg, firstCmd.RecvReq, firstCmd.RecvResp) || accepted >= e.cfg.TotalCalls {
+				if !sip.Match(*packet.msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(accepted) {
 					mu.Unlock()
 					sip.PutMessage(packet.msg)
 					continue
@@ -958,7 +983,7 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 							mu.Lock()
 							delete(sessions, id)
 							finished++
-							if finished >= e.cfg.TotalCalls {
+							if e.serverFinishedAll(finished) {
 								doneOnce.Do(func() { close(done) })
 							}
 							mu.Unlock()
@@ -1063,7 +1088,7 @@ func (e *Engine) runServerTCPShared(ctx context.Context) error {
 			sess, exists := sessions[callID]
 			if !exists {
 				firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
-				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) || len(sessions) >= e.cfg.TotalCalls {
+				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(len(sessions)) {
 					mu.Unlock()
 					continue
 				}
@@ -1127,7 +1152,7 @@ func (e *Engine) runServerTCPPerConn(ctx context.Context) error {
 	}
 
 	var wg sync.WaitGroup
-	for accepted := 0; accepted < e.cfg.TotalCalls; accepted++ {
+	for accepted := 0; e.cfg.UnlimitedCalls || accepted < e.cfg.TotalCalls; accepted++ {
 		conn, err := server.Accept(ctx)
 		if err != nil {
 			return err

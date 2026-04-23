@@ -1,11 +1,11 @@
-# RTP in gossIpper scenarios
+# RTP in Gossipper scenarios
 
 This document explains how to send and receive RTP media from within XML scenario
 files.
 
 ## How media endpoints are resolved
 
-`gossIpper` automatically extracts the remote RTP endpoint from the last received
+`Gossipper` automatically extracts the remote RTP endpoint from the last received
 SIP message.  The engine parses the SDP body and reads the `m=audio`, `m=video`,
 or `m=image` line to determine the destination IP and port.  No manual endpoint
 configuration is required inside the scenario XML.
@@ -314,7 +314,7 @@ Content-Type: application/sdp
 Content-Length: [len]
 
 v=0
-o=gossIpper 0 0 IN IP[local_ip_type] [local_ip]
+o=Gossipper 0 0 IN IP[local_ip_type] [local_ip]
 s=-
 c=IN IP[local_ip_type] [local_ip]
 t=0 0

@@ -45,6 +45,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 	}
 
 	totalCalls := cfg.TotalCalls
+	unlimited := cfg.TotalCallsSetExplicitly && cfg.TotalCalls == 0
 	if sc.Mode == scenario.ModeServer && totalCalls == cli.DefaultTotalCalls && !cfg.TotalCallsSetExplicitly {
 		// UAS defaults to 1 call, which rejects all but the first incoming call.
 		// For server mode, default to accepting many calls (like SIPp UAS).
@@ -72,6 +73,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		ReconnectClose:   cfg.ReconnectClose,
 		BaseCSeq:         cfg.BaseCSeq,
 		TotalCalls:       totalCalls,
+		UnlimitedCalls:   unlimited,
 		MaxConcurrent:    cfg.MaxConcurrent,
 		MaxSockets:       cfg.MaxSockets,
 		Users:            cfg.Users,

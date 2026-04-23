@@ -6,7 +6,7 @@ section: "net"
 priority: "optional"
 maintainer: "QXIP <support@qxip.net>"
 description: |
-  gossIpper is a Go-based SIP traffic generator and SIPp-compatible
+  Gossipper is a Go-based SIP traffic generator and SIPp-compatible
   scenario runner with incremental XML parity, 3PCC helpers, and RTP tooling.
 vendor: "QXIP"
 homepage: "https://github.com/qxip/gossipper"

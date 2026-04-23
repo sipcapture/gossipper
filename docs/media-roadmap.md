@@ -1,6 +1,6 @@
 # RTP roadmap
 
-`gossIpper` keeps RTP as a separate milestone layered on top of the SIP engine.
+`Gossipper` keeps RTP as a separate milestone layered on top of the SIP engine.
 
 ## Why it is separate
 

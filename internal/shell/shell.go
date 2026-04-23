@@ -131,7 +131,7 @@ func printHelp(out io.Writer) {
 	fmt.Fprintln(out, "Commands:")
 	fmt.Fprintln(out, "  wizard          — guided prompts for a minimal UAC or UAS profile")
 	fmt.Fprintln(out, "  hint            — suggest what to set or fix for the current session")
-	fmt.Fprintln(out, "  set <k> [v]     — set flag (aliases: remote→rsa, bind→i, port→p, calls→m, rate→r, …)")
+	fmt.Fprintln(out, "  set <k> [v]     — set flag (readable: destination_host + destination_port, builtin_scenario, local_bind_ip, calls_per_second, …; short rsa/sn/i/p/m/r still work)")
 	fmt.Fprintln(out, "  set             — no args: short flag cheatsheet")
 	fmt.Fprintln(out, "  unset <k>       — remove a flag from the session")
 	fmt.Fprintln(out, "  show            — print accumulated argv and values")

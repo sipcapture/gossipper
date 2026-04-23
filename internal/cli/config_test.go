@@ -1105,3 +1105,31 @@ func TestParseRejectsNegativeStatPeriod(t *testing.T) {
 		t.Fatal("expected Parse() to reject negative stat_period")
 	}
 }
+
+func TestParseUnlimitedCallsExplicitZero(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-m", "0",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.TotalCalls != 0 || !cfg.TotalCallsSetExplicitly {
+		t.Fatalf("expected explicit -m 0, got calls=%d explicit=%v", cfg.TotalCalls, cfg.TotalCallsSetExplicitly)
+	}
+}
+
+func TestParseRejectsNegativeTotalCalls(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-m", "-1",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject negative -m")
+	}
+}

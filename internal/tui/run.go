@@ -60,7 +60,7 @@ func Run() error {
 	serviceField := tview.NewInputField().SetLabel("Service: ").SetText(defaults.Service)
 	cpsField := tview.NewInputField().SetLabel("CPS: ").SetText(strconv.FormatFloat(defaults.Rate, 'f', -1, 64))
 	rateScaleField := tview.NewInputField().SetLabel("Rate scale: ").SetText(strconv.FormatFloat(defaults.RateScale, 'f', -1, 64))
-	callsField := tview.NewInputField().SetLabel("Calls: ").SetText(strconv.Itoa(defaults.TotalCalls))
+	callsField := tview.NewInputField().SetLabel("Calls (0=∞): ").SetText(strconv.Itoa(defaults.TotalCalls))
 	concurrencyField := tview.NewInputField().SetLabel("Max concurrent: ").SetText(strconv.Itoa(defaults.MaxConcurrent))
 	usersField := tview.NewInputField().SetLabel("Users: ").SetText(strconv.Itoa(defaults.Users))
 	authUserField := tview.NewInputField().SetLabel("Auth user: ").SetText(defaults.AuthUsername)
@@ -180,10 +180,10 @@ func Run() error {
 	form.AddButton("Quit", func() {
 		app.Stop()
 	})
-	form.SetBorder(true).SetTitle(" gossIpper TUI ").SetTitleAlign(tview.AlignLeft)
+	form.SetBorder(true).SetTitle(" Gossipper TUI ").SetTitleAlign(tview.AlignLeft)
 
 	configLayout := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(tview.NewTextView().SetText("[::b]gossIpper interactive launcher"), 1, 0, false).
+		AddItem(tview.NewTextView().SetText("[::b]Gossipper interactive launcher"), 1, 0, false).
 		AddItem(configStatus, 2, 0, false).
 		AddItem(form, 0, 1, true)
 

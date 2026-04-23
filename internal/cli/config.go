@@ -132,7 +132,7 @@ func Parse(args []string) (Config, error) {
 	cfg.InfIndexFile = infIndexFile
 	cfg.InfIndexField = infIndexField
 
-	fs := flag.NewFlagSet("gossIpper", flag.ContinueOnError)
+	fs := flag.NewFlagSet("gossipper", flag.ContinueOnError)
 	fs.SetOutput(os.Stdout)
 	fs.Usage = func() {
 		writeHelpPreamble(fs.Output())
@@ -161,7 +161,7 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.BaseCSeq, "base_cseq", cfg.BaseCSeq, "base CSeq value used by [cseq]")
 	fs.IntVar(&cfg.MaxConcurrent, "l", cfg.MaxConcurrent, "maximum concurrent calls")
 	fs.IntVar(&cfg.MaxSockets, "max_socket", 0, "maximum number of simultaneously open call sockets (per-call transports)")
-	fs.IntVar(&cfg.TotalCalls, "m", cfg.TotalCalls, "total calls to place")
+	fs.IntVar(&cfg.TotalCalls, "m", cfg.TotalCalls, "total calls to place (0 = unlimited until SIGINT or -timeout_global; stress/long-run)")
 	fs.IntVar(&cfg.Users, "users", cfg.Users, "number of logical users for user-scoped variables")
 	fs.StringVar(&cfg.SummaryJSON, "summary_json", "", "write final stats to JSON file")
 	fs.BoolVar(&cfg.TraceMessages, "trace_msg", false, "trace sent and received SIP messages")
@@ -263,8 +263,11 @@ func Parse(args []string) (Config, error) {
 	if *reconnectSleepMS < 0 {
 		return Config{}, errors.New("reconnect_sleep must be greater than or equal to zero")
 	}
-	if cfg.TotalCalls <= 0 {
-		return Config{}, errors.New("total calls must be greater than zero")
+	if cfg.TotalCalls < 0 {
+		return Config{}, errors.New("total calls must be greater than or equal to zero")
+	}
+	if cfg.TotalCalls == 0 && !cfg.TotalCallsSetExplicitly {
+		return Config{}, errors.New("total calls must be greater than zero (pass -m 0 explicitly for unlimited stress mode)")
 	}
 	if cfg.MaxConcurrent <= 0 {
 		return Config{}, errors.New("max concurrent calls must be greater than zero")
@@ -542,7 +545,7 @@ func extractInfIndexArgs(args []string) ([]string, string, int, error) {
 }
 
 func writeHelpPreamble(w io.Writer) {
-	fmt.Fprintln(w, "gossIpper — SIP load generator (https://github.com/QXIP/gossipper)")
+	fmt.Fprintln(w, "Gossipper — SIP load generator (https://github.com/QXIP/gossipper)")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Subcommands (run before any flags):")
 	fmt.Fprintln(w, "  gossipper shell              interactive line shell: set flags, wizard, hint, run")

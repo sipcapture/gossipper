@@ -137,7 +137,7 @@ func TestRunPrintsVersion(t *testing.T) {
 		t.Fatalf("io.Copy() error = %v", err)
 	}
 	text := output.String()
-	if !strings.Contains(text, "gossIpper ") || !strings.Contains(text, "commit ") {
+	if !strings.Contains(text, "Gossipper ") || !strings.Contains(text, "commit ") {
 		t.Fatalf("unexpected version output %q", text)
 	}
 }

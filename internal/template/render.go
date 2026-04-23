@@ -309,7 +309,7 @@ func (c Context) resolveToken(token string) (string, bool, bool) {
 		return time.Now().UTC().Format(time.RFC1123), true, false
 	case "sipp_version":
 		if strings.TrimSpace(c.SIPpVersion) == "" {
-			return "gossIpper", true, false
+			return "Gossipper", true, false
 		}
 		return c.SIPpVersion, true, false
 	case "clock_tick":
@@ -446,7 +446,7 @@ func (c Context) resolveTokenStrict(token string) (string, bool, error) {
 		return time.Now().UTC().Format(time.RFC1123), false, nil
 	case "sipp_version":
 		if strings.TrimSpace(c.SIPpVersion) == "" {
-			return "gossIpper", false, nil
+			return "Gossipper", false, nil
 		}
 		return c.SIPpVersion, false, nil
 	case "clock_tick":
