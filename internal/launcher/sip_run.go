@@ -22,6 +22,13 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 		return err
 	}
 
+	logger, closeLog, err := BuildEventLogger(prepared.CLIConfig, prepared.Scenario)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closeLog() }()
+	prepared.EngineConfig.Log = logger
+
 	// runCtx is cancelled as soon as app.Run returns so SIGUSR1 / stat-print
 	// goroutines can exit before we wait on them. Parent ctx still drives app.Run
 	// (SIGINT) and is inherited by runCtx.

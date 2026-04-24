@@ -96,6 +96,17 @@ type Config struct {
 	RTPFreqMs   int    // -rtp_freq  packet interval ms (default 20)
 	RTPDurMs    int    // -rtp_dur   total duration ms (0 = unlimited)
 	RTPChannels int    // -rtp_ch    audio channels (default 1)
+
+	// Structured event logging (universal Logger + OTLP).
+	LogStdout       bool              // -log_stdout: emit text events to stderr
+	LogFileJSONL    string            // -log_file_jsonl path: emit one JSON object per event
+	LogOTELEndpoint string            // -log_otel_endpoint host:port (OTLP collector)
+	LogOTELProto    string            // -log_otel_proto grpc|http
+	LogOTELInsecure bool              // -log_otel_insecure: disable TLS (gRPC) or use http://
+	LogOTELHeaders  map[string]string // -log_otel_header key=value (repeatable)
+	LogAttrs        map[string]string // -log_attr key=value (repeatable, e.g. self_tag=NYC02)
+	LogBufferSize   int               // -log_buffer_size N (ring buffer capacity)
+	LogLevel        string            // -log_level info|debug|warn|error
 }
 
 func DefaultConfig() Config {
@@ -120,6 +131,9 @@ func DefaultConfig() Config {
 		RTPCodec:         "PCMU/8000",
 		RTPFreqMs:        20,
 		RTPChannels:      1,
+		LogOTELProto:     "grpc",
+		LogBufferSize:    16384,
+		LogLevel:         "info",
 	}
 }
 
@@ -216,6 +230,18 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.RTPFreqMs, "rtp_freq", cfg.RTPFreqMs, "packet interval in milliseconds for standalone RTP sender")
 	fs.IntVar(&cfg.RTPDurMs, "rtp_dur", 0, "total duration in milliseconds for standalone RTP sender (0 = run until interrupted)")
 	fs.IntVar(&cfg.RTPChannels, "rtp_ch", cfg.RTPChannels, "number of audio channels for standalone RTP sender (1 = mono)")
+
+	logAttrs := newKVFlag("log_attr")
+	logHeaders := newKVFlag("log_otel_header")
+	fs.BoolVar(&cfg.LogStdout, "log_stdout", false, "emit structured events to stderr in text form")
+	fs.StringVar(&cfg.LogFileJSONL, "log_file_jsonl", "", "write one JSON event per line to this path")
+	fs.StringVar(&cfg.LogOTELEndpoint, "log_otel_endpoint", "", "OTLP collector endpoint (host:port for gRPC, full URL for HTTP)")
+	fs.StringVar(&cfg.LogOTELProto, "log_otel_proto", cfg.LogOTELProto, "OTLP transport: grpc or http")
+	fs.BoolVar(&cfg.LogOTELInsecure, "log_otel_insecure", false, "disable TLS for OTLP exporter")
+	fs.Var(logHeaders, "log_otel_header", "OTLP header in key=value form (repeatable)")
+	fs.Var(logAttrs, "log_attr", "extra resource attribute in key=value form (repeatable, e.g. -log_attr self_tag=NYC02)")
+	fs.IntVar(&cfg.LogBufferSize, "log_buffer_size", cfg.LogBufferSize, "ring buffer capacity for the event logger")
+	fs.StringVar(&cfg.LogLevel, "log_level", cfg.LogLevel, "minimum event level: debug|info|warn|error")
 
 	if err := fs.Parse(normalizedArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -419,6 +445,26 @@ func Parse(args []string) (Config, error) {
 		}
 	}
 
+	cfg.LogAttrs = logAttrs.values
+	cfg.LogOTELHeaders = logHeaders.values
+	cfg.LogOTELProto = strings.ToLower(strings.TrimSpace(cfg.LogOTELProto))
+	cfg.LogLevel = strings.ToLower(strings.TrimSpace(cfg.LogLevel))
+	if cfg.LogBufferSize < 0 {
+		return Config{}, errors.New("log_buffer_size must be greater than or equal to zero")
+	}
+	if cfg.LogOTELEndpoint != "" {
+		switch cfg.LogOTELProto {
+		case "grpc", "http":
+		default:
+			return Config{}, fmt.Errorf("log_otel_proto must be grpc or http, got %q", cfg.LogOTELProto)
+		}
+	}
+	if cfg.LogLevel != "" {
+		if _, ok := levelKnown(cfg.LogLevel); !ok {
+			return Config{}, fmt.Errorf("log_level must be debug|info|warn|error, got %q", cfg.LogLevel)
+		}
+	}
+
 	if cfg.RTPSend {
 		if cfg.RTPAddr == "" {
 			return Config{}, errors.New("-rtp_addr is required for standalone RTP sender")
@@ -581,6 +627,65 @@ func splitHostPort(input string) (string, int, error) {
 		return "", 0, err
 	}
 	return host, port, nil
+}
+
+// kvFlag is a flag.Value that accumulates repeated -key value=foo arguments
+// into a map. Used by -log_attr and -log_otel_header.
+type kvFlag struct {
+	name   string
+	values map[string]string
+}
+
+func newKVFlag(name string) *kvFlag {
+	return &kvFlag{name: name, values: make(map[string]string)}
+}
+
+func (f *kvFlag) String() string {
+	if f == nil || len(f.values) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(f.values))
+	for k, v := range f.values {
+		parts = append(parts, k+"="+v)
+	}
+	return strings.Join(parts, ",")
+}
+
+func (f *kvFlag) Set(raw string) error {
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			return fmt.Errorf("-%s expects key=value, got %q", f.name, entry)
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" {
+			return fmt.Errorf("-%s entry has empty key: %q", f.name, entry)
+		}
+		f.values[key] = value
+	}
+	return nil
+}
+
+// levelKnown reports whether name is a valid log level. Kept here so the
+// cli package does not depend on internal/eventlog directly during parse.
+func levelKnown(name string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "", "info":
+		return "info", true
+	case "debug":
+		return "debug", true
+	case "warn", "warning":
+		return "warn", true
+	case "error", "err":
+		return "error", true
+	default:
+		return "", false
+	}
 }
 
 func parseCommandPeersFile(path string) (map[string]string, error) {

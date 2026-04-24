@@ -1133,3 +1133,132 @@ func TestParseRejectsNegativeTotalCalls(t *testing.T) {
 		t.Fatal("expected Parse() to reject negative -m")
 	}
 }
+
+func TestParseLogAttrsRepeatable(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-log_attr", "self_tag=NYC02",
+		"-log_attr", "peer_tag=NYC01",
+		"-log_attr", "deployment=staging",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	want := map[string]string{
+		"self_tag":   "NYC02",
+		"peer_tag":   "NYC01",
+		"deployment": "staging",
+	}
+	if len(cfg.LogAttrs) != len(want) {
+		t.Fatalf("expected %d log attrs, got %d (%+v)", len(want), len(cfg.LogAttrs), cfg.LogAttrs)
+	}
+	for k, v := range want {
+		if cfg.LogAttrs[k] != v {
+			t.Fatalf("expected %s=%s, got %s=%s", k, v, k, cfg.LogAttrs[k])
+		}
+	}
+}
+
+func TestParseLogOTELDefaultsAndProto(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-log_otel_endpoint", "otel:4317",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.LogOTELProto != "grpc" {
+		t.Fatalf("expected default proto grpc, got %q", cfg.LogOTELProto)
+	}
+	if cfg.LogBufferSize <= 0 {
+		t.Fatalf("expected non-zero default buffer size, got %d", cfg.LogBufferSize)
+	}
+	if cfg.LogLevel != "info" {
+		t.Fatalf("expected default level info, got %q", cfg.LogLevel)
+	}
+
+	cfg, err = Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-log_otel_endpoint", "http://otel:4318",
+		"-log_otel_proto", "HTTP",
+	})
+	if err != nil {
+		t.Fatalf("Parse(http) error = %v", err)
+	}
+	if cfg.LogOTELProto != "http" {
+		t.Fatalf("expected normalized proto http, got %q", cfg.LogOTELProto)
+	}
+}
+
+func TestParseRejectsBadLogOTELProto(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-log_otel_endpoint", "otel:4317",
+		"-log_otel_proto", "thrift",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject unknown OTLP proto")
+	}
+}
+
+func TestParseRejectsBadLogAttr(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-log_attr", "no-equals",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject -log_attr without '='")
+	}
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-log_attr", "=lonely",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject -log_attr with empty key")
+	}
+}
+
+func TestParseLogOTELHeadersRepeatable(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-log_otel_endpoint", "otel:4317",
+		"-log_otel_header", "Authorization=Bearer abc",
+		"-log_otel_header", "X-Tenant=acme",
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.LogOTELHeaders["Authorization"] != "Bearer abc" {
+		t.Fatalf("expected Authorization header, got %+v", cfg.LogOTELHeaders)
+	}
+	if cfg.LogOTELHeaders["X-Tenant"] != "acme" {
+		t.Fatalf("expected X-Tenant header, got %+v", cfg.LogOTELHeaders)
+	}
+}
+
+func TestParseRejectsBadLogLevel(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-log_level", "verbose",
+	}); err == nil {
+		t.Fatal("expected Parse() to reject unknown log level")
+	}
+}

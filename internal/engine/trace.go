@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/qxip/gossipper/internal/eventlog"
 	"github.com/qxip/gossipper/internal/scenario"
 	"github.com/qxip/gossipper/internal/sip"
 	"github.com/qxip/gossipper/internal/stats"
@@ -374,6 +375,11 @@ func (e *Engine) traceEvent(direction string, callNumber int, raw string) {
 }
 
 func (e *Engine) traceActionLog(message string) {
+	e.emitEvent(eventlog.Event{
+		Level: eventlog.LevelInfo,
+		Kind:  eventlog.KindActionLog,
+		Msg:   message,
+	})
 	if e.trace == nil || e.trace.logFile == nil {
 		return
 	}
@@ -383,6 +389,15 @@ func (e *Engine) traceActionLog(message string) {
 }
 
 func (e *Engine) traceError(kind string, callNumber int, message string) {
+	e.emitEvent(eventlog.Event{
+		Level: eventlog.LevelError,
+		Kind:  eventlog.KindError,
+		Msg:   message,
+		Attrs: map[string]any{
+			"call_num":   callNumber,
+			"error.kind": kind,
+		},
+	})
 	if e.trace == nil || e.trace.errFile == nil {
 		return
 	}
@@ -392,13 +407,33 @@ func (e *Engine) traceError(kind string, callNumber int, message string) {
 }
 
 func (e *Engine) traceUnexpectedSIP(callNumber int, expected scenario.Command, msg sip.Message) {
-	if !e.cfg.TraceErrors && !e.cfg.TraceErrorCodes {
-		return
-	}
-	summary := firstLine(msg.Raw)
 	expectedText := expected.RecvResp
 	if expected.RecvReq != "" {
 		expectedText = expected.RecvReq
+	}
+	summary := firstLine(msg.Raw)
+	attrs := map[string]any{
+		"call_num":   callNumber,
+		"expected":   expectedText,
+		"sip.method": msg.Method,
+	}
+	if msg.StatusCode > 0 {
+		attrs["sip.status"] = msg.StatusCode
+		if reason := strings.TrimSpace(msg.Reason); reason != "" {
+			attrs["sip.reason"] = reason
+		}
+	}
+	if callID, ok := sip.Header(msg.Headers, "Call-ID"); ok && callID != "" {
+		attrs["call_id"] = callID
+	}
+	e.emitEvent(eventlog.Event{
+		Level: eventlog.LevelWarn,
+		Kind:  eventlog.KindUnexpected,
+		Msg:   summary,
+		Attrs: attrs,
+	})
+	if !e.cfg.TraceErrors && !e.cfg.TraceErrorCodes {
+		return
 	}
 	if e.cfg.TraceErrors {
 		e.traceError("unexpected-sip", callNumber, fmt.Sprintf("expected=%q got=%q\n%s", expectedText, summary, msg.Raw))
@@ -406,6 +441,18 @@ func (e *Engine) traceUnexpectedSIP(callNumber int, expected scenario.Command, m
 	if e.cfg.TraceErrorCodes && msg.StatusCode > 0 {
 		e.traceErrorCode(callNumber, msg.StatusCode, strings.TrimSpace(msg.Reason), commandCallID(msg.Raw, ""), expectedText)
 	}
+}
+
+// emitEvent forwards ev to the structured logger if one is configured.
+// nil log is treated as a no-op so callers don't need to nil-check.
+func (e *Engine) emitEvent(ev eventlog.Event) {
+	if e == nil || e.log == nil {
+		return
+	}
+	if ev.Time.IsZero() {
+		ev.Time = time.Now()
+	}
+	e.log.Emit(ev)
 }
 
 func (e *Engine) traceErrorCode(callNumber, code int, reason, callID, expected string) {

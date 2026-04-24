@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/qxip/gossipper/internal/eventlog"
 	"github.com/qxip/gossipper/internal/sip"
 	templ "github.com/qxip/gossipper/internal/template"
 )
@@ -60,6 +61,12 @@ func (e *Engine) renderSIPMessage(raw string, ctx templ.Context) (string, error)
 }
 
 func (e *Engine) buildAuthHeader(outgoing string, ctx templ.Context, option authKeywordOptions) (string, error) {
+	header, err := e.buildAuthHeaderInner(outgoing, ctx, option)
+	e.emitAuthEvent(ctx, option, header, err)
+	return header, err
+}
+
+func (e *Engine) buildAuthHeaderInner(outgoing string, ctx templ.Context, option authKeywordOptions) (string, error) {
 	if ctx.LastMessage == "" {
 		return "", errors.New("authentication keyword requires a previous 401 or 407 challenge")
 	}
@@ -102,6 +109,59 @@ func (e *Engine) buildAuthHeader(outgoing string, ctx templ.Context, option auth
 		resolveAuthKeywordUsername(option.username, e.cfg.AuthUsername),
 		resolveAuthKeywordPassword(option.password, e.cfg.AuthPassword),
 	)
+}
+
+// emitAuthEvent records a structured event whenever an [authentication]
+// keyword is processed. Both successful and failed challenges are surfaced
+// so observability stays symmetric with traceError().
+func (e *Engine) emitAuthEvent(ctx templ.Context, option authKeywordOptions, header string, buildErr error) {
+	if e == nil || e.log == nil {
+		return
+	}
+	attrs := map[string]any{
+		"call_id":  ctx.CallID,
+		"call_num": ctx.CallNumber,
+		"username": resolveAuthKeywordUsername(option.username, e.cfg.AuthUsername),
+	}
+	level := eventlog.LevelInfo
+	msg := "authorization header generated"
+	if challengeMsg, err := sip.Parse([]byte(ctx.LastMessage)); err == nil {
+		if challengeMsg.StatusCode > 0 {
+			attrs["challenge.status"] = challengeMsg.StatusCode
+		}
+		challengeName := "WWW-Authenticate"
+		if challengeMsg.StatusCode == 407 {
+			challengeName = "Proxy-Authenticate"
+		}
+		if raw, ok := sip.Header(challengeMsg.Headers, challengeName); ok {
+			if params, perr := parseDigestChallenge(raw); perr == nil {
+				if params.realm != "" {
+					attrs["realm"] = params.realm
+				}
+				if params.algorithm != "" {
+					attrs["algorithm"] = params.algorithm
+				}
+				if params.qop != "" {
+					attrs["qop"] = params.qop
+				}
+			}
+		}
+	}
+	if buildErr != nil {
+		level = eventlog.LevelError
+		msg = "authorization header build failed"
+		attrs["error"] = buildErr.Error()
+		attrs["result"] = "error"
+	} else {
+		attrs["result"] = "ok"
+	}
+	e.log.Emit(eventlog.Event{
+		Level: level,
+		Kind:  eventlog.KindAuth,
+		Msg:   msg,
+		Attrs: attrs,
+	})
+	_ = header
 }
 
 func buildDigestAuthHeader(headerName, challenge, method, uri, body, username, password string) (string, error) {

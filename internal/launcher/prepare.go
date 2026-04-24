@@ -106,6 +106,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		CommandName:      cfg.CommandName,
 		CommandPeers:     cfg.CommandPeers,
 		UISourceIPs:      append([]string(nil), cfg.UISourceIPs...),
+		Role:             roleFromScenario(sc),
 	}
 
 	return Prepared{

@@ -210,6 +210,43 @@ Mirror SIP messages to Homer over HEP3:
 go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -hep_addr 127.0.0.1:9060 -hep_capture_id 2001 -hep_password secret
 ```
 
+### Structured event logging (OTel)
+
+Gossipper ships with a non-blocking structured event logger that fans the SIP
+dialog (and other engine events) out to one or more sinks: stdout, JSON-Lines
+file, and OpenTelemetry collectors over OTLP/gRPC or OTLP/HTTP. All sinks are
+fed by a single ring buffer, so emitting events never blocks the SIP hot path —
+on overflow the oldest events are dropped and counted.
+
+Resource attributes are attached at the OTel `LoggerProvider` level. By default
+Gossipper injects `service.name=gossipper`, `service.version=<build>`, and
+`gossipper.role=client|server`. Any extra `-log_attr key=value` pair (repeatable)
+is also added — typical use is `self_tag` / `peer_tag` to label nodes such as
+`NYC01` / `NYC02`.
+
+Client `NYC02` shipping logs to a collector via OTLP/gRPC:
+
+```bash
+go run ./cmd/gossip -sn uac -rsa 10.0.0.3:5060 \
+  -log_otel_endpoint otel-collector:4317 -log_otel_proto grpc -log_otel_insecure \
+  -log_attr self_tag=NYC02 -log_attr peer_tag=NYC01 -log_stdout
+```
+
+Server `NYC01` shipping logs over OTLP/HTTP (typical when the collector sits
+behind a TLS-terminating proxy):
+
+```bash
+go run ./cmd/gossip -sn uas -t s1 -i 0.0.0.0 -p 5060 \
+  -log_otel_endpoint http://otel-collector:4318 -log_otel_proto http \
+  -log_attr self_tag=NYC01 -log_attr peer_tag=NYC02 \
+  -log_file_jsonl /tmp/gossipper-events.jsonl
+```
+
+The full set of flags is described in `docs/event-logging.md`, including event
+schema, the list of `Kind` values, ring-buffer sizing guidance, and tips for
+high-CPS deployments. The legacy `-trace_*` files keep working in parallel and
+are unaffected by event logging.
+
 Run over TLS:
 
 ```bash

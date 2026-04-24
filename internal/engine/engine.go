@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/qxip/gossipper/internal/eventlog"
 	"github.com/qxip/gossipper/internal/hep"
 	"github.com/qxip/gossipper/internal/media"
 	"github.com/qxip/gossipper/internal/scenario"
@@ -89,6 +90,11 @@ type Config struct {
 	CommandName      string
 	CommandPeers     map[string]string
 	UISourceIPs      []string
+
+	// Log is the structured event logger used for SIP/call/auth events.
+	// nil is treated as eventlog.Noop().
+	Log  eventlog.Logger
+	Role string // gossipper.role attribute: "client" or "server"
 }
 
 type Engine struct {
@@ -103,9 +109,14 @@ type Engine struct {
 	cmdNet   *commandNetwork
 	trace    *traceLogger
 	hep      *hep.Client
+	log      eventlog.Logger
 }
 
 func New(cfg Config) *Engine {
+	log := cfg.Log
+	if log == nil {
+		log = eventlog.Noop()
+	}
 	return &Engine{
 		cfg:      cfg,
 		sched:    scheduler.New(),
@@ -114,6 +125,7 @@ func New(cfg Config) *Engine {
 		random:   mrand.New(mrand.NewSource(time.Now().UnixNano())),
 		scopes:   newScopedVars(),
 		commands: newCommandBroker(),
+		log:      log,
 	}
 }
 
@@ -1221,6 +1233,21 @@ func (e *Engine) executeCall(
 	}
 	mediaSession.SetCallID(callID)
 	sawUnexpectedSIP := false
+	e.log.Emit(eventlog.Event{
+		Time:  startedAt,
+		Level: eventlog.LevelInfo,
+		Kind:  eventlog.KindCallStart,
+		Msg:   "call started",
+		Attrs: map[string]any{
+			"call_id":     callID,
+			"call_num":    callNumber,
+			"local_ip":    localIP,
+			"local_port":  localPort,
+			"remote_ip":   remoteHost,
+			"remote_port": remotePort,
+			"transport":   e.cfg.Transport,
+		},
+	})
 	defer func() {
 		if !success {
 			e.stats.AddFailureClass(classifyCallFailure(runErr, sawUnexpectedSIP))
@@ -1230,8 +1257,36 @@ func (e *Engine) executeCall(
 			e.hep.SendFinalReports(callID)
 		}
 		mediaSession.Stop()
-		e.stats.FinishCall(success, time.Since(startedAt))
+		duration := time.Since(startedAt)
+		e.stats.FinishCall(success, duration)
 		e.traceCallCompleted()
+		result := "success"
+		if !success {
+			result = classifyCallFailure(runErr, sawUnexpectedSIP)
+			if result == "" {
+				result = "failed"
+			}
+		}
+		endAttrs := map[string]any{
+			"call_id":     callID,
+			"call_num":    callNumber,
+			"result":      result,
+			"duration_ms": duration.Milliseconds(),
+		}
+		if runErr != nil {
+			endAttrs["error"] = runErr.Error()
+		}
+		level := eventlog.LevelInfo
+		if !success {
+			level = eventlog.LevelWarn
+		}
+		e.log.Emit(eventlog.Event{
+			Time:  time.Now(),
+			Level: level,
+			Kind:  eventlog.KindCallEnd,
+			Msg:   "call ended",
+			Attrs: endAttrs,
+		})
 	}()
 
 	renderCtx := templ.Context{
@@ -1456,6 +1511,7 @@ func (e *Engine) executeCall(
 				}
 				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 					e.stats.AddTimeout()
+					e.emitTimeoutEvent(callNumber, renderCtx.CallID, cmd, recvTimeout, "sip.recv")
 				}
 				return err
 			}
@@ -1513,6 +1569,7 @@ func (e *Engine) executeCall(
 				}
 				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 					e.stats.AddTimeout()
+					e.emitTimeoutEvent(callNumber, renderCtx.CallID, cmd, recvTimeout, "cmd.recv")
 				}
 				return err
 			}
@@ -1556,6 +1613,41 @@ func (e *Engine) executeCall(
 
 	success = true
 	return nil
+}
+
+// emitTimeoutEvent surfaces a structured timeout for the SIP recv hot path so
+// users see why a call was abandoned without re-parsing trace files.
+func (e *Engine) emitTimeoutEvent(callNumber int, callID string, cmd scenario.Command, recvTimeout time.Duration, source string) {
+	if e == nil || e.log == nil {
+		return
+	}
+	expected := cmd.RecvResp
+	if cmd.RecvReq != "" {
+		expected = cmd.RecvReq
+	}
+	attrs := map[string]any{
+		"call_num":      callNumber,
+		"timeout_ms":    recvTimeout.Milliseconds(),
+		"timeout_ns":    recvTimeout.Nanoseconds(),
+		"command.index": cmd.Index,
+		"source":        source,
+	}
+	if callID != "" {
+		attrs["call_id"] = callID
+	}
+	if expected != "" {
+		attrs["expected"] = expected
+	}
+	msg := "recv timeout"
+	if expected != "" {
+		msg = "recv timeout waiting for " + expected
+	}
+	e.log.Emit(eventlog.Event{
+		Level: eventlog.LevelWarn,
+		Kind:  eventlog.KindTimeout,
+		Msg:   msg,
+		Attrs: attrs,
+	})
 }
 
 func classifyCallFailure(err error, sawUnexpectedSIP bool) string {
