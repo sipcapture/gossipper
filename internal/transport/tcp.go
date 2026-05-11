@@ -228,11 +228,17 @@ func (d *DialogTCP) Send(payload []byte) error {
 }
 
 func (d *DialogTCP) Receive(ctx context.Context) (sip.Message, error) {
+	stop := make(chan struct{})
 	go func() {
-		<-ctx.Done()
-		_ = d.conn.SetReadDeadline(deadlineFromContext(ctx))
+		select {
+		case <-ctx.Done():
+			_ = d.conn.SetReadDeadline(deadlineFromContext(ctx))
+		case <-stop:
+		}
 	}()
 	msg, err := sip.ReadMessage(d.reader)
+	close(stop)
+	_ = d.conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		if ne, ok := err.(net.Error); ok && ne.Timeout() {
 			return sip.Message{}, ctx.Err()
@@ -298,11 +304,17 @@ func NewTCPConnReader(conn *net.TCPConn) *TCPConnReader {
 }
 
 func (r *TCPConnReader) Read(ctx context.Context) (sip.Message, error) {
+	stop := make(chan struct{})
 	go func() {
-		<-ctx.Done()
-		_ = r.conn.SetReadDeadline(deadlineFromContext(ctx))
+		select {
+		case <-ctx.Done():
+			_ = r.conn.SetReadDeadline(deadlineFromContext(ctx))
+		case <-stop:
+		}
 	}()
 	msg, err := sip.ReadMessage(r.reader)
+	close(stop)
+	_ = r.conn.SetReadDeadline(time.Time{})
 	if err != nil {
 		if ne, ok := err.(net.Error); ok && ne.Timeout() {
 			return sip.Message{}, ctx.Err()

@@ -10,19 +10,27 @@ import (
 )
 
 func ReadMessage(reader *bufio.Reader) (Message, error) {
-	startLine, err := reader.ReadString('\n')
-	if err != nil {
-		if errors.Is(err, io.EOF) && strings.TrimSpace(startLine) == "" {
-			return Message{}, fmt.Errorf("peer closed connection before any SIP data: %w", err)
+	// Skip blank lines before the SIP start line.  RFC 3261 §7.5 requires
+	// implementations to silently discard stray CRLFs, and RFC 5626 §4.4.1
+	// uses a double-CRLF as a keep-alive ping that must not close the
+	// connection.
+	var startLine string
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if errors.Is(err, io.EOF) && strings.TrimSpace(line) == "" {
+				return Message{}, fmt.Errorf("peer closed connection before any SIP data: %w", err)
+			}
+			if errors.Is(err, io.EOF) {
+				return Message{}, fmt.Errorf("connection closed while reading SIP start line: %w", err)
+			}
+			return Message{}, err
 		}
-		if errors.Is(err, io.EOF) {
-			return Message{}, fmt.Errorf("connection closed while reading SIP start line: %w", err)
+		startLine = strings.TrimRight(line, "\r\n")
+		if strings.TrimSpace(startLine) != "" {
+			break
 		}
-		return Message{}, err
-	}
-	startLine = strings.TrimRight(startLine, "\r\n")
-	if strings.TrimSpace(startLine) == "" {
-		return Message{}, fmt.Errorf("empty SIP start line")
+		// blank line (CRLF keep-alive ping) — skip it
 	}
 
 	var builder strings.Builder
