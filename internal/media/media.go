@@ -63,6 +63,21 @@ type Session struct {
 	localPort     int
 	callID        string
 	pcapLinkLayer string
+
+	// Incoming RTP stats for RTCP Receiver Reports (RFC 3550 §6.4.2).
+	// All fields are guarded by mu.
+	rrSSRC        uint32
+	rrHasFirst    bool
+	rrFirstSeq    uint16
+	rrExtHighSeq  uint32  // extended highest sequence number received
+	rrReceived    uint32  // total packets received from remote
+	rrLost        int32   // cumulative packets lost (expected − received)
+	rrJitter      float64 // interarrival jitter, in RTP timestamp units
+	rrClockRate   uint32  // clock rate auto-detected from the RTP stream
+	rrTSPrev      uint32  // RTP timestamp of previous received packet
+	rrArrivalPrev time.Time
+	rrLastSRNTP   uint32    // compact NTP from the last received SR (for DLSR)
+	rrLastSRAt    time.Time // wall time when the last SR was received
 }
 
 // HEPObserver is implemented by the HEP client to mirror RTP/RTCP traffic to Homer.
@@ -323,6 +338,7 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 	s.running = true
 	s.echoMode = false
 	s.stats = Stats{}
+	s.rrReset()
 	s.localIP = localIP
 	s.localPort = conn.LocalAddr().(*net.UDPAddr).Port
 	rtcpLocalAddr := &net.UDPAddr{Port: localAddr.Port + 1}
@@ -336,6 +352,7 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 	s.mu.Unlock()
 
 	go s.streamLoop(childCtx, conn, remoteAddr, cfg, packets, obs, callID)
+	go s.rtpReceiveLoop(childCtx, conn)
 	if rtcpConn != nil {
 		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, cfg, obs, callID)
 		go s.rtcpReceiveLoop(childCtx, rtcpConn)
@@ -549,6 +566,7 @@ func (s *Session) rtcpLoop(ctx context.Context, conn *net.UDPConn, remote *net.U
 			octetCount := s.octetCount
 			rtpTime := s.lastTimestamp
 			ssrc := s.ssrc
+			rr := s.buildReceiverReport()
 			s.mu.Unlock()
 
 			sr := &rtcp.SenderReport{
@@ -557,6 +575,7 @@ func (s *Session) rtcpLoop(ctx context.Context, conn *net.UDPConn, remote *net.U
 				RTPTime:     rtpTime,
 				PacketCount: packetCount,
 				OctetCount:  octetCount,
+				Reports:     rr,
 			}
 			raw, err := sr.Marshal()
 			if err != nil {
@@ -593,12 +612,17 @@ func (s *Session) rtcpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
 		if err != nil {
 			continue
 		}
+		now := time.Now()
 		s.mu.Lock()
 		s.stats.RTCPPacketsReceived += uint32(len(packets))
 		for _, packet := range packets {
-			switch packet.(type) {
+			switch p := packet.(type) {
 			case *rtcp.SenderReport:
 				s.stats.RTCPSenderReports++
+				// Record compact NTP and arrival time for DLSR field in our RR.
+				ntp := p.NTPTime
+				s.rrLastSRNTP = uint32((ntp >> 16) & 0xFFFFFFFF)
+				s.rrLastSRAt = now
 			case *rtcp.ReceiverReport:
 				s.stats.RTCPReceiverReports++
 			}
@@ -857,6 +881,139 @@ func ApplyPayloadParams(cfg *StreamConfig, payloadName string) {
 		// of this value (Opus frames are not raw PCM).
 		cfg.SamplesPerPkt = 960 // 20 ms × 48 kHz
 		cfg.PacketDuration = 20 * time.Millisecond
+	}
+}
+
+// rrReset zeros all incoming-RTP tracking fields. Must be called under mu or
+// before goroutines start.
+func (s *Session) rrReset() {
+	s.rrSSRC = 0
+	s.rrHasFirst = false
+	s.rrFirstSeq = 0
+	s.rrExtHighSeq = 0
+	s.rrReceived = 0
+	s.rrLost = 0
+	s.rrJitter = 0
+	s.rrClockRate = 0
+	s.rrTSPrev = 0
+	s.rrArrivalPrev = time.Time{}
+	s.rrLastSRNTP = 0
+	s.rrLastSRAt = time.Time{}
+}
+
+// observeRTPPacket updates RR tracking stats for a received RTP packet.
+// Must be called under mu.
+func (s *Session) observeRTPPacket(pkt *rtp.Packet, now time.Time) {
+	if !s.rrHasFirst {
+		s.rrSSRC = pkt.SSRC
+		s.rrFirstSeq = pkt.SequenceNumber
+		s.rrExtHighSeq = uint32(pkt.SequenceNumber)
+		s.rrTSPrev = pkt.Timestamp
+		s.rrArrivalPrev = now
+		s.rrHasFirst = true
+		s.rrReceived = 1
+		return
+	}
+	if pkt.SSRC != s.rrSSRC {
+		return
+	}
+
+	// Extended highest sequence number (RFC 3550 Appendix A.1).
+	diff := int16(pkt.SequenceNumber - uint16(s.rrExtHighSeq))
+	if diff > 0 {
+		s.rrExtHighSeq += uint32(diff)
+	}
+	s.rrReceived++
+
+	// Cumulative packets lost.
+	expected := s.rrExtHighSeq - uint32(s.rrFirstSeq) + 1
+	lost := int32(expected) - int32(s.rrReceived)
+	if lost < 0 {
+		lost = 0
+	}
+	s.rrLost = lost
+
+	// Interarrival jitter (RFC 3550 §A.8).
+	// Auto-detect clock rate from the first pair of packets with different timestamps.
+	if s.rrClockRate == 0 && !s.rrArrivalPrev.IsZero() {
+		elapsed := now.Sub(s.rrArrivalPrev).Seconds()
+		tsDelta := float64(int32(pkt.Timestamp - s.rrTSPrev))
+		if elapsed > 0.001 && tsDelta > 0 {
+			s.rrClockRate = uint32(tsDelta / elapsed)
+		}
+	}
+	if s.rrClockRate > 0 && !s.rrArrivalPrev.IsZero() {
+		arrivalDelta := now.Sub(s.rrArrivalPrev).Seconds() * float64(s.rrClockRate)
+		tsDelta := float64(int32(pkt.Timestamp - s.rrTSPrev))
+		d := arrivalDelta - tsDelta
+		if d < 0 {
+			d = -d
+		}
+		s.rrJitter += (d - s.rrJitter) / 16.0
+	}
+	s.rrTSPrev = pkt.Timestamp
+	s.rrArrivalPrev = now
+}
+
+// buildReceiverReport returns an RR block if we have received any RTP from the
+// remote. Must be called under mu.
+func (s *Session) buildReceiverReport() []rtcp.ReceptionReport {
+	if !s.rrHasFirst {
+		return nil
+	}
+	expected := s.rrExtHighSeq - uint32(s.rrFirstSeq) + 1
+	var fractionLost uint8
+	if expected > 0 && s.rrLost > 0 {
+		f := float64(s.rrLost) / float64(expected)
+		if f > 1 {
+			f = 1
+		}
+		fractionLost = uint8(f * 256)
+	}
+
+	// Delay since last SR (DLSR): expressed in units of 1/65536 seconds.
+	var dlsr uint32
+	var lsr uint32 = s.rrLastSRNTP
+	if !s.rrLastSRAt.IsZero() {
+		delaySeconds := time.Since(s.rrLastSRAt).Seconds()
+		dlsr = uint32(delaySeconds * 65536)
+	}
+
+	return []rtcp.ReceptionReport{{
+		SSRC:               s.rrSSRC,
+		FractionLost:       fractionLost,
+		TotalLost:          uint32(s.rrLost),
+		LastSequenceNumber: s.rrExtHighSeq,
+		Jitter:             uint32(s.rrJitter),
+		LastSenderReport:   lsr,
+		Delay:              dlsr,
+	}}
+}
+
+// rtpReceiveLoop reads incoming RTP on the media socket and updates RR stats.
+func (s *Session) rtpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
+	buffer := make([]byte, 2048)
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		n, _, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				continue
+			}
+			return
+		}
+		var pkt rtp.Packet
+		if err := pkt.Unmarshal(buffer[:n]); err != nil {
+			continue
+		}
+		now := time.Now()
+		s.mu.Lock()
+		s.observeRTPPacket(&pkt, now)
+		s.stats.RTPPacketsReceived++
+		s.mu.Unlock()
 	}
 }
 

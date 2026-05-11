@@ -68,6 +68,7 @@ func (s *Session) StartPCAPReplay(ctx context.Context, endpoint Endpoint, path, 
 	s.running = true
 	s.echoMode = false
 	s.stats = Stats{}
+	s.rrReset()
 	s.localIP = localIP
 	s.localPort = conn.LocalAddr().(*net.UDPAddr).Port
 	rtcpPort := conn.LocalAddr().(*net.UDPAddr).Port + 1
@@ -82,6 +83,7 @@ func (s *Session) StartPCAPReplay(ctx context.Context, endpoint Endpoint, path, 
 	s.mu.Unlock()
 
 	go s.pcapLoop(childCtx, conn, remoteAddr, packets, obs, callID)
+	go s.rtpReceiveLoop(childCtx, conn)
 	if rtcpConn != nil {
 		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, StreamConfig{SSRC: firstSSRC}, obs, callID)
 		go s.rtcpReceiveLoop(childCtx, rtcpConn)
