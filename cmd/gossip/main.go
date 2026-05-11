@@ -156,13 +156,14 @@ func runPCAP2Scenario(args []string) error {
 	fs := flag.NewFlagSet("pcap2scenario", flag.ContinueOnError)
 	outDir := fs.String("out", ".", "output directory for generated scenario files")
 	sipPort := fs.Int("sip-port", 0, "SIP signalling port (0 = auto-detect)")
+	pcapLink := fs.String("pcap-link", "", "datalink for decode: auto (default), ethernet, linux_sll, linux_sll2, raw, ...")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: gossipper pcap2scenario <file.pcap> [-out <dir>] [-sip-port <port>]")
+		return fmt.Errorf("usage: gossipper pcap2scenario <file.pcap> [-out <dir>] [-sip-port <port>] [-pcap-link <layer>]")
 	}
 
-	return pcap2scenario.Run(fs.Arg(0), *outDir, *sipPort)
+	return pcap2scenario.Run(fs.Arg(0), *outDir, *sipPort, *pcapLink)
 }

@@ -62,6 +62,7 @@ type Session struct {
 	localIP       string
 	localPort     int
 	callID        string
+	pcapLinkLayer string
 }
 
 // HEPObserver is implemented by the HEP client to mirror RTP/RTCP traffic to Homer.
@@ -104,6 +105,14 @@ func (s *Session) SetCallID(callID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.callID = callID
+}
+
+// SetPCAPLinkLayer sets the datalink override for PCAP replay (play_pcap_*).
+// Empty string means auto: use the file's DLT from the global header (including LINUX_SLL2).
+func (s *Session) SetPCAPLinkLayer(spec string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pcapLinkLayer = strings.TrimSpace(spec)
 }
 
 func BuildPacket(cfg StreamConfig, payload []byte) ([]byte, error) {
@@ -164,7 +173,7 @@ func buildSyntheticPayload(cfg StreamConfig) []byte {
 		for i := range payload {
 			payload[i] = 0xD5
 		}
-	// All other codecs: zero bytes are a reasonable silence representation.
+		// All other codecs: zero bytes are a reasonable silence representation.
 	}
 	return payload
 }

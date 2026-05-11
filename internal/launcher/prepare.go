@@ -113,6 +113,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		UISourceIPs:      append([]string(nil), cfg.UISourceIPs...),
 		InjectionFile:    cfg.InjectionFile,
 		Role:             roleFromScenario(sc),
+		PCAPLinkLayer:    cfg.PCAPLinkLayer,
 	}
 
 	return Prepared{

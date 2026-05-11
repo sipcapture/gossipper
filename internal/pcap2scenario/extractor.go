@@ -14,6 +14,7 @@ import (
 	"github.com/google/gopacket/pcapgo"
 	"github.com/google/gopacket/tcpassembly"
 	"github.com/google/gopacket/tcpassembly/tcpreader"
+	"github.com/sipcapture/gossipper/internal/pcaplink"
 	"github.com/sipcapture/gossipper/internal/sip"
 )
 
@@ -21,16 +22,28 @@ import (
 type ExtractResult struct {
 	SIPMessages []RawSIPPacket
 	UDPPackets  []RawUDPPacket
-	LinkType    layers.LinkType
+	// HeaderLinkType is the 32-bit DLT from the PCAP global header (Wireshark/tcpdump).
+	HeaderLinkType uint32
 }
 
 // Extract reads a PCAP file and returns all SIP messages (from UDP and TCP)
 // together with all raw UDP datagrams (used for RTP filtering in a later pass).
 //
+// linkSpec is the PCAP datalink override (same as CLI -pcap-link); empty means auto.
+//
 // sipPort controls SIP detection:
 //   - > 0 : only that port is treated as SIP (both UDP and TCP)
 //   - 0   : heuristic detection based on the SIP/2.0 keyword
-func Extract(pcapPath string, sipPort int) (ExtractResult, error) {
+func Extract(pcapPath string, sipPort int, linkSpec string) (ExtractResult, error) {
+	headerLT, err := pcaplink.PeekFileLinkType(pcapPath)
+	if err != nil {
+		return ExtractResult{}, fmt.Errorf("pcap header %s: %w", pcapPath, err)
+	}
+	dec, err := pcaplink.ResolveDecoder(linkSpec, headerLT)
+	if err != nil {
+		return ExtractResult{}, err
+	}
+
 	f, err := os.Open(pcapPath)
 	if err != nil {
 		return ExtractResult{}, fmt.Errorf("open %s: %w", pcapPath, err)
@@ -41,8 +54,6 @@ func Extract(pcapPath string, sipPort int) (ExtractResult, error) {
 	if err != nil {
 		return ExtractResult{}, fmt.Errorf("read pcap header: %w", err)
 	}
-
-	linkType := reader.LinkType()
 
 	var (
 		mu       sync.Mutex
@@ -77,7 +88,7 @@ func Extract(pcapPath string, sipPort int) (ExtractResult, error) {
 		rawFrame := make([]byte, len(data))
 		copy(rawFrame, data)
 
-		pkt := gopacket.NewPacket(data, linkType, gopacket.NoCopy)
+		pkt := gopacket.NewPacket(data, dec, gopacket.NoCopy)
 		netLayer := pkt.NetworkLayer()
 		if netLayer == nil {
 			continue
@@ -147,9 +158,9 @@ func Extract(pcapPath string, sipPort int) (ExtractResult, error) {
 	factory.wg.Wait()
 
 	return ExtractResult{
-		SIPMessages: sipMsgs,
-		UDPPackets:  udpPkts,
-		LinkType:    linkType,
+		SIPMessages:    sipMsgs,
+		UDPPackets:     udpPkts,
+		HeaderLinkType: headerLT,
 	}, nil
 }
 

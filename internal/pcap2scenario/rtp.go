@@ -5,8 +5,8 @@ import (
 	"os"
 
 	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
+	"github.com/sipcapture/gossipper/internal/pcaplink"
 )
 
 // SplitRTP filters the captured UDP packets by the RTP ports found in the
@@ -17,12 +17,12 @@ import (
 // matches dlg.CallerRTPPort AND at least one endpoint IP matches the caller
 // RTP IP.  The same logic applies to the callee.
 func SplitRTP(result ExtractResult, dlg Dialog, callerPath, calleePath string) error {
-	callerN, err := writeRTPPcap(callerPath, result.UDPPackets, result.LinkType, dlg.CallerRTPIP, dlg.CallerRTPPort)
+	callerN, err := writeRTPPcap(callerPath, result.UDPPackets, result.HeaderLinkType, dlg.CallerRTPIP, dlg.CallerRTPPort)
 	if err != nil {
 		return fmt.Errorf("write caller_rtp.pcap: %w", err)
 	}
 
-	calleeN, err := writeRTPPcap(calleePath, result.UDPPackets, result.LinkType, dlg.CalleeRTPIP, dlg.CalleeRTPPort)
+	calleeN, err := writeRTPPcap(calleePath, result.UDPPackets, result.HeaderLinkType, dlg.CalleeRTPIP, dlg.CalleeRTPPort)
 	if err != nil {
 		return fmt.Errorf("write callee_rtp.pcap: %w", err)
 	}
@@ -41,7 +41,7 @@ func SplitRTP(result ExtractResult, dlg Dialog, callerPath, calleePath string) e
 // writeRTPPcap writes all UDP frames whose source or destination port equals
 // rtpPort AND whose source or destination IP matches rtpIP.
 // Returns the number of packets written.
-func writeRTPPcap(path string, pkts []RawUDPPacket, lt layers.LinkType, rtpIP string, rtpPort int) (int, error) {
+func writeRTPPcap(path string, pkts []RawUDPPacket, headerLinkType uint32, rtpIP string, rtpPort int) (int, error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return 0, err
@@ -49,7 +49,7 @@ func writeRTPPcap(path string, pkts []RawUDPPacket, lt layers.LinkType, rtpIP st
 	defer f.Close()
 
 	w := pcapgo.NewWriter(f)
-	if err := w.WriteFileHeader(65536, lt); err != nil {
+	if err := pcaplink.WriteMicrosecondsFileHeader(f, 65536, headerLinkType); err != nil {
 		return 0, err
 	}
 

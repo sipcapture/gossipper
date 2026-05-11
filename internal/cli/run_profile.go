@@ -55,6 +55,7 @@ type runSpec struct {
 	ApiAddr          *string  `json:"api_addr,omitempty"`
 	ApiToken         *string  `json:"api_token,omitempty"`
 	ExtraArgs        []string `json:"extra_args,omitempty"`
+	PCAPLink         *string  `json:"pcap_link,omitempty"`
 }
 
 type runProfileFile struct {
@@ -258,6 +259,9 @@ func applyRunSpec(cfg *Config, spec *runSpec, configDir string) error {
 	}
 	if spec.ApiToken != nil {
 		cfg.ApiToken = *spec.ApiToken
+	}
+	if spec.PCAPLink != nil {
+		cfg.PCAPLinkLayer = strings.TrimSpace(*spec.PCAPLink)
 	}
 	return nil
 }

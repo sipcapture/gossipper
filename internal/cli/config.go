@@ -116,6 +116,9 @@ type Config struct {
 	LogAttrs        map[string]string // -log_attr key=value (repeatable, e.g. self_tag=NYC02)
 	LogBufferSize   int               // -log_buffer_size N (ring buffer capacity)
 	LogLevel        string            // -log_level info|debug|warn|error
+
+	// PCAPLinkLayer selects PCAP datalink decoding for play_pcap_* (-pcap-link).
+	PCAPLinkLayer string
 }
 
 func DefaultConfig() Config {
@@ -237,6 +240,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.ScreenFile, "screen_file", "", "path to runtime screen trace log file")
 	fs.StringVar(&cfg.HEPAddr, "hep_addr", cfg.HEPAddr, "HEP3 collector address host:port for SIP mirroring to Homer")
 	fs.StringVar(&cfg.HEPPassword, "hep_password", cfg.HEPPassword, "optional HEP3 auth key")
+	fs.StringVar(&cfg.PCAPLinkLayer, "pcap-link", cfg.PCAPLinkLayer, "PCAP datalink for play_pcap_*: auto (default), ethernet, linux_sll, linux_sll2, raw, null, loop, ipv4, ipv6, or numeric DLT")
 	fs.BoolVar(&cfg.HEPRawRTCP, "hep_raw_rtcp", cfg.HEPRawRTCP, "send aggregated RTP as binary RTCP SR on HEP type 5 every 5s; ignored when hep_homer_lake_rtcp=true; must stay true for OSS when send_media_report is on unless hep_homer_lake_rtcp is set")
 	fs.BoolVar(&cfg.HEPHomerLakeRTCP, "hep_homer_lake_rtcp", cfg.HEPHomerLakeRTCP, "Homer-Lake: HEP type 5 with JSON RTCP SR body every 5s (open-source); takes precedence over hep_raw_rtcp")
 	fs.BoolVar(&cfg.SendMediaReport, "send_media_report", cfg.SendMediaReport, "send RTP/RTCP media reports to HEP (built-in: homer-lake JSON or raw SR; short JSON 0x22/0x24/0x64 only with a linked extension)")

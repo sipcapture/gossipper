@@ -12,6 +12,7 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/pion/rtp"
+	"github.com/sipcapture/gossipper/internal/pcaplink"
 )
 
 type pcapPacket struct {
@@ -24,7 +25,11 @@ func (s *Session) StartPCAPReplay(ctx context.Context, endpoint Endpoint, path, 
 		return fmt.Errorf("invalid RTP endpoint %s:%d", endpoint.IP, endpoint.Port)
 	}
 
-	packets, firstSSRC, err := loadPCAPPackets(path)
+	s.mu.Lock()
+	linkSpec := s.pcapLinkLayer
+	s.mu.Unlock()
+
+	packets, firstSSRC, err := loadPCAPPackets(path, linkSpec)
 	if err != nil {
 		return err
 	}
@@ -136,7 +141,17 @@ func (s *Session) pcapLoop(ctx context.Context, conn *net.UDPConn, remote *net.U
 	}
 }
 
-func loadPCAPPackets(path string) ([]pcapPacket, uint32, error) {
+func loadPCAPPackets(path, linkSpec string) ([]pcapPacket, uint32, error) {
+	headerLT, err := pcaplink.PeekFileLinkType(path)
+	if err != nil {
+		return nil, 0, fmt.Errorf("pcap header: %w", err)
+	}
+
+	dec, err := pcaplink.ResolveDecoder(linkSpec, headerLT)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, 0, err
@@ -165,7 +180,7 @@ func loadPCAPPackets(path string) ([]pcapPacket, uint32, error) {
 			break
 		}
 
-		packet := gopacket.NewPacket(data, reader.LinkType(), gopacket.NoCopy)
+		packet := gopacket.NewPacket(data, dec, gopacket.NoCopy)
 		udpLayer := packet.Layer(layers.LayerTypeUDP)
 		if udpLayer == nil {
 			continue

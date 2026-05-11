@@ -16,6 +16,7 @@ func (e *Engine) runInit(ctx context.Context) error {
 
 	store := newVarStore(e.scopes, e.cfg.Scenario.GlobalVariables, e.cfg.Scenario.UserVariables, 0)
 	mediaSession := media.NewSession()
+	mediaSession.SetPCAPLinkLayer(e.cfg.PCAPLinkLayer)
 	defer mediaSession.Stop()
 	renderCtx := templ.Context{
 		Service:       e.cfg.Service,

@@ -11,10 +11,10 @@ import (
 //  2. Reconstructs the SIP dialog.
 //  3. Writes caller_rtp.pcap and callee_rtp.pcap into outDir.
 //  4. Generates scenario_uac.xml and scenario_uas.xml in outDir.
-func Run(pcapPath, outDir string, sipPort int) error {
+func Run(pcapPath, outDir string, sipPort int, linkSpec string) error {
 	// ── 1. Extract ────────────────────────────────────────────────────────
 	fmt.Printf("pcap2scenario: reading %s ...\n", pcapPath)
-	result, err := Extract(pcapPath, sipPort)
+	result, err := Extract(pcapPath, sipPort, linkSpec)
 	if err != nil {
 		return fmt.Errorf("extract: %w", err)
 	}

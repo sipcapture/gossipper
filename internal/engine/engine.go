@@ -111,6 +111,10 @@ type Config struct {
 	// nil is treated as eventlog.Noop().
 	Log  eventlog.Logger
 	Role string // gossipper.role attribute: "client" or "server"
+
+	// PCAPLinkLayer selects the PCAP datalink decoder for play_pcap_* replay (and mirrors CLI -pcap-link).
+	// Empty means auto (uses file DLT; LINUX_SLL2 is detected from the global header).
+	PCAPLinkLayer string
 }
 
 type Engine struct {
@@ -1361,6 +1365,7 @@ func (e *Engine) executeCall(
 	e.stats.StartCall()
 	success := false
 	mediaSession := media.NewSession()
+	mediaSession.SetPCAPLinkLayer(e.cfg.PCAPLinkLayer)
 	if e.hep != nil {
 		mediaSession.SetHEPObserver(e.hep)
 	}
