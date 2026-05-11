@@ -5358,8 +5358,8 @@ func TestEffectiveSIPRecvTimeoutBYE(t *testing.T) {
 		t.Fatalf("INVITE: got %v", got)
 	}
 	cmd = scenario.Command{RecvReq: "BYE", Optional: true}
-	if got := effectiveSIPRecvTimeout(cmd, 5*time.Second, 90*time.Second); got != 250*time.Millisecond {
-		t.Fatalf("optional BYE: got %v", got)
+	if got := effectiveSIPRecvTimeout(cmd, 5*time.Second, 90*time.Second); got != sipTimerB {
+		t.Fatalf("optional BYE: got %v, want %v", got, sipTimerB)
 	}
 	cmd = scenario.Command{RecvReq: "BYE"}
 	if got := effectiveSIPRecvTimeout(cmd, 100*time.Second, 90*time.Second); got != 100*time.Second {

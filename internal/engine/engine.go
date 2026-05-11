@@ -40,6 +40,11 @@ var (
 	parseHeadersLinesPool   = sync.Pool{New: func() interface{} { return new([]string) }}
 )
 
+// sipTimerB is RFC 3261 Timer B: the INVITE client transaction timeout
+// (64 * T1 = 64 * 500ms = 32s). Used as a floor for optional recv timeouts
+// so INVITE response chains don't abort before the transaction can complete.
+const sipTimerB = 64 * 500 * time.Millisecond
+
 type Config struct {
 	Scenario         scenario.Scenario
 	Transport        string
@@ -1611,14 +1616,22 @@ func (e *Engine) executeCall(
 			var unexpectedForMain *sip.Message
 			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, send, retransmit, recvTimeout, func(m *sip.Message, fromPending bool) bool {
 				if fromPending {
+					if cmd.Optional {
+						// Re-queue back so subsequent optional recvs can try it.
+						pending = append(pending, m)
+					}
 					return false
 				}
 				if cmd.RecvResp != "" && sip.ResponseStatusMatches(*m, cmd.RecvResp) && !sip.MatchRecv(*m, cmd.RecvReq, cmd.RecvResp, lastSent) {
 					e.emitRecvCSeqReject(callNumber, renderCtx.CallID, cmd, m, lastSent)
 				}
-				e.traceUnexpectedSIP(callNumber, cmd, *m)
-				e.traceCountUnexpected(cmd.Index)
-				sawUnexpectedSIP = true
+				if !cmd.Optional {
+					// For optional recvs, a mismatched message is just being
+					// deferred to a later recv — not truly unexpected.
+					e.traceUnexpectedSIP(callNumber, cmd, *m)
+					e.traceCountUnexpected(cmd.Index)
+					sawUnexpectedSIP = true
+				}
 				if unexpMainIndex >= 0 && unexpectedForMain == nil {
 					cpy := m.Copy()
 					unexpectedForMain = &cpy
@@ -1636,7 +1649,7 @@ func (e *Engine) executeCall(
 					continue
 				}
 				if cmd.Optional {
-					index = resolveNext(index, cmd, store, e.random)
+					index = index + 1
 					continue
 				}
 				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
@@ -1751,11 +1764,14 @@ func effectiveSIPRecvTimeout(cmd scenario.Command, defaultRecv, recvBYEFloor tim
 	if cmd.Timeout > 0 {
 		return cmd.Timeout
 	}
-	if cmd.Optional {
-		return 250 * time.Millisecond
-	}
 	out := defaultRecv
-	if recvBYEFloor > 0 && strings.EqualFold(strings.TrimSpace(cmd.RecvReq), "BYE") && out < recvBYEFloor {
+	if cmd.Optional && out < sipTimerB {
+		// Optional recvs must wait at least RFC 3261 Timer B so that slow
+		// INVITE transactions (TLS + media processing) have time to deliver
+		// their 200 OK before the scenario gives up.
+		out = sipTimerB
+	}
+	if !cmd.Optional && recvBYEFloor > 0 && strings.EqualFold(strings.TrimSpace(cmd.RecvReq), "BYE") && out < recvBYEFloor {
 		out = recvBYEFloor
 	}
 	return out
@@ -1930,10 +1946,9 @@ func (e *Engine) waitForMatch(
 			}
 			if cmd.Optional {
 				// Free msg only if stash did NOT take ownership.
-				// When stash != nil and fromPending is false, stash stored msg in
-				// pending (caller will drain it next). When fromPending is true
-				// the message was dequeued from pending and stash returned early.
-				if stash == nil || fromPending {
+				// When stash is present it re-queues the message into pending
+				// (even when fromPending is true) so the next recv can try it.
+				if stash == nil {
 					sip.PutMessage(msg)
 				}
 				return nil, errOptionalRecvMismatch
@@ -1944,7 +1959,7 @@ func (e *Engine) waitForMatch(
 			continue
 		}
 
-		if errors.Is(err, context.DeadlineExceeded) && retrans > 0 && len(lastSent) > 0 && time.Now().Before(deadline) {
+		if errors.Is(err, context.DeadlineExceeded) && retrans > 0 && len(lastSent) > 0 && time.Now().Before(deadline) && ctx.Err() == nil {
 			if sendErr := send(lastSent); sendErr != nil {
 				return nil, sendErr
 			}
