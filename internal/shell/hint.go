@@ -85,7 +85,7 @@ func loadScenarioForHint(cfg cli.Config) (scenario.Scenario, error) {
 // printSetCheatsheet lists common flags when the user types "set" alone.
 func printSetCheatsheet(out io.Writer) {
 	fmt.Fprintln(out, "Common flags (cheatsheet, readable names):")
-	fmt.Fprintln(out, "  set builtin_scenario uac|uas   — built-in scenario (short: sn)")
+	fmt.Fprintln(out, "  set builtin_scenario uac|uas|invite_media   — built-in scenario (short: sn)")
 	fmt.Fprintln(out, "  set destination HOST:PORT      — remote SIP peer / UAC target (short: rsa)")
 	fmt.Fprintln(out, "  set destination_host HOST + set destination_port PORT — same as destination (port defaults to 5060 if omitted)")
 	fmt.Fprintln(out, "  set local_bind_ip IP           — local IP in SIP (short: i)")
@@ -93,6 +93,9 @@ func printSetCheatsheet(out io.Writer) {
 	fmt.Fprintln(out, "  set transport u1|cl|l1|s1|sn|sl|… — transport (short: t; UAC TLS: l1/ln or cl/cln; UAS UDP: s1/sn; UAS TLS: l1/ln/sl)")
 	fmt.Fprintln(out, "  set total_calls N              — total calls; 0 = unlimited (short: m)")
 	fmt.Fprintln(out, "  set calls_per_second R         — UAC rate (short: r)")
+	fmt.Fprintln(out, "  set sip_from \"Name <sip:u@h>\"   — built-in UAC From before ;tag= (CLI -sip_from)")
+	fmt.Fprintln(out, "  set sip_pai sip:user@domain    — P-Asserted-Identity value (CLI -sip_pai)")
+	fmt.Fprintln(out, "  set sip_provider TOKEN         — X-provider (CLI -sip_provider)")
 	fmt.Fprintln(out, "  set stat_period 5s             — periodic stats line to stderr")
 	fmt.Fprintln(out, "  set trace_msg                  — SIP trace (off: set trace_msg false)")
 	fmt.Fprintln(out, "Full flag list: gossipper -h. Smarter review:  hint")

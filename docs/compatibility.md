@@ -117,6 +117,10 @@ into no-ops or empty strings.
 | `[$n]` / `[$name]` | supported | Action and string variables |
 | `[dynamic_id]` | supported | Atomic per-message counter with `INT32` wraparound to mirror SIPp; supports `+/-offset` |
 | `[routes]` | supported | When a `recv` command uses `rrs="true"`, captured `Record-Route` headers are replayed as `Route` headers (reverse order) in subsequent rendered messages |
+| `[trunk_from]` | supported | Built-in UAC / `invite_media`: value before `;tag=` in `From`; default `gossip <sip:gossip@local_bind:port>`; CLI `-sip_from` |
+| `[trunk_pai]` | supported | Optional full header line `P-Asserted-Identity: …` plus CRLF; empty when `-sip_pai` unset |
+| `[trunk_provider]` | supported | Optional `X-provider: …` plus CRLF; empty when `-sip_provider` unset |
+| `[trunk_extra]` | supported | Optional extra headers after `Via` (each line ends with CRLF); repeatable CLI `-sip_extra_header` |
 | `[clock_tick]` | supported | Milliseconds elapsed since engine start; supports `+/-offset` |
 | `[sipp_version]` | supported | Renders runtime version string (defaults to `Gossipper` when not explicitly provided) |
 | `[tdmmap]` | partial | Stub: renders `0.0.0/0`; `-tdmmap` CLI flag is not parsed and per-call slot allocation is deferred |
