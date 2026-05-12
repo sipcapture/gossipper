@@ -43,6 +43,12 @@ func run(args []string) error {
 		return shell.Run(os.Stdin, os.Stdout, os.Stderr)
 	}
 
+	control := false
+	if shouldRunControl(args) {
+		control = true
+		args = stripFlag(args, "-control", "--control")
+	}
+
 	cfg, err := cli.Parse(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -52,6 +58,16 @@ func run(args []string) error {
 			return nil
 		}
 		return err
+	}
+
+	if control {
+		prepared, err := launcher.Prepare(cfg)
+		if err != nil {
+			return err
+		}
+		baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return tui.RunControl(baseCtx, prepared)
 	}
 	if cfg.InfIndexFile != "" {
 		indexPath, entries, err := templ.GenerateCSVIndex("", cfg.InfIndexFile, cfg.InfIndexField)
@@ -149,6 +165,32 @@ func shouldRunTUI(args []string) bool {
 		}
 	}
 	return false
+}
+
+func shouldRunControl(args []string) bool {
+	for _, arg := range args {
+		if arg == "-control" || arg == "--control" {
+			return true
+		}
+	}
+	return false
+}
+
+func stripFlag(args []string, flags ...string) []string {
+	result := make([]string, 0, len(args))
+	for _, arg := range args {
+		skip := false
+		for _, f := range flags {
+			if arg == f {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			result = append(result, arg)
+		}
+	}
+	return result
 }
 
 // runPCAP2Scenario implements the `gossipper pcap2scenario` sub-command.
