@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Backfill Demo Scenario
+
+  This scenario is designed for use with the "gossipper backfill" subcommand.
+  It shows the SIP dialog shape that the backfill engine synthesises internally:
+  a basic INVITE → 100 → 180 → 200 → ACK → (hold) → BYE → 200 flow.
+
+  The backfill engine does NOT execute this XML at runtime — it generates
+  equivalent SIP messages directly. This file serves as documentation and
+  as a template that could be extended in the future for custom backfill
+  message shapes.
+
+  Usage examples:
+
+    # Backfill 30 days of SIP calls at 2 CPS, sending HEP to Homer:
+    gossipper backfill -duration 30d -cps 2 \
+      -hep_addr 127.0.0.1:9060 -hep_capture_id 2001
+
+    # Backfill 7 days with SBC logs and metrics to files:
+    gossipper backfill -duration 7d -cps 5 \
+      -sbc_log_file /tmp/sbc_calls.jsonl \
+      -sbc_metrics_file /tmp/sbc_metrics.jsonl \
+      -hep_addr 127.0.0.1:9060
+
+    # Backfill 1 hour for quick testing:
+    gossipper backfill -duration 1h -cps 10 \
+      -sbc_log_file calls.jsonl -sbc_metrics_file metrics.jsonl \
+      -src_ip 192.168.1.10 -dst_ip 192.168.1.20
+
+    # Full month with failure injection and custom call durations:
+    gossipper backfill -duration 30d -cps 3 \
+      -fail_ratio 0.05 \
+      -call_duration_min 15s -call_duration_max 300s \
+      -hep_addr homer:9060 -hep_capture_id 9999 \
+      -sbc_log_file /data/calls.jsonl \
+      -sbc_metrics_file /data/metrics.jsonl
+-->
+<scenario name="Backfill Demo">
+  <!-- UAC sends INVITE -->
+  <send>
+    <![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/UDP [local_ip]:[local_port];branch=[branch]
+From: <sip:[service]@[local_ip]:[local_port]>;tag=[call_number]
+To: <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Contact: <sip:gossip@[local_ip]:[local_port]>
+Max-Forwards: 70
+Content-Length: 0
+
+]]>
+  </send>
+
+  <!-- Receive 100 Trying -->
+  <recv response="100" optional="true"/>
+
+  <!-- Receive 180 Ringing -->
+  <recv response="180" optional="true"/>
+
+  <!-- Receive 200 OK (call answered) -->
+  <recv response="200"/>
+
+  <!-- Send ACK -->
+  <send>
+    <![CDATA[
+ACK sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/UDP [local_ip]:[local_port];branch=[branch]
+From: <sip:[service]@[local_ip]:[local_port]>;tag=[call_number]
+To: <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 1 ACK
+Max-Forwards: 70
+Content-Length: 0
+
+]]>
+  </send>
+
+  <!-- Simulated call hold (backfill engine uses call_duration_min/max) -->
+  <pause milliseconds="30000"/>
+
+  <!-- Send BYE to end call -->
+  <send>
+    <![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/UDP [local_ip]:[local_port];branch=[branch]
+From: <sip:[service]@[local_ip]:[local_port]>;tag=[call_number]
+To: <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Max-Forwards: 70
+Content-Length: 0
+
+]]>
+  </send>
+
+  <!-- Receive 200 OK for BYE -->
+  <recv response="200"/>
+</scenario>

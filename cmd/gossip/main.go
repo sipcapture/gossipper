@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/sipcapture/gossipper/internal/backfill"
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/launcher"
 	"github.com/sipcapture/gossipper/internal/pcap2scenario"
@@ -52,6 +53,9 @@ func run(args []string) error {
 	}
 	if len(args) > 0 && (args[0] == "shell" || args[0] == "cli") {
 		return shell.Run(os.Stdin, os.Stdout, os.Stderr)
+	}
+	if len(args) > 0 && args[0] == "backfill" {
+		return runBackfill(args[1:])
 	}
 
 	interactive := false
@@ -237,4 +241,76 @@ func runReportHTML(args []string) error {
 		return fmt.Errorf("report-html: write -out: %w", err)
 	}
 	return nil
+}
+
+func runBackfill(args []string) error {
+	fs := flag.NewFlagSet("backfill", flag.ContinueOnError)
+	cfg := backfill.DefaultConfig()
+
+	durationStr := fs.String("duration", "24h", "how far back to generate data (e.g. 30d, 7d12h, 2h30m)")
+	cps := fs.Float64("cps", cfg.CPS, "simulated calls per second")
+	metricsInterval := fs.String("metrics_interval", "60s", "interval between aggregate metric snapshots")
+	hepAddr := fs.String("hep_addr", "", "HEP collector address (host:port)")
+	hepCaptureID := fs.Uint("hep_capture_id", 9999, "HEP capture agent ID")
+	hepPassword := fs.String("hep_password", "", "HEP authentication key")
+	sbcLogFile := fs.String("sbc_log_file", "", "path for SBC CDR log output (JSON-Lines)")
+	sbcMetricsFile := fs.String("sbc_metrics_file", "", "path for SBC metrics output (JSON-Lines)")
+	srcIP := fs.String("src_ip", cfg.SrcIP, "source IP for synthetic SIP messages")
+	dstIP := fs.String("dst_ip", cfg.DstIP, "destination IP for synthetic SIP messages")
+	srcPort := fs.Int("src_port", cfg.SrcPort, "source port")
+	dstPort := fs.Int("dst_port", cfg.DstPort, "destination port")
+	callDurMin := fs.String("call_duration_min", "10s", "minimum simulated call duration")
+	callDurMax := fs.String("call_duration_max", "120s", "maximum simulated call duration")
+	failRatio := fs.Float64("fail_ratio", cfg.FailRatio, "fraction of calls that fail (0.0-1.0)")
+	noProgress := fs.Bool("no_progress", false, "suppress progress output")
+
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "Usage: gossipper backfill [OPTIONS]\n\n")
+		fmt.Fprintf(fs.Output(), "Generate historical SIP call data (HEP packets, SBC logs, metrics)\n")
+		fmt.Fprintf(fs.Output(), "by walking time backwards from now. No real SIP traffic is sent.\n\n")
+		fmt.Fprintf(fs.Output(), "Examples:\n")
+		fmt.Fprintf(fs.Output(), "  gossipper backfill -duration 30d -cps 2 -hep_addr 127.0.0.1:9060\n")
+		fmt.Fprintf(fs.Output(), "  gossipper backfill -duration 7d -cps 5 -sbc_log_file calls.jsonl -sbc_metrics_file metrics.jsonl\n\n")
+		fmt.Fprintf(fs.Output(), "Options:\n")
+		fs.PrintDefaults()
+	}
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	dur, err := backfill.ParseDuration(*durationStr)
+	if err != nil {
+		return fmt.Errorf("backfill: invalid -duration: %w", err)
+	}
+	cfg.Duration = dur
+	cfg.CPS = *cps
+
+	if mi, err := backfill.ParseDuration(*metricsInterval); err == nil {
+		cfg.MetricsInterval = mi
+	}
+	cfg.HEPAddr = *hepAddr
+	cfg.HEPCaptureID = uint32(*hepCaptureID)
+	cfg.HEPPassword = *hepPassword
+	cfg.SBCLogFile = *sbcLogFile
+	cfg.SBCMetricsFile = *sbcMetricsFile
+	cfg.SrcIP = *srcIP
+	cfg.DstIP = *dstIP
+	cfg.SrcPort = *srcPort
+	cfg.DstPort = *dstPort
+	cfg.FailRatio = *failRatio
+	cfg.Progress = !*noProgress
+
+	if cdMin, err := backfill.ParseDuration(*callDurMin); err == nil {
+		cfg.CallDurationMin = cdMin
+	}
+	if cdMax, err := backfill.ParseDuration(*callDurMax); err == nil {
+		cfg.CallDurationMax = cdMax
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	_, err = backfill.Run(ctx, cfg)
+	return err
 }
