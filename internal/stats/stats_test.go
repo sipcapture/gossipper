@@ -262,3 +262,26 @@ func TestCollectorLatencyRepartitionSummary(t *testing.T) {
 		t.Fatalf("expected RTD stddev 3ms, got %+v", invite)
 	}
 }
+
+func TestSnapshotIncludesCalls(t *testing.T) {
+	t.Parallel()
+	c := New()
+	c.StartCall()
+	c.RecordCall(CallRecord{
+		CallNumber: 1,
+		CallID:     "abc",
+		Success:    true,
+		Result:     "success",
+		Duration:   10 * time.Millisecond,
+		InviteRTT:  3 * time.Millisecond,
+		Media:      MediaSummary{RTPPacketsSent: 5},
+	})
+	c.FinishCall(true, 10*time.Millisecond)
+	s := c.Snapshot()
+	if len(s.Calls) != 1 {
+		t.Fatalf("calls=%d", len(s.Calls))
+	}
+	if s.Calls[0].CallID != "abc" || s.Calls[0].Media.RTPPacketsSent != 5 {
+		t.Fatalf("call row: %+v", s.Calls[0])
+	}
+}

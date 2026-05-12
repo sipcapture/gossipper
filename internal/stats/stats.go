@@ -30,6 +30,7 @@ type Collector struct {
 	counters        map[string]int
 	displays        map[string]int
 	failureClasses  map[string]int
+	callRecords     []CallRecord
 }
 
 type MediaSummary struct {
@@ -67,6 +68,17 @@ type LatencySummary struct {
 	Buckets []LatencyBucket `json:"buckets,omitempty"`
 }
 
+// CallRecord is one finished SIP scenario call (per-call slice in Summary.Calls).
+type CallRecord struct {
+	CallNumber int           `json:"call_number"`
+	CallID     string        `json:"call_id"`
+	Success    bool          `json:"success"`
+	Result     string        `json:"result,omitempty"`
+	Duration   time.Duration `json:"duration"`
+	InviteRTT  time.Duration `json:"invite_rtt,omitempty"`
+	Media      MediaSummary  `json:"media"`
+}
+
 type Summary struct {
 	SchemaVersion      string                    `json:"schema_version,omitempty"`
 	ToolVersion        string                    `json:"tool_version,omitempty"`
@@ -86,6 +98,7 @@ type Summary struct {
 	CallLength         *LatencySummary           `json:"call_length,omitempty"`
 	InviteRTT          *LatencySummary           `json:"invite_rtt,omitempty"`
 	Media              MediaSummary              `json:"media"`
+	Calls              []CallRecord              `json:"calls,omitempty"`
 	RTD                map[string]LatencySummary `json:"rtd,omitempty"`
 	Counters           map[string]int            `json:"counters,omitempty"`
 	Displays           map[string]int            `json:"displays,omitempty"`
@@ -111,6 +124,13 @@ func (c *Collector) StartCall() {
 	defer c.mu.Unlock()
 	c.totalCalls++
 	c.activeCalls++
+}
+
+// RecordCall appends a per-call row for summary JSON (see Summary.Calls).
+func (c *Collector) RecordCall(rec CallRecord) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.callRecords = append(c.callRecords, rec)
 }
 
 func (c *Collector) FinishCall(success bool, duration time.Duration) {
@@ -272,6 +292,11 @@ func (c *Collector) Snapshot() Summary {
 		}
 	}
 
+	var calls []CallRecord
+	if len(c.callRecords) > 0 {
+		calls = append([]CallRecord(nil), c.callRecords...)
+	}
+
 	callLength, callLengthOK := c.callLatency.snapshot()
 	inviteRTT, inviteRTTOK := c.inviteLatency.snapshot()
 
@@ -292,6 +317,7 @@ func (c *Collector) Snapshot() Summary {
 		CallLength:         latencySummaryOrNil(callLength, callLengthOK),
 		InviteRTT:          latencySummaryOrNil(inviteRTT, inviteRTTOK),
 		Media:              finalizeMediaSummary(c.media),
+		Calls:              calls,
 		RTD:                rtdSummary,
 		Counters:           counters,
 		Displays:           displays,
@@ -391,6 +417,28 @@ func finalizeMediaSummary(m MediaSummary) MediaSummary {
 	out.rtcpJitterSum = 0
 	out.rtcpJitterSamples = 0
 	return out
+}
+
+// MediaSummaryFromStats builds a per-call media block from one media.Session snapshot.
+func MediaSummaryFromStats(s media.Stats) MediaSummary {
+	m := MediaSummary{
+		RTPPacketsSent:       s.RTPPacketsSent,
+		RTPOctetsSent:        s.RTPOctetsSent,
+		RTPPacketsReceived:   s.RTPPacketsReceived,
+		RTCPSenderReports:    s.RTCPSenderReports,
+		RTCPReceiverReports:  s.RTCPReceiverReports,
+		RTCPPacketsReceived:  s.RTCPPacketsReceived,
+		RTCPReceptionReports: s.RTCPReportBlocks,
+	}
+	if s.RTCPMaxFractionLost > 0 {
+		m.RTCPMaxFractionLost = float64(s.RTCPMaxFractionLost) / 256.0
+	}
+	if s.RTCPMaxJitter > 0 {
+		m.RTCPMaxJitterTS = s.RTCPMaxJitter
+	}
+	m.rtcpJitterSum = s.RTCPJitterSum
+	m.rtcpJitterSamples = s.RTCPJitterSamples
+	return finalizeMediaSummary(m)
 }
 
 // SummaryWriteOptions configures JSON export for -summary_json.

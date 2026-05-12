@@ -1380,6 +1380,11 @@ func (e *Engine) executeCall(
 	}
 	mediaSession.SetCallID(callID)
 	sawUnexpectedSIP := false
+	var (
+		inviteStartedAt  time.Time
+		inviteLatencySet bool
+		inviteRTT        time.Duration
+	)
 	e.log.Emit(eventlog.Event{
 		Time:  startedAt,
 		Level: eventlog.LevelInfo,
@@ -1405,8 +1410,6 @@ func (e *Engine) executeCall(
 		}
 		mediaSession.Stop()
 		duration := time.Since(startedAt)
-		e.stats.FinishCall(success, duration)
-		e.traceCallCompleted()
 		result := "success"
 		if !success {
 			result = classifyCallFailure(runErr, sawUnexpectedSIP)
@@ -1414,6 +1417,20 @@ func (e *Engine) executeCall(
 				result = "failed"
 			}
 		}
+		rec := stats.CallRecord{
+			CallNumber: callNumber,
+			CallID:     callID,
+			Success:    success,
+			Result:     result,
+			Duration:   duration,
+			Media:      stats.MediaSummaryFromStats(mediaSession.Snapshot()),
+		}
+		if inviteLatencySet {
+			rec.InviteRTT = inviteRTT
+		}
+		e.stats.RecordCall(rec)
+		e.stats.FinishCall(success, duration)
+		e.traceCallCompleted()
 		endAttrs := map[string]any{
 			"call_id":     callID,
 			"call_num":    callNumber,
@@ -1467,13 +1484,11 @@ func (e *Engine) executeCall(
 	currentRemotePort := remotePort
 
 	var (
-		lastSent         []byte
-		lastRetrans      time.Duration
-		inviteStartedAt  time.Time
-		inviteLatencySet bool
-		pending          []*sip.Message
-		commandCallKey   = renderCtx.CallID
-		rtdStarts        = make(map[string]time.Time)
+		lastSent       []byte
+		lastRetrans    time.Duration
+		pending        []*sip.Message
+		commandCallKey = renderCtx.CallID
+		rtdStarts      = make(map[string]time.Time)
 	)
 	currentUserID := userID(callNumber, e.cfg.Users)
 	renderCtx.Users = e.cfg.Users
@@ -1702,7 +1717,8 @@ func (e *Engine) executeCall(
 				continue
 			}
 			if !inviteLatencySet && msg.StatusCode == 200 && !inviteStartedAt.IsZero() {
-				e.stats.AddInviteLatency(time.Since(inviteStartedAt))
+				inviteRTT = time.Since(inviteStartedAt)
+				e.stats.AddInviteLatency(inviteRTT)
 				inviteLatencySet = true
 			}
 		case scenario.CommandRecvCmd:

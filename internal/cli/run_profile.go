@@ -25,42 +25,45 @@ type runProfileMeta struct {
 // runSpec is one alias entry in a gossipper run profile JSON file.
 // Field names are stable snake_case; optional pointers mean "leave Config default".
 type runSpec struct {
-	ScenarioFile     *string  `json:"scenario_file,omitempty"`
-	ScenarioName     *string  `json:"scenario_name,omitempty"`
-	Service          *string  `json:"service,omitempty"`
-	Transport        *string  `json:"transport,omitempty"`
-	LocalIP          *string  `json:"local_ip,omitempty"`
-	LocalPort        *int     `json:"local_port,omitempty"`
-	RemoteAddr       *string  `json:"remote_addr,omitempty"`
-	AuthUsername     *string  `json:"auth_username,omitempty"`
-	AuthPassword     *string  `json:"auth_password,omitempty"`
-	Rate             *float64 `json:"rate,omitempty"`
-	MaxConcurrent    *int     `json:"max_concurrent,omitempty"`
-	TotalCalls       *int     `json:"total_calls,omitempty"`
-	Users            *int     `json:"users,omitempty"`
-	HEPAddr          *string  `json:"hep_addr,omitempty"`
-	HEPCaptureID     *uint32  `json:"hep_capture_id,omitempty"`
-	HEPPassword      *string  `json:"hep_password,omitempty"`
-	HEPRawRTCP       *bool    `json:"hep_raw_rtcp,omitempty"`
-	HEPHomerLakeRTCP *bool    `json:"hep_homer_lake_rtcp,omitempty"`
-	SendMediaReport  *bool    `json:"send_media_report,omitempty"`
-	SummaryJSON      *string  `json:"summary_json,omitempty"`
-	SummaryHTML      *string  `json:"summary_html,omitempty"`
-	SipFrom          *string  `json:"sip_from,omitempty"`
-	SipPAI           *string  `json:"sip_pai,omitempty"`
-	SipProvider      *string  `json:"sip_provider,omitempty"`
-	SipExtraHeaders  []string `json:"sip_extra_headers,omitempty"`
-	TraceMessages    *bool    `json:"trace_msg,omitempty"`
-	StatPrintPeriod  *string  `json:"stat_period,omitempty"`
-	InjectionFile    *string  `json:"injection_file,omitempty"`
-	IPField          *int     `json:"ip_field,omitempty"`
-	LogOTELEndpoint  *string  `json:"log_otel_endpoint,omitempty"`
-	LogOTELProto     *string  `json:"log_otel_proto,omitempty"`
-	LogOTELInsecure  *bool    `json:"log_otel_insecure,omitempty"`
-	ApiAddr          *string  `json:"api_addr,omitempty"`
-	ApiToken         *string  `json:"api_token,omitempty"`
-	ExtraArgs        []string `json:"extra_args,omitempty"`
-	PCAPLink         *string  `json:"pcap_link,omitempty"`
+	ScenarioFile          *string  `json:"scenario_file,omitempty"`
+	ScenarioName          *string  `json:"scenario_name,omitempty"`
+	Service               *string  `json:"service,omitempty"`
+	Transport             *string  `json:"transport,omitempty"`
+	LocalIP               *string  `json:"local_ip,omitempty"`
+	LocalPort             *int     `json:"local_port,omitempty"`
+	RemoteAddr            *string  `json:"remote_addr,omitempty"`
+	AuthUsername          *string  `json:"auth_username,omitempty"`
+	AuthPassword          *string  `json:"auth_password,omitempty"`
+	Rate                  *float64 `json:"rate,omitempty"`
+	MaxConcurrent         *int     `json:"max_concurrent,omitempty"`
+	TotalCalls            *int     `json:"total_calls,omitempty"`
+	Users                 *int     `json:"users,omitempty"`
+	HEPAddr               *string  `json:"hep_addr,omitempty"`
+	HEPCaptureID          *uint32  `json:"hep_capture_id,omitempty"`
+	HEPPassword           *string  `json:"hep_password,omitempty"`
+	HEPRawRTCP            *bool    `json:"hep_raw_rtcp,omitempty"`
+	HEPHomerLakeRTCP      *bool    `json:"hep_homer_lake_rtcp,omitempty"`
+	SendMediaReport       *bool    `json:"send_media_report,omitempty"`
+	SummaryJSON           *string  `json:"summary_json,omitempty"`
+	SummaryHTML           *string  `json:"summary_html,omitempty"`
+	SipFrom               *string  `json:"sip_from,omitempty"`
+	SipPAI                *string  `json:"sip_pai,omitempty"`
+	SipProvider           *string  `json:"sip_provider,omitempty"`
+	SipExtraHeaders       []string `json:"sip_extra_headers,omitempty"`
+	TraceMessages         *bool    `json:"trace_msg,omitempty"`
+	StatPrintPeriod       *string  `json:"stat_period,omitempty"`
+	HealthMinSuccessRatio *float64 `json:"health_min_success_ratio,omitempty"`
+	HealthMaxFailedCalls  *int     `json:"health_max_failed_calls,omitempty"`
+	HealthMaxTimeouts     *int     `json:"health_max_timeouts,omitempty"`
+	InjectionFile         *string  `json:"injection_file,omitempty"`
+	IPField               *int     `json:"ip_field,omitempty"`
+	LogOTELEndpoint       *string  `json:"log_otel_endpoint,omitempty"`
+	LogOTELProto          *string  `json:"log_otel_proto,omitempty"`
+	LogOTELInsecure       *bool    `json:"log_otel_insecure,omitempty"`
+	ApiAddr               *string  `json:"api_addr,omitempty"`
+	ApiToken              *string  `json:"api_token,omitempty"`
+	ExtraArgs             []string `json:"extra_args,omitempty"`
+	PCAPLink              *string  `json:"pcap_link,omitempty"`
 }
 
 type runProfileFile struct {
@@ -94,23 +97,34 @@ func printRunProfileAliases(configPath string) error {
 // LoadAndApplyRunProfile loads alias from JSON and applies fields to cfg.
 // configDir is the directory of the JSON file (for relative paths).
 func LoadAndApplyRunProfile(cfg *Config, configPath, alias string) ([]string, error) {
-	data, err := os.ReadFile(configPath)
+	spec, err := LoadRunProfileSpec(configPath, alias)
 	if err != nil {
-		return nil, fmt.Errorf("run profile: read config: %w", err)
-	}
-	var f runProfileFile
-	if err := json.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("run profile: %w", err)
-	}
-	spec, ok := f.Aliases[alias]
-	if !ok {
-		return nil, fmt.Errorf("run profile: unknown alias %q", alias)
+		return nil, err
 	}
 	configDir := filepath.Dir(configPath)
 	if err := applyRunSpec(cfg, &spec, configDir); err != nil {
 		return nil, err
 	}
 	return append([]string(nil), spec.ExtraArgs...), nil
+}
+
+// LoadRunProfileSpec reads one alias from a run profile JSON file without
+// applying it to Config. Used by cli.Parse after flag variables are bound
+// (binding resets *float64 / *int fields to flag defaults if apply ran earlier).
+func LoadRunProfileSpec(configPath, alias string) (runSpec, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return runSpec{}, fmt.Errorf("run profile: read config: %w", err)
+	}
+	var f runProfileFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return runSpec{}, fmt.Errorf("run profile: %w", err)
+	}
+	spec, ok := f.Aliases[alias]
+	if !ok {
+		return runSpec{}, fmt.Errorf("run profile: unknown alias %q", alias)
+	}
+	return spec, nil
 }
 
 func parseRunProfileMeta(args []string) ([]string, runProfileMeta, error) {
@@ -251,6 +265,15 @@ func applyRunSpec(cfg *Config, spec *runSpec, configDir string) error {
 			}
 			cfg.StatPrintPeriod = d
 		}
+	}
+	if spec.HealthMinSuccessRatio != nil {
+		cfg.HealthMinSuccessRatio = *spec.HealthMinSuccessRatio
+	}
+	if spec.HealthMaxFailedCalls != nil {
+		cfg.HealthMaxFailedCalls = *spec.HealthMaxFailedCalls
+	}
+	if spec.HealthMaxTimeouts != nil {
+		cfg.HealthMaxTimeouts = *spec.HealthMaxTimeouts
 	}
 	if spec.InjectionFile != nil {
 		p := strings.TrimSpace(*spec.InjectionFile)

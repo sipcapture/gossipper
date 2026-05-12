@@ -129,8 +129,65 @@ func TestParseWithBundledExampleRunProfile(t *testing.T) {
 	if !cfg3.SendMediaReport || cfg3.HEPHomerLakeRTCP || !cfg3.HEPRawRTCP {
 		t.Fatalf("raw rtcp alias: homer=%v raw=%v send=%v", cfg3.HEPHomerLakeRTCP, cfg3.HEPRawRTCP, cfg3.SendMediaReport)
 	}
+
+	trunkPath := filepath.Join(repoRoot, "testdata", "run-profiles", "trunk-ci.json")
+	cfgTrunk, err := Parse([]string{"-config", trunkPath, "-run-alias", "uac-trunk-report"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfgTrunk.SummaryJSON != "out/run-summary.json" || cfgTrunk.SummaryHTML != "out/run-summary.html" {
+		t.Fatalf("summary paths: json=%q html=%q", cfgTrunk.SummaryJSON, cfgTrunk.SummaryHTML)
+	}
+	if cfgTrunk.SipFrom == "" || cfgTrunk.HealthMinSuccessRatio != 0.95 || cfgTrunk.HealthMaxFailedCalls != 0 || cfgTrunk.HealthMaxTimeouts != 2 {
+		t.Fatalf("trunk profile: sip_from=%q health=%v %d %d", cfgTrunk.SipFrom, cfgTrunk.HealthMinSuccessRatio, cfgTrunk.HealthMaxFailedCalls, cfgTrunk.HealthMaxTimeouts)
+	}
 }
 
 func ptr[T any](v T) *T {
 	return &v
+}
+
+func TestUnmarshalTrunkCIHealthFields(t *testing.T) {
+	t.Parallel()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	path := filepath.Join(repoRoot, "testdata", "run-profiles", "trunk-ci.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f runProfileFile
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatal(err)
+	}
+	s := f.Aliases["uac-trunk-report"]
+	if s.HealthMinSuccessRatio == nil || *s.HealthMinSuccessRatio != 0.95 {
+		t.Fatalf("HealthMinSuccessRatio=%v", s.HealthMinSuccessRatio)
+	}
+	if s.HealthMaxFailedCalls == nil || *s.HealthMaxFailedCalls != 0 {
+		t.Fatalf("HealthMaxFailedCalls=%v", s.HealthMaxFailedCalls)
+	}
+	if s.HealthMaxTimeouts == nil || *s.HealthMaxTimeouts != 2 {
+		t.Fatalf("HealthMaxTimeouts=%v", s.HealthMaxTimeouts)
+	}
+}
+
+func TestLoadTrunkProfileSetsHealth(t *testing.T) {
+	t.Parallel()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	path := filepath.Join(repoRoot, "testdata", "run-profiles", "trunk-ci.json")
+	cfg := DefaultConfig()
+	if _, err := LoadAndApplyRunProfile(&cfg, path, "uac-trunk-report"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.HealthMinSuccessRatio != 0.95 || cfg.HealthMaxFailedCalls != 0 || cfg.HealthMaxTimeouts != 2 {
+		t.Fatalf("cfg health: %v %d %d", cfg.HealthMinSuccessRatio, cfg.HealthMaxFailedCalls, cfg.HealthMaxTimeouts)
+	}
 }

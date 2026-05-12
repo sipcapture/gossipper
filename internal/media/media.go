@@ -1193,6 +1193,13 @@ func (s *Session) WaitForRTPActivity(ctx context.Context, minPackets uint32, dir
 	}
 }
 
+// IsRunning reports whether the media session goroutines are active.
+func (s *Session) IsRunning() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running
+}
+
 func (s *Session) Ports() (int, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

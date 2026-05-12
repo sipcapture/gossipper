@@ -83,6 +83,14 @@ These JSON keys map to `Config` / CLI (snake_case in JSON only):
 | `hep_homer_lake_rtcp` | bool | `-hep_homer_lake_rtcp` |
 | `send_media_report` | bool | `-send_media_report` |
 | `summary_json` | string | `-summary_json` |
+| `summary_html` | string | `-summary_html` |
+| `sip_from` | string | `-sip_from` |
+| `sip_pai` | string | `-sip_pai` |
+| `sip_provider` | string | `-sip_provider` |
+| `sip_extra_headers` | string[] | repeatable `-sip_extra_header` (one header string per array element) |
+| `health_min_success_ratio` | number | `-health_min_success_ratio` (evaluated with summary export) |
+| `health_max_failed_calls` | int | `-health_max_failed_calls` |
+| `health_max_timeouts` | int | `-health_max_timeouts` |
 | `trace_msg` | bool | `-trace_msg` |
 | `stat_period` | string | `-stat_period` (Go duration, e.g. `5s`, `1m30s`) |
 | `injection_file` | string | `-inf` (relative to config dir) |
@@ -102,6 +110,7 @@ The repository includes:
 
 - [`testdata/run-profiles/example.json`](../testdata/run-profiles/example.json) — **`hep-uas-listen`** (UAS + HEP + optional OTLP defaults matching the shell script comments) and **`uac-local`** (one UAC call).
 - [`testdata/run-profiles/hep-scripts.json`](../testdata/run-profiles/hep-scripts.json) — parity with [`scripts/hep-uas-listen.sh`](../scripts/hep-uas-listen.sh) and [`scripts/hep-uac-send.sh`](../scripts/hep-uac-send.sh) (Homer-Lake, raw RTCP, and short-JSON UAC variants); see [`testdata/run-profiles/README.md`](../testdata/run-profiles/README.md).
+- [`testdata/run-profiles/trunk-ci.json`](../testdata/run-profiles/trunk-ci.json) — example **`uac-trunk-report`**: SIP trunk-style identity (`sip_from`, `sip_pai`, `sip_provider`, `sip_extra_headers`), `summary_json` / `summary_html` under `out/`, and CI-style **health** thresholds.
 
 From the repo root:
 

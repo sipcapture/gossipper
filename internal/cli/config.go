@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -191,15 +192,20 @@ func Parse(args []string) (Config, error) {
 
 	cfg := DefaultConfig()
 	var profileTotalCallsExplicit bool
+	var profileSpec *runSpec
+	var profileDir string
 	if meta.ConfigPath != "" {
-		extra, err := LoadAndApplyRunProfile(&cfg, meta.ConfigPath, meta.RunAlias)
+		spec, err := LoadRunProfileSpec(meta.ConfigPath, meta.RunAlias)
 		if err != nil {
 			return Config{}, err
 		}
-		profileTotalCallsExplicit = cfg.TotalCallsSetExplicitly
-		if len(extra) > 0 {
-			normalizedArgs = append(append([]string(nil), extra...), normalizedArgs...)
+		profileTotalCallsExplicit = spec.TotalCalls != nil
+		if len(spec.ExtraArgs) > 0 {
+			normalizedArgs = append(append([]string(nil), spec.ExtraArgs...), normalizedArgs...)
 		}
+		s := spec
+		profileSpec = &s
+		profileDir = filepath.Dir(meta.ConfigPath)
 	}
 	cfg.InfIndexFile = infIndexFile
 	cfg.InfIndexField = infIndexField
@@ -317,6 +323,12 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.LogBufferSize, "log_buffer_size", cfg.LogBufferSize, "ring buffer capacity for the event logger")
 	fs.StringVar(&cfg.LogLevel, "log_level", cfg.LogLevel, "minimum event level: debug|info|warn|error")
 
+	if profileSpec != nil {
+		if err := applyRunSpec(&cfg, profileSpec, profileDir); err != nil {
+			return Config{}, err
+		}
+	}
+
 	if err := fs.Parse(normalizedArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fs.Usage()
@@ -416,7 +428,9 @@ func Parse(args []string) (Config, error) {
 	cfg.ReconnectClose = *reconnectClose
 	cfg.StatsDumpPeriod = time.Duration(*statsDumpFrequency) * time.Second
 	cfg.RTTDumpFrequency = *rttDumpFrequency
-	cfg.HEPCaptureID = uint32(*hepCaptureID)
+	if _, ok := providedFlags["hep_capture_id"]; ok {
+		cfg.HEPCaptureID = uint32(*hepCaptureID)
+	}
 	if cfg.StatPrintPeriod < 0 {
 		return Config{}, errors.New("stat_period must be greater than or equal to zero")
 	}
@@ -755,6 +769,8 @@ func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "  gossipper -interactive       same as tui")
 	fmt.Fprintln(w, "  gossipper pcap2scenario ...  PCAP → XML scenarios")
 	fmt.Fprintln(w, "  gossipper report-html ...  summary JSON → standalone HTML report")
+	fmt.Fprintln(w, "  gossipper report-pdf ...   HTML or summary JSON → PDF (needs Chromium in PATH)")
+	fmt.Fprintln(w, "  gossipper mic-rtp ...      stream mono s16le PCM from stdin as RTP G.711")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "See also: docs/interactive-shell.md, docs/tui.md")
 	fmt.Fprintln(w)

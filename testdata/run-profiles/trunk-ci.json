@@ -1,0 +1,22 @@
+{
+  "aliases": {
+    "uac-trunk-report": {
+      "scenario_name": "uac",
+      "remote_addr": "127.0.0.1:5060",
+      "total_calls": 1,
+      "rate": 1,
+      "max_concurrent": 1,
+      "sip_from": "\"LoadTest\" <sip:load@example.com;user=phone>",
+      "sip_pai": "<sip:+15551234567@example.com;user=phone>",
+      "sip_provider": "example.com",
+      "sip_extra_headers": [
+        "X-Test-Run: gossipper-ci"
+      ],
+      "summary_json": "out/run-summary.json",
+      "summary_html": "out/run-summary.html",
+      "health_min_success_ratio": 0.95,
+      "health_max_failed_calls": 0,
+      "health_max_timeouts": 2
+    }
+  }
+}
