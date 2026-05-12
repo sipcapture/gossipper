@@ -69,8 +69,8 @@ func Run() error {
 	hepAddrField := tview.NewInputField().SetLabel("HEP addr: ").SetText("")
 	sendMediaReportField := tview.NewCheckbox().SetLabel("send_media_report ")
 	hepRawRTCPField := tview.NewCheckbox().SetLabel("hep_raw_rtcp ").SetChecked(true)
-	infField := tview.NewInputField().SetLabel("UI inf CSV: ").SetText("")
-	ipFieldField := tview.NewInputField().SetLabel("UI ip_field: ").SetText("0")
+	infField := tview.NewInputField().SetLabel("Inf CSV (-inf): ").SetText("")
+	ipFieldField := tview.NewInputField().SetLabel("IP field (-ip_field): ").SetText("")
 	traceStatField := tview.NewCheckbox().SetLabel("trace_stat ")
 	traceRTTField := tview.NewCheckbox().SetLabel("trace_rtt ")
 	traceMsgField := tview.NewCheckbox().SetLabel("trace_msg ")
@@ -422,7 +422,7 @@ func (s *runtimeState) renderDashboard() string {
 		summary.Media.RTCPSenderReports,
 		summary.Media.RTCPReceiverReports,
 		summary.Media.RTCPPacketsReceived,
-		s.status,
+		tview.Escape(s.status),
 	)
 }
 
@@ -562,12 +562,12 @@ func buildArgs(
 			args = append(args, "-hep_raw_rtcp=false")
 		}
 	}
+	infPath = strings.TrimSpace(infPath)
+	ipField = strings.TrimSpace(ipField)
 	if transport == "ui" {
-		infPath = strings.TrimSpace(infPath)
 		if infPath == "" {
 			return nil, fmt.Errorf("ui transport requires inf CSV path")
 		}
-		ipField = strings.TrimSpace(ipField)
 		if ipField == "" {
 			return nil, fmt.Errorf("ui transport requires ip_field")
 		}
@@ -575,6 +575,16 @@ func buildArgs(
 			return nil, fmt.Errorf("ui ip_field must be an integer")
 		}
 		args = append(args, "-inf", infPath, "-ip_field", ipField)
+	} else if infPath != "" {
+		args = append(args, "-inf", infPath)
+		// TLS transports optionally support -ip_field for per-row bind IPs.
+		isTLS := transport == "cl" || transport == "cln" || transport == "l1" || transport == "ln"
+		if isTLS && ipField != "" {
+			if _, err := strconv.Atoi(ipField); err != nil {
+				return nil, fmt.Errorf("ip_field must be an integer")
+			}
+			args = append(args, "-ip_field", ipField)
+		}
 	}
 	if traceStat {
 		args = append(args, "-trace_stat")
