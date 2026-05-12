@@ -30,6 +30,12 @@ func loadProfiles() []profile {
 			ScenarioName: "uas",
 			Description:  "Built-in basic UAS scenario",
 		},
+		{
+			Name:         "builtin-invite-media",
+			Mode:         "client",
+			ScenarioName: "invite_media",
+			Description:  "Built-in INVITE with SDP, synthetic RTP hold, BYE",
+		},
 	}
 
 	entries, err := os.ReadDir("testdata/scenarios")

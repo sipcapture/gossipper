@@ -85,7 +85,7 @@ func loadScenarioForHint(cfg cli.Config) (scenario.Scenario, error) {
 // printSetCheatsheet lists common flags when the user types "set" alone.
 func printSetCheatsheet(out io.Writer) {
 	fmt.Fprintln(out, "Common flags (cheatsheet, readable names):")
-	fmt.Fprintln(out, "  set builtin_scenario uac|uas   — built-in scenario (short: sn)")
+	fmt.Fprintln(out, "  set builtin_scenario uac|uas|invite_media   — built-in scenario (short: sn)")
 	fmt.Fprintln(out, "  set destination HOST:PORT      — remote SIP peer / UAC target (short: rsa)")
 	fmt.Fprintln(out, "  set destination_host HOST + set destination_port PORT — same as destination (port defaults to 5060 if omitted)")
 	fmt.Fprintln(out, "  set local_bind_ip IP           — local IP in SIP (short: i)")

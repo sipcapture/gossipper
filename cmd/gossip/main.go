@@ -23,6 +23,10 @@ import (
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		if errors.Is(err, launcher.ErrHealthCheckFailed) {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -53,6 +57,8 @@ func run(args []string) error {
 		}
 		return err
 	}
+	cfg.ToolVersion = GetShortVersionString()
+
 	if cfg.InfIndexFile != "" {
 		indexPath, entries, err := templ.GenerateCSVIndex("", cfg.InfIndexFile, cfg.InfIndexField)
 		if err != nil {

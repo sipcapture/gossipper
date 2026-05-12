@@ -39,6 +39,17 @@ type MediaSummary struct {
 	RTCPSenderReports   uint32 `json:"rtcp_sender_reports"`
 	RTCPReceiverReports uint32 `json:"rtcp_receiver_reports"`
 	RTCPPacketsReceived uint32 `json:"rtcp_packets_received"`
+	// RTCPReceptionReports counts ReceptionReport blocks from inbound RTCP RR (RFC 3550).
+	RTCPReceptionReports uint32 `json:"rtcp_reception_reports,omitempty"`
+	// RTCPMaxFractionLost is the maximum observed fraction lost (0..1) across reports.
+	RTCPMaxFractionLost float64 `json:"rtcp_max_fraction_lost,omitempty"`
+	// RTCPMaxJitterTS is the maximum reported interarrival jitter in RTP timestamp units.
+	RTCPMaxJitterTS uint32 `json:"rtcp_max_jitter_ts,omitempty"`
+	// RTCPAvgJitterTS is the mean jitter across all sampled reception report blocks (timestamp units).
+	RTCPAvgJitterTS float64 `json:"rtcp_avg_jitter_ts,omitempty"`
+
+	rtcpJitterSum     float64 `json:"-"`
+	rtcpJitterSamples uint64  `json:"-"`
 }
 
 type LatencyBucket struct {
@@ -57,6 +68,8 @@ type LatencySummary struct {
 }
 
 type Summary struct {
+	SchemaVersion      string                    `json:"schema_version,omitempty"`
+	ToolVersion        string                    `json:"tool_version,omitempty"`
 	StartedAt          time.Time                 `json:"started_at"`
 	FinishedAt         time.Time                 `json:"finished_at"`
 	Duration           time.Duration             `json:"duration"`
@@ -77,6 +90,8 @@ type Summary struct {
 	Counters           map[string]int            `json:"counters,omitempty"`
 	Displays           map[string]int            `json:"displays,omitempty"`
 	FailureClasses     map[string]int            `json:"failure_classes,omitempty"`
+	Health             *HealthSummary            `json:"health,omitempty"`
+	Findings           []string                  `json:"findings,omitempty"`
 }
 
 var latencyBucketBoundsMS = []int64{10, 20, 50, 100, 200, 500, 1000, 2000, 5000}
@@ -139,6 +154,18 @@ func (c *Collector) AddMediaStats(value media.Stats) {
 	c.media.RTCPSenderReports += value.RTCPSenderReports
 	c.media.RTCPReceiverReports += value.RTCPReceiverReports
 	c.media.RTCPPacketsReceived += value.RTCPPacketsReceived
+	c.media.RTCPReceptionReports += value.RTCPReportBlocks
+	if value.RTCPMaxFractionLost > 0 {
+		ratio := float64(value.RTCPMaxFractionLost) / 256.0
+		if ratio > c.media.RTCPMaxFractionLost {
+			c.media.RTCPMaxFractionLost = ratio
+		}
+	}
+	if value.RTCPMaxJitter > c.media.RTCPMaxJitterTS {
+		c.media.RTCPMaxJitterTS = value.RTCPMaxJitter
+	}
+	c.media.rtcpJitterSum += value.RTCPJitterSum
+	c.media.rtcpJitterSamples += value.RTCPJitterSamples
 }
 
 func (c *Collector) AddRTD(name string, value time.Duration) {
@@ -264,7 +291,7 @@ func (c *Collector) Snapshot() Summary {
 		AverageInviteRTT:   avgInvite,
 		CallLength:         latencySummaryOrNil(callLength, callLengthOK),
 		InviteRTT:          latencySummaryOrNil(inviteRTT, inviteRTTOK),
-		Media:              c.media,
+		Media:              finalizeMediaSummary(c.media),
 		RTD:                rtdSummary,
 		Counters:           counters,
 		Displays:           displays,
@@ -356,8 +383,43 @@ func latencySummaryOrNil(summary LatencySummary, ok bool) *LatencySummary {
 	return &copy
 }
 
-func (c *Collector) WriteJSON(path string) error {
-	summary := c.Snapshot()
+func finalizeMediaSummary(m MediaSummary) MediaSummary {
+	out := m
+	if out.rtcpJitterSamples > 0 {
+		out.RTCPAvgJitterTS = out.rtcpJitterSum / float64(out.rtcpJitterSamples)
+	}
+	out.rtcpJitterSum = 0
+	out.rtcpJitterSamples = 0
+	return out
+}
+
+// SummaryWriteOptions configures JSON export for -summary_json.
+type SummaryWriteOptions struct {
+	ToolVersion string
+	Health      HealthConfig
+}
+
+// FinalizeSummary returns a snapshot enriched with schema metadata, health, and findings.
+func (c *Collector) FinalizeSummary(toolVersion string, healthCfg HealthConfig) Summary {
+	s := c.Snapshot()
+	s.SchemaVersion = SummarySchemaVersion
+	if tv := strings.TrimSpace(toolVersion); tv != "" {
+		s.ToolVersion = tv
+	}
+	var reasons []string
+	s.Health, reasons = EvaluateHealth(healthCfg, s)
+	s.Findings = BuildFindings(s, reasons)
+	return s
+}
+
+func (c *Collector) WriteJSON(path string, opts *SummaryWriteOptions) error {
+	var tool string
+	var hc HealthConfig
+	if opts != nil {
+		tool = opts.ToolVersion
+		hc = opts.Health
+	}
+	summary := c.FinalizeSummary(tool, hc)
 	data, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {
 		return err

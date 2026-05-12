@@ -56,6 +56,11 @@ type Config struct {
 	RecvBYEFloorTO          time.Duration // minimum mandatory recv BYE when scenario timeout omitted; 0=off
 	GlobalTimeout           time.Duration
 	SummaryJSON             string
+	// ToolVersion is set by the main package (not a CLI flag) for JSON export.
+	ToolVersion             string
+	HealthMinSuccessRatio   float64
+	HealthMaxFailedCalls    int
+	HealthMaxTimeouts       int
 	TraceMessages           bool
 	TraceShortMsg           bool
 	TraceCounts             bool
@@ -143,9 +148,11 @@ func DefaultConfig() Config {
 		RTPCodec:         "PCMU/8000",
 		RTPFreqMs:        20,
 		RTPChannels:      1,
-		LogOTELProto:     "grpc",
-		LogBufferSize:    16384,
-		LogLevel:         "info",
+		LogOTELProto:         "grpc",
+		LogBufferSize:        16384,
+		LogLevel:             "info",
+		HealthMaxFailedCalls: -1,
+		HealthMaxTimeouts:    -1,
 	}
 }
 
@@ -197,7 +204,7 @@ func Parse(args []string) (Config, error) {
 		fs.PrintDefaults()
 	}
 	fs.StringVar(&cfg.ScenarioFile, "sf", cfg.ScenarioFile, "path to XML scenario file")
-	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas)")
+	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas, invite_media)")
 	fs.StringVar(&cfg.Service, "s", cfg.Service, "service name used in templates")
 	fs.StringVar(&cfg.Transport, "t", cfg.Transport, "transport: u1/un/ui, t1/tn, l1/ln; client TLS aliases cl/cln; server UDP s1/sn; server TLS sl")
 	fs.StringVar(&cfg.LocalIP, "i", cfg.LocalIP, "local IP address")
@@ -222,6 +229,9 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.TotalCalls, "m", cfg.TotalCalls, "total calls to place (0 = unlimited until SIGINT or -timeout_global; stress/long-run)")
 	fs.IntVar(&cfg.Users, "users", cfg.Users, "number of logical users for user-scoped variables")
 	fs.StringVar(&cfg.SummaryJSON, "summary_json", cfg.SummaryJSON, "write final stats to JSON file")
+	fs.Float64Var(&cfg.HealthMinSuccessRatio, "health_min_success_ratio", 0, "when >0 with -summary_json, fail run if success_ratio is lower (e.g. 0.95); exit code 2")
+	fs.IntVar(&cfg.HealthMaxFailedCalls, "health_max_failed_calls", -1, "when >=0 with -summary_json, fail if failed_calls exceed this (0 means any failure fails); exit code 2")
+	fs.IntVar(&cfg.HealthMaxTimeouts, "health_max_timeouts", -1, "when >=0 with -summary_json, fail if timeouts exceed this; exit code 2")
 	fs.BoolVar(&cfg.TraceMessages, "trace_msg", cfg.TraceMessages, "trace sent and received SIP messages")
 	fs.BoolVar(&cfg.TraceShortMsg, "trace_shortmsg", false, "trace sent and received messages as compact CSV")
 	fs.BoolVar(&cfg.TraceCounts, "trace_counts", false, "write periodic SIP message counters as CSV")

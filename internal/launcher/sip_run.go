@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/engine"
 	"github.com/sipcapture/gossipper/internal/scenario"
+	"github.com/sipcapture/gossipper/internal/stats"
 )
 
 // RunSIPScenario runs the SIP scenario engine (UAC/UAS or XML) until ctx is cancelled or the scenario completes.
@@ -98,8 +100,26 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 	}
 
 	if prepared.CLIConfig.SummaryJSON != "" {
-		if err := app.Stats().WriteJSON(prepared.CLIConfig.SummaryJSON); err != nil {
+		opts := &stats.SummaryWriteOptions{
+			ToolVersion: prepared.CLIConfig.ToolVersion,
+			Health: stats.HealthConfig{
+				MinSuccessRatio: prepared.CLIConfig.HealthMinSuccessRatio,
+				MaxFailedCalls:  prepared.CLIConfig.HealthMaxFailedCalls,
+				MaxTimeouts:     prepared.CLIConfig.HealthMaxTimeouts,
+			},
+		}
+		if err := app.Stats().WriteJSON(prepared.CLIConfig.SummaryJSON, opts); err != nil {
 			return err
+		}
+		if opts.Health.Active() {
+			final := app.Stats().FinalizeSummary(opts.ToolVersion, opts.Health)
+			if final.Health != nil && !final.Health.Pass {
+				msg := strings.Join(final.Health.Reasons, "; ")
+				if msg == "" {
+					return ErrHealthCheckFailed
+				}
+				return fmt.Errorf("%w: %s", ErrHealthCheckFailed, msg)
+			}
 		}
 	}
 

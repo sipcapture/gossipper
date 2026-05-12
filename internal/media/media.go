@@ -78,6 +78,12 @@ type Stats struct {
 	RTCPSenderReports   uint32
 	RTCPReceiverReports uint32
 	RTCPPacketsReceived uint32
+	// RTCPReportBlocks counts ReceptionReport blocks from inbound RTCP RR (RFC 3550).
+	RTCPReportBlocks    uint32
+	RTCPMaxFractionLost uint8
+	RTCPMaxJitter       uint32
+	RTCPJitterSum       float64
+	RTCPJitterSamples   uint64
 }
 
 type RTPCheckDirection string
@@ -596,11 +602,22 @@ func (s *Session) rtcpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
 		s.mu.Lock()
 		s.stats.RTCPPacketsReceived += uint32(len(packets))
 		for _, packet := range packets {
-			switch packet.(type) {
+			switch p := packet.(type) {
 			case *rtcp.SenderReport:
 				s.stats.RTCPSenderReports++
 			case *rtcp.ReceiverReport:
 				s.stats.RTCPReceiverReports++
+				for _, rep := range p.Reports {
+					s.stats.RTCPReportBlocks++
+					if rep.FractionLost > s.stats.RTCPMaxFractionLost {
+						s.stats.RTCPMaxFractionLost = rep.FractionLost
+					}
+					if rep.Jitter > s.stats.RTCPMaxJitter {
+						s.stats.RTCPMaxJitter = rep.Jitter
+					}
+					s.stats.RTCPJitterSum += float64(rep.Jitter)
+					s.stats.RTCPJitterSamples++
+				}
 			}
 		}
 		s.mu.Unlock()
