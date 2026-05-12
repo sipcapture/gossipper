@@ -14,6 +14,7 @@ import (
 	"github.com/sipcapture/gossipper/internal/api"
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/engine"
+	"github.com/sipcapture/gossipper/internal/reporthtml"
 	"github.com/sipcapture/gossipper/internal/scenario"
 	"github.com/sipcapture/gossipper/internal/stats"
 )
@@ -99,27 +100,34 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 		return runErr
 	}
 
-	if prepared.CLIConfig.SummaryJSON != "" {
-		opts := &stats.SummaryWriteOptions{
-			ToolVersion: prepared.CLIConfig.ToolVersion,
-			Health: stats.HealthConfig{
-				MinSuccessRatio: prepared.CLIConfig.HealthMinSuccessRatio,
-				MaxFailedCalls:  prepared.CLIConfig.HealthMaxFailedCalls,
-				MaxTimeouts:     prepared.CLIConfig.HealthMaxTimeouts,
-			},
-		}
-		if err := app.Stats().WriteJSON(prepared.CLIConfig.SummaryJSON, opts); err != nil {
-			return err
-		}
-		if opts.Health.Active() {
-			final := app.Stats().FinalizeSummary(opts.ToolVersion, opts.Health)
-			if final.Health != nil && !final.Health.Pass {
-				msg := strings.Join(final.Health.Reasons, "; ")
-				if msg == "" {
-					return ErrHealthCheckFailed
-				}
-				return fmt.Errorf("%w: %s", ErrHealthCheckFailed, msg)
+	opts := &stats.SummaryWriteOptions{
+		ToolVersion: prepared.CLIConfig.ToolVersion,
+		Health: stats.HealthConfig{
+			MinSuccessRatio: prepared.CLIConfig.HealthMinSuccessRatio,
+			MaxFailedCalls:  prepared.CLIConfig.HealthMaxFailedCalls,
+			MaxTimeouts:     prepared.CLIConfig.HealthMaxTimeouts,
+		},
+	}
+	writeJSON := prepared.CLIConfig.SummaryJSON != ""
+	writeHTML := prepared.CLIConfig.SummaryHTML != ""
+	if writeJSON || writeHTML || opts.Health.Active() {
+		final := app.Stats().FinalizeSummary(opts.ToolVersion, opts.Health)
+		if writeJSON {
+			if err := stats.WriteSummaryJSONFile(prepared.CLIConfig.SummaryJSON, final); err != nil {
+				return err
 			}
+		}
+		if writeHTML {
+			if err := reporthtml.WriteFile(prepared.CLIConfig.SummaryHTML, final); err != nil {
+				return err
+			}
+		}
+		if opts.Health.Active() && final.Health != nil && !final.Health.Pass {
+			msg := strings.Join(final.Health.Reasons, "; ")
+			if msg == "" {
+				return ErrHealthCheckFailed
+			}
+			return fmt.Errorf("%w: %s", ErrHealthCheckFailed, msg)
 		}
 	}
 

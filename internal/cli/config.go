@@ -28,34 +28,35 @@ const (
 )
 
 type Config struct {
-	ScenarioFile            string
-	ScenarioName            string
-	Service                 string
-	Transport               string
-	LocalIP                 string
-	LocalPort               int
-	RemoteHost              string
-	RemotePort              int
-	AuthUsername            string
-	AuthPassword            string
-	Rate                    float64
-	RateScale               float64
-	RateIncrease            float64
-	RateIncreaseStep        time.Duration
-	RateMax                 float64
-	MaxReconnect            int
-	ReconnectSleep          time.Duration
-	ReconnectClose          bool
-	BaseCSeq                int
-	TotalCalls              int
-	MaxConcurrent           int
-	MaxSockets              int
-	Users                   int
-	DefaultPause            time.Duration
-	DefaultRecvTO           time.Duration
-	RecvBYEFloorTO          time.Duration // minimum mandatory recv BYE when scenario timeout omitted; 0=off
-	GlobalTimeout           time.Duration
-	SummaryJSON             string
+	ScenarioFile     string
+	ScenarioName     string
+	Service          string
+	Transport        string
+	LocalIP          string
+	LocalPort        int
+	RemoteHost       string
+	RemotePort       int
+	AuthUsername     string
+	AuthPassword     string
+	Rate             float64
+	RateScale        float64
+	RateIncrease     float64
+	RateIncreaseStep time.Duration
+	RateMax          float64
+	MaxReconnect     int
+	ReconnectSleep   time.Duration
+	ReconnectClose   bool
+	BaseCSeq         int
+	TotalCalls       int
+	MaxConcurrent    int
+	MaxSockets       int
+	Users            int
+	DefaultPause     time.Duration
+	DefaultRecvTO    time.Duration
+	RecvBYEFloorTO   time.Duration // minimum mandatory recv BYE when scenario timeout omitted; 0=off
+	GlobalTimeout    time.Duration
+	SummaryJSON      string
+	SummaryHTML      string
 	// ToolVersion is set by the main package (not a CLI flag) for JSON export.
 	ToolVersion             string
 	HealthMinSuccessRatio   float64
@@ -128,26 +129,26 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		ScenarioName:     "uac",
-		Service:          "service",
-		Transport:        DefaultTransport,
-		LocalIP:          "0.0.0.0",
-		AuthPassword:     "password",
-		Rate:             DefaultRate,
-		RateScale:        1.0,
-		BaseCSeq:         1,
-		TotalCalls:       DefaultTotalCalls,
-		MaxConcurrent:    DefaultMaxConcurrent,
-		Users:            1,
-		DefaultPause:     DefaultPauseDurationMS * time.Millisecond,
-		DefaultRecvTO:    DefaultRecvTimeout,
-		StatsDumpPeriod:  time.Second,
-		RTTDumpFrequency: 200,
-		TLSSkipVerify:    true,
-		IPField:          -1,
-		RTPCodec:         "PCMU/8000",
-		RTPFreqMs:        20,
-		RTPChannels:      1,
+		ScenarioName:         "uac",
+		Service:              "service",
+		Transport:            DefaultTransport,
+		LocalIP:              "0.0.0.0",
+		AuthPassword:         "password",
+		Rate:                 DefaultRate,
+		RateScale:            1.0,
+		BaseCSeq:             1,
+		TotalCalls:           DefaultTotalCalls,
+		MaxConcurrent:        DefaultMaxConcurrent,
+		Users:                1,
+		DefaultPause:         DefaultPauseDurationMS * time.Millisecond,
+		DefaultRecvTO:        DefaultRecvTimeout,
+		StatsDumpPeriod:      time.Second,
+		RTTDumpFrequency:     200,
+		TLSSkipVerify:        true,
+		IPField:              -1,
+		RTPCodec:             "PCMU/8000",
+		RTPFreqMs:            20,
+		RTPChannels:          1,
 		LogOTELProto:         "grpc",
 		LogBufferSize:        16384,
 		LogLevel:             "info",
@@ -229,9 +230,10 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.TotalCalls, "m", cfg.TotalCalls, "total calls to place (0 = unlimited until SIGINT or -timeout_global; stress/long-run)")
 	fs.IntVar(&cfg.Users, "users", cfg.Users, "number of logical users for user-scoped variables")
 	fs.StringVar(&cfg.SummaryJSON, "summary_json", cfg.SummaryJSON, "write final stats to JSON file")
-	fs.Float64Var(&cfg.HealthMinSuccessRatio, "health_min_success_ratio", 0, "when >0 with -summary_json, fail run if success_ratio is lower (e.g. 0.95); exit code 2")
-	fs.IntVar(&cfg.HealthMaxFailedCalls, "health_max_failed_calls", -1, "when >=0 with -summary_json, fail if failed_calls exceed this (0 means any failure fails); exit code 2")
-	fs.IntVar(&cfg.HealthMaxTimeouts, "health_max_timeouts", -1, "when >=0 with -summary_json, fail if timeouts exceed this; exit code 2")
+	fs.StringVar(&cfg.SummaryHTML, "summary_html", cfg.SummaryHTML, "write final stats to a standalone HTML report (same data as -summary_json; can be used without JSON)")
+	fs.Float64Var(&cfg.HealthMinSuccessRatio, "health_min_success_ratio", 0, "when >0 with -summary_json or -summary_html, fail run if success_ratio is lower (e.g. 0.95); exit code 2")
+	fs.IntVar(&cfg.HealthMaxFailedCalls, "health_max_failed_calls", -1, "when >=0 with -summary_json or -summary_html, fail if failed_calls exceed this (0 means any failure fails); exit code 2")
+	fs.IntVar(&cfg.HealthMaxTimeouts, "health_max_timeouts", -1, "when >=0 with -summary_json or -summary_html, fail if timeouts exceed this; exit code 2")
 	fs.BoolVar(&cfg.TraceMessages, "trace_msg", cfg.TraceMessages, "trace sent and received SIP messages")
 	fs.BoolVar(&cfg.TraceShortMsg, "trace_shortmsg", false, "trace sent and received messages as compact CSV")
 	fs.BoolVar(&cfg.TraceCounts, "trace_counts", false, "write periodic SIP message counters as CSV")
@@ -739,6 +741,7 @@ func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "  gossipper tui                full-screen launcher / runtime UI")
 	fmt.Fprintln(w, "  gossipper -interactive       same as tui")
 	fmt.Fprintln(w, "  gossipper pcap2scenario ...  PCAP → XML scenarios")
+	fmt.Fprintln(w, "  gossipper report-html ...  summary JSON → standalone HTML report")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "See also: docs/interactive-shell.md, docs/tui.md")
 	fmt.Fprintln(w)

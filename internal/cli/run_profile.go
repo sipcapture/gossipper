@@ -45,6 +45,7 @@ type runSpec struct {
 	HEPHomerLakeRTCP *bool    `json:"hep_homer_lake_rtcp,omitempty"`
 	SendMediaReport  *bool    `json:"send_media_report,omitempty"`
 	SummaryJSON      *string  `json:"summary_json,omitempty"`
+	SummaryHTML      *string  `json:"summary_html,omitempty"`
 	TraceMessages    *bool    `json:"trace_msg,omitempty"`
 	StatPrintPeriod  *string  `json:"stat_period,omitempty"`
 	InjectionFile    *string  `json:"injection_file,omitempty"`
@@ -216,6 +217,9 @@ func applyRunSpec(cfg *Config, spec *runSpec, configDir string) error {
 	}
 	if spec.SummaryJSON != nil {
 		cfg.SummaryJSON = strings.TrimSpace(*spec.SummaryJSON)
+	}
+	if spec.SummaryHTML != nil {
+		cfg.SummaryHTML = strings.TrimSpace(*spec.SummaryHTML)
 	}
 	if spec.TraceMessages != nil {
 		cfg.TraceMessages = *spec.TraceMessages

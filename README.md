@@ -27,7 +27,7 @@ The current MVP implements:
 - SIPp-style auth credentials via `-au` / `-ap` for challenged `401` / `407` request retries, inline `[authentication username=... password=...]`, and server-side `verifyauth`
 - Concurrent call generation with rate limiting
 - Interactive terminal UI via `gossipper tui` / `gossipper -interactive` for launch presets and live runtime control
-- Basic statistics and JSON summary export
+- Basic statistics and JSON summary export (`-summary_json`), optional standalone **HTML** report (`-summary_html` or `gossipper report-html -in … -out …`; see `docs/summary-json.md`)
 - Named per-step RTD timers via `start_rtd` / `rtd`, aggregated into summary JSON
 - XML `counter` / `display` attributes aggregated into summary JSON as execution counts
 - Exported stats now include failure-class counters such as `timeout`, `unexpected_sip`, `transport_error`, `parse_error`, `scenario_error`, and `cancelled`

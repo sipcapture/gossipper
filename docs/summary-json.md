@@ -18,10 +18,17 @@ When RTCP Receiver Reports are received during RTP sessions, the summary may inc
 
 ## Health checks (CI)
 
-Optional flags (only evaluated when `-summary_json` is set):
+Optional flags (evaluated when **`-summary_json`**, **`-summary_html`**, or any health threshold is set — the run finalizes a summary in that case):
 
 - `-health_min_success_ratio` — fail if `success_ratio` is below this value (e.g. `0.99`).
 - `-health_max_failed_calls` — fail if `failed_calls` exceed this value; `0` means any failure fails the run. Default `-1` disables.
 - `-health_max_timeouts` — fail if `timeouts` exceed this value. Default `-1` disables.
 
 On failure the process exits with code **2** (other errors use **1**). The JSON file still contains `health` and `findings` with failure reasons.
+
+## HTML report
+
+- **`-summary_html PATH`**: after a SIP run, writes the same finalized summary as a **standalone** UTF-8 HTML file (no CDN, works offline). Can be used **without** `-summary_json`.
+- **`gossipper report-html -in summary.json -out report.html`**: rebuild HTML from an existing summary JSON file.
+
+See implementation in `internal/reporthtml`.

@@ -412,6 +412,15 @@ func (c *Collector) FinalizeSummary(toolVersion string, healthCfg HealthConfig) 
 	return s
 }
 
+// WriteSummaryJSONFile writes summary as indented JSON (same format as -summary_json).
+func WriteSummaryJSONFile(path string, summary Summary) error {
+	data, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
 func (c *Collector) WriteJSON(path string, opts *SummaryWriteOptions) error {
 	var tool string
 	var hc HealthConfig
@@ -420,9 +429,5 @@ func (c *Collector) WriteJSON(path string, opts *SummaryWriteOptions) error {
 		hc = opts.Health
 	}
 	summary := c.FinalizeSummary(tool, hc)
-	data, err := json.MarshalIndent(summary, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
+	return WriteSummaryJSONFile(path, summary)
 }
