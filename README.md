@@ -25,6 +25,7 @@ The current MVP implements:
 - TLS transports `l1` and `ln` (UAC or UAS; same codes as for TCP, plus TLS files as needed)
 - Global and per-user variable scopes
 - SIPp-style auth credentials via `-au` / `-ap` for challenged `401` / `407` request retries, inline `[authentication username=... password=...]`, and server-side `verifyauth`
+- Optional SIP identity for built-in UAC / `invite_media`: `-sip_from` (From before `;tag=`), `-sip_pai`, `-sip_provider`, repeatable `-sip_extra_header` (see `docs/compatibility.md` `[trunk_*]` keywords)
 - Concurrent call generation with rate limiting
 - Interactive terminal UI via `gossipper tui` / `gossipper -interactive` for launch presets and live runtime control
 - Basic statistics and JSON summary export (`-summary_json`), optional standalone **HTML** report (`-summary_html` or `gossipper report-html -in … -out …`; see `docs/summary-json.md`)

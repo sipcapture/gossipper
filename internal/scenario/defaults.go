@@ -6,7 +6,7 @@ const defaultUAC = `<?xml version="1.0" encoding="UTF-8"?>
     <![CDATA[
 INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
 Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
-From: gossip <sip:gossip@[local_ip]:[local_port]>;tag=[pid]GossipTag00[call_number]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]GossipTag00[call_number]
 To: [service] <sip:[service]@[remote_ip]:[remote_port]>
 Call-ID: [call_id]
 CSeq: 1 INVITE
@@ -23,7 +23,7 @@ Content-Length: 0
     <![CDATA[
 ACK sip:[service]@[remote_ip]:[remote_port] SIP/2.0
 Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
-From: gossip <sip:gossip@[local_ip]:[local_port]>;tag=[pid]GossipTag00[call_number]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]GossipTag00[call_number]
 To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
 Call-ID: [call_id]
 CSeq: 1 ACK
@@ -38,7 +38,7 @@ Content-Length: 0
     <![CDATA[
 BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
 Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
-From: gossip <sip:gossip@[local_ip]:[local_port]>;tag=[pid]GossipTag00[call_number]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]GossipTag00[call_number]
 To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
 Call-ID: [call_id]
 CSeq: 2 BYE
@@ -104,7 +104,7 @@ const defaultInviteMedia = `<?xml version="1.0" encoding="UTF-8"?>
     <![CDATA[
 INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
 Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
-From: gossip <sip:gossip@[local_ip]:[local_port]>;tag=[pid]InvMedia[call_number]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]InvMedia[call_number]
 To: [service] <sip:[service]@[remote_ip]:[remote_port]>
 Call-ID: [call_id]
 CSeq: 1 INVITE
@@ -136,7 +136,7 @@ a=rtpmap:0 PCMU/8000
     <![CDATA[
 ACK sip:[service]@[remote_ip]:[remote_port] SIP/2.0
 Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
-From: gossip <sip:gossip@[local_ip]:[local_port]>;tag=[pid]InvMedia[call_number]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]InvMedia[call_number]
 To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
 Call-ID: [call_id]
 CSeq: 1 ACK
@@ -158,7 +158,7 @@ Content-Length: 0
     <![CDATA[
 BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
 Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
-From: gossip <sip:gossip@[local_ip]:[local_port]>;tag=[pid]InvMedia[call_number]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]InvMedia[call_number]
 To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
 Call-ID: [call_id]
 CSeq: 2 BYE

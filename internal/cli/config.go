@@ -125,6 +125,12 @@ type Config struct {
 
 	// PCAPLinkLayer selects PCAP datalink decoding for play_pcap_* (-pcap-link).
 	PCAPLinkLayer string
+
+	// SipFrom / SipPAI / SipProvider / SipExtraHeaders drive [trunk_*] keywords in built-in scenarios (see docs/compatibility.md).
+	SipFrom         string
+	SipPAI          string
+	SipProvider     string
+	SipExtraHeaders []string
 }
 
 func DefaultConfig() Config {
@@ -215,6 +221,13 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.IPField, "ipfield", cfg.IPField, "alias for -ip_field (SIPp-compatible)")
 	fs.StringVar(&cfg.AuthUsername, "au", cfg.AuthUsername, "authorization username for authentication challenges")
 	fs.StringVar(&cfg.AuthPassword, "ap", cfg.AuthPassword, "authorization password for authentication challenges")
+	fs.StringVar(&cfg.SipFrom, "sip_from", cfg.SipFrom, "SIP From value before ;tag= in built-in UAC scenarios (name-addr or URI); empty = gossip <sip:gossip@local_ip:local_port>")
+	fs.StringVar(&cfg.SipPAI, "sip_pai", cfg.SipPAI, "P-Asserted-Identity value only (no header name); empty omits the header")
+	fs.StringVar(&cfg.SipProvider, "sip_provider", cfg.SipProvider, "sets X-provider to this token; empty omits")
+	fs.Func("sip_extra_header", "repeatable: one extra SIP header line \"Name: value\" after Via on first in-dialog requests in built-in UAC scenarios", func(s string) error {
+		cfg.SipExtraHeaders = append(cfg.SipExtraHeaders, strings.TrimSpace(s))
+		return nil
+	})
 	fs.Float64Var(&cfg.Rate, "r", cfg.Rate, "calls per second")
 	fs.Float64Var(&cfg.RateScale, "rate_scale", cfg.RateScale, "interactive rate control step scale (SIPp-compatible)")
 	fs.Float64Var(&cfg.RateIncrease, "rate_increase", 0, "change target cps by this amount every -rate_interval milliseconds")
