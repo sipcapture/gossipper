@@ -67,7 +67,7 @@ into no-ops or empty strings.
 | `urlencode` | supported | URL-encodes the referenced variable in place |
 | `urldecode` | supported | URL-decodes the referenced variable in place |
 | `verifyauth` | supported | Validates incoming Digest `Authorization` / `Proxy-Authorization` headers for `MD5` and `SHA-256` with `qop=auth` |
-| `exec` | partial | Supports `command`, `int_cmd`, `rtp_stream` `start` / `pause` / `resume` / `stop` / `echo`, pragmatic `rtpcheck` (`min_packets`, `timeout_ms`, `direction=any|send|recv|both`, legacy `bidirectional`), `play_pcap_audio`, `play_pcap_video`, and `play_pcap_image`; PCAP replay preserves timing and uses SDP endpoint discovery for matching media lines (`m=audio`, `m=video`, `m=image`) |
+| `exec` | partial | Supports `command`, `int_cmd`, `rtp_stream` `start` / `pause` / `resume` / `stop` / `echo`, optional `record_recv=` / `record_send=` (PCMU/PCMA → WAV), pragmatic `rtpcheck` (`min_packets`, `timeout_ms`, `direction=any|send|recv|both`, legacy `bidirectional`), `play_pcap_audio`, `play_pcap_video`, and `play_pcap_image`; PCAP replay preserves timing and uses SDP endpoint discovery for matching media lines (`m=audio`, `m=video`, `m=image`) |
 | `sample` | partial | Pragmatic deterministic subset: `value="min=<int> max=<int> [step=<int>] [seed=<int>]"` with `assign_to` target |
 | `insert` | partial | Pragmatic CSV field mutation subset: `file=...` and `value="line=<int> field=<int> text=<value> [position=prefix|suffix]"`; affects in-memory `[fieldN ...]` reads for the current call |
 | `replace` | partial | Pragmatic CSV field mutation subset: `file=...` and `value="line=<int> field=<int> text=<value>"`; affects in-memory `[fieldN ...]` reads for the current call |

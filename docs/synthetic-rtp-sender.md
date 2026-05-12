@@ -96,6 +96,9 @@ file-based streaming but requires no file path.
 rtp_stream="synthetic[,<loop_count>[,<pt>[,<codec_name>[,<freq_ms>[,<dur_ms>[,<channels>]]]]]]"
 ```
 
+You may append extra comma-separated `key=value` segments such as `record_recv=capture.wav`
+or `record_send=sent.wav` (PCMU/PCMA decoded to mono PCM16 WAV); see [rtp-in-scenarios.md](rtp-in-scenarios.md#recording-rtp-to-wav-pcmu--pcma).
+
 All parameters after `synthetic` are optional and fall back to the same defaults
 as the standalone CLI mode.
 

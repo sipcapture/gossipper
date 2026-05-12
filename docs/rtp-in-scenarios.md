@@ -77,6 +77,22 @@ Examples:
 <exec rtp_stream="hold_music.raw,-1,0,PCMU/8000"/>
 ```
 
+#### Recording RTP to WAV (PCMU / PCMA)
+
+Optional comma-separated fields `record_recv=<path>` and `record_send=<path>` may appear
+anywhere in the list (they are parsed from all comma-separated segments).  Paths are
+resolved relative to the scenario directory, as with the media file.  Inbound and
+outbound RTP payloads are decoded to **PCM 16-bit mono WAV** using the stream clock
+rate from the codec (typically 8000 Hz for G.711).  Only **payload types 0 (PCMU)**
+and **8 (PCMA)** are decoded; other PTs are skipped for recording.
+
+```xml
+<exec rtp_stream="audio.raw,1,0,PCMU/8000,record_recv=remote.wav,record_send=local.wav"/>
+<exec rtp_stream="synthetic,,0,PCMU/8000,20,5000,record_recv=capture.wav"/>
+```
+
+WAV files are written when the stream stops (`rtp_stream stop` or end of scenario).
+
 ### Control commands
 
 ```xml

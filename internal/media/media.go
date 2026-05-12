@@ -42,6 +42,11 @@ type StreamConfig struct {
 	// Channels is the number of audio channels (1 = mono, 2 = stereo).
 	// Zero is treated as 1.
 	Channels uint8
+	// RecordRecvWAV, if set, appends decoded inbound RTP (PCMU/PCMA) to a WAV
+	// file (PCM16 mono, sample rate = ClockRate) when the stream stops.
+	RecordRecvWAV string
+	// RecordSendWAV, if set, appends outbound RTP payloads (same codec rules).
+	RecordSendWAV string
 }
 
 type Session struct {
@@ -78,6 +83,9 @@ type Session struct {
 	rrArrivalPrev time.Time
 	rrLastSRNTP   uint32    // compact NTP from the last received SR (for DLSR)
 	rrLastSRAt    time.Time // wall time when the last SR was received
+
+	wavRecv *wavPCMRecorder
+	wavSend *wavPCMRecorder
 }
 
 // HEPObserver is implemented by the HEP client to mirror RTP/RTCP traffic to Homer.
@@ -228,6 +236,12 @@ func DefaultConfig(path string) StreamConfig {
 //
 //	synthetic[,<loopCount>[,<pt>[,<codecName>[,<freqMs>[,<durationMs>[,<channels>]]]]]]
 //
+// Optional comma-separated key=value options (any position, parsed from all parts):
+//
+//	record_recv=<path>   — append decoded inbound RTP (PT 0 or 8) to a WAV file
+//	record_send=<path>  — append sent RTP payloads to a WAV file
+//
+// WAV output is PCM 16-bit mono; sample rate follows the stream ClockRate.
 // All numeric parts are optional and default to sensible values.
 func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, error) {
 	spec = strings.TrimSpace(spec)
@@ -278,6 +292,7 @@ func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, err
 				cfg.Channels = uint8(ch)
 			}
 		}
+		applyRTPStreamRecordKVs(parts, basePath, &cfg)
 		return "start", cfg, nil
 	}
 
@@ -296,7 +311,24 @@ func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, err
 	} else {
 		ApplyPayloadParams(&cfg, cfg.PayloadName)
 	}
+	applyRTPStreamRecordKVs(parts, basePath, &cfg)
 	return "start", cfg, nil
+}
+
+func applyRTPStreamRecordKVs(parts []string, basePath string, cfg *StreamConfig) {
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		k, v, ok := strings.Cut(p, "=")
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "record_recv":
+			cfg.RecordRecvWAV = ResolvePath(basePath, strings.TrimSpace(v))
+		case "record_send":
+			cfg.RecordSendWAV = ResolvePath(basePath, strings.TrimSpace(v))
+		}
+	}
 }
 
 func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig, localIP string, localPort int) error {
@@ -332,10 +364,33 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 		}
 	}
 
+	var wavRecv, wavSend *wavPCMRecorder
+	if cfg.RecordRecvWAV != "" {
+		var err error
+		wavRecv, err = newWavPCMRecorder(cfg.RecordRecvWAV, int(cfg.ClockRate))
+		if err != nil {
+			_ = conn.Close()
+			return err
+		}
+	}
+	if cfg.RecordSendWAV != "" {
+		var err error
+		wavSend, err = newWavPCMRecorder(cfg.RecordSendWAV, int(cfg.ClockRate))
+		if err != nil {
+			if wavRecv != nil {
+				_ = wavRecv.Close()
+			}
+			_ = conn.Close()
+			return err
+		}
+	}
+
 	childCtx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
 	s.cancel = cancel
 	s.conn = conn
+	s.wavRecv = wavRecv
+	s.wavSend = wavSend
 	s.ssrc = cfg.SSRC
 	s.packetCount = 0
 	s.octetCount = 0
@@ -446,6 +501,28 @@ func (s *Session) Stop() {
 	if rtcpConn != nil {
 		_ = rtcpConn.Close()
 	}
+	s.closeWavRecvSide()
+	s.closeWavSendSide()
+}
+
+func (s *Session) closeWavRecvSide() {
+	s.mu.Lock()
+	w := s.wavRecv
+	s.wavRecv = nil
+	s.mu.Unlock()
+	if w != nil {
+		_ = w.Close()
+	}
+}
+
+func (s *Session) closeWavSendSide() {
+	s.mu.Lock()
+	w := s.wavSend
+	s.wavSend = nil
+	s.mu.Unlock()
+	if w != nil {
+		_ = w.Close()
+	}
 }
 
 func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig, packets [][]byte, obs HEPObserver, callID string) {
@@ -505,6 +582,7 @@ func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net
 			if _, err := conn.WriteToUDP(frame, remote); err != nil {
 				return
 			}
+			s.appendWAVSend(cfg.PayloadType, payload)
 			if obs != nil {
 				_ = obs.SendRTP(time.Now(), localIP, localPort, remote.IP.String(), remote.Port, callID, frame)
 			}
@@ -1026,12 +1104,28 @@ func (s *Session) rtpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
 		if err := pkt.Unmarshal(buffer[:n]); err != nil {
 			continue
 		}
+		payload := append([]byte(nil), pkt.Payload...)
+		pt := pkt.PayloadType
 		now := time.Now()
 		s.mu.Lock()
 		s.observeRTPPacket(&pkt, now)
 		s.stats.RTPPacketsReceived++
+		w := s.wavRecv
 		s.mu.Unlock()
+		if w != nil {
+			w.appendRTPPayload(pt, payload)
+		}
 	}
+}
+
+func (s *Session) appendWAVSend(pt uint8, payload []byte) {
+	s.mu.Lock()
+	w := s.wavSend
+	s.mu.Unlock()
+	if w == nil {
+		return
+	}
+	w.appendRTPPayload(pt, payload)
 }
 
 func toNTPTime(ts time.Time) uint64 {

@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipcapture/gossipper/internal/sip"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/pion/rtcp"
+	"github.com/sipcapture/gossipper/internal/sip"
 )
 
 func TestTestdataRawFile(t *testing.T) {
@@ -151,6 +151,21 @@ func TestParseRTPStreamSpecPayloadParams(t *testing.T) {
 	}
 	if cfg.LoopCount != -1 || cfg.PayloadType != 8 || cfg.PayloadName != "PCMA/8000" {
 		t.Fatalf("unexpected cfg: %+v", cfg)
+	}
+}
+
+func TestParseRTPStreamSpecSyntheticWithRecordKV(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseRTPStreamSpec("synthetic,,0,PCMU/8000,20,100,record_recv=capture.wav", "/base")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec: %v", err)
+	}
+	if !cfg.Synthetic {
+		t.Fatal("expected synthetic")
+	}
+	if want := filepath.Join("/base", "capture.wav"); cfg.RecordRecvWAV != want {
+		t.Fatalf("RecordRecvWAV=%q want %q", cfg.RecordRecvWAV, want)
 	}
 }
 
