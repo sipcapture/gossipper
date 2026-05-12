@@ -160,7 +160,7 @@ func TestRunGeneratesInfIndex(t *testing.T) {
 	}
 }
 
-func TestShouldRunTUI(t *testing.T) {
+func TestShouldRunInteractive(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -168,9 +168,9 @@ func TestShouldRunTUI(t *testing.T) {
 		args []string
 		want bool
 	}{
-		{name: "subcommand", args: []string{"tui"}, want: true},
 		{name: "interactive flag", args: []string{"-interactive"}, want: true},
 		{name: "interactive long flag", args: []string{"--interactive"}, want: true},
+		{name: "tui subcommand is not interactive", args: []string{"tui"}, want: false},
 		{name: "regular cli", args: []string{"-sn", "uac"}, want: false},
 	}
 
@@ -178,8 +178,8 @@ func TestShouldRunTUI(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := shouldRunTUI(tc.args); got != tc.want {
-				t.Fatalf("shouldRunTUI(%v) = %v, want %v", tc.args, got, tc.want)
+			if got := shouldRunInteractive(tc.args); got != tc.want {
+				t.Fatalf("shouldRunInteractive(%v) = %v, want %v", tc.args, got, tc.want)
 			}
 		})
 	}

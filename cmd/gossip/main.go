@@ -41,7 +41,7 @@ func run(args []string) error {
 		PrintVersion()
 		return nil
 	}
-	if shouldRunTUI(args) {
+	if len(args) > 0 && args[0] == "tui" {
 		return tui.Run()
 	}
 	if len(args) > 0 && args[0] == "pcap2scenario" {
@@ -54,10 +54,10 @@ func run(args []string) error {
 		return shell.Run(os.Stdin, os.Stdout, os.Stderr)
 	}
 
-	control := false
-	if shouldRunControl(args) {
-		control = true
-		args = stripFlag(args, "-control", "--control")
+	interactive := false
+	if shouldRunInteractive(args) {
+		interactive = true
+		args = stripFlag(args, "-interactive", "--interactive")
 	}
 
 	cfg, err := cli.Parse(args)
@@ -72,7 +72,7 @@ func run(args []string) error {
 	}
 	cfg.ToolVersion = GetShortVersionString()
 
-	if control {
+	if interactive {
 		prepared, err := launcher.Prepare(cfg)
 		if err != nil {
 			return err
@@ -167,21 +167,9 @@ func shouldPrintVersion(args []string) bool {
 	return false
 }
 
-func shouldRunTUI(args []string) bool {
-	for index, arg := range args {
-		switch arg {
-		case "-interactive", "--interactive":
-			return true
-		case "tui":
-			return index == 0
-		}
-	}
-	return false
-}
-
-func shouldRunControl(args []string) bool {
+func shouldRunInteractive(args []string) bool {
 	for _, arg := range args {
-		if arg == "-control" || arg == "--control" {
+		if arg == "-interactive" || arg == "--interactive" {
 			return true
 		}
 	}
