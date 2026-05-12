@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,18 +12,25 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"syscall"
 
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/launcher"
 	"github.com/sipcapture/gossipper/internal/pcap2scenario"
+	"github.com/sipcapture/gossipper/internal/reporthtml"
 	"github.com/sipcapture/gossipper/internal/shell"
+	"github.com/sipcapture/gossipper/internal/stats"
 	templ "github.com/sipcapture/gossipper/internal/template"
 	"github.com/sipcapture/gossipper/internal/tui"
 )
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		if errors.Is(err, launcher.ErrHealthCheckFailed) {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -38,6 +46,9 @@ func run(args []string) error {
 	}
 	if len(args) > 0 && args[0] == "pcap2scenario" {
 		return runPCAP2Scenario(args[1:])
+	}
+	if len(args) > 0 && args[0] == "report-html" {
+		return runReportHTML(args[1:])
 	}
 	if len(args) > 0 && (args[0] == "shell" || args[0] == "cli") {
 		return shell.Run(os.Stdin, os.Stdout, os.Stderr)
@@ -59,6 +70,7 @@ func run(args []string) error {
 		}
 		return err
 	}
+	cfg.ToolVersion = GetShortVersionString()
 
 	if control {
 		prepared, err := launcher.Prepare(cfg)
@@ -208,4 +220,33 @@ func runPCAP2Scenario(args []string) error {
 	}
 
 	return pcap2scenario.Run(fs.Arg(0), *outDir, *sipPort, *pcapLink)
+}
+
+func runReportHTML(args []string) error {
+	fs := flag.NewFlagSet("report-html", flag.ContinueOnError)
+	inPath := fs.String("in", "", "input summary JSON (from gossipper -summary_json)")
+	outPath := fs.String("out", "", "output HTML file path")
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "usage: gossipper report-html -in summary.json -out report.html\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*inPath) == "" || strings.TrimSpace(*outPath) == "" {
+		fs.Usage()
+		return fmt.Errorf("report-html: -in and -out are required")
+	}
+	raw, err := os.ReadFile(*inPath)
+	if err != nil {
+		return fmt.Errorf("report-html: read -in: %w", err)
+	}
+	var s stats.Summary
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return fmt.Errorf("report-html: parse JSON: %w", err)
+	}
+	if err := reporthtml.WriteFile(strings.TrimSpace(*outPath), s); err != nil {
+		return fmt.Errorf("report-html: write -out: %w", err)
+	}
+	return nil
 }

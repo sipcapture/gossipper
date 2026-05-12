@@ -45,6 +45,11 @@ type runSpec struct {
 	HEPHomerLakeRTCP *bool    `json:"hep_homer_lake_rtcp,omitempty"`
 	SendMediaReport  *bool    `json:"send_media_report,omitempty"`
 	SummaryJSON      *string  `json:"summary_json,omitempty"`
+	SummaryHTML      *string  `json:"summary_html,omitempty"`
+	SipFrom          *string  `json:"sip_from,omitempty"`
+	SipPAI           *string  `json:"sip_pai,omitempty"`
+	SipProvider      *string  `json:"sip_provider,omitempty"`
+	SipExtraHeaders  []string `json:"sip_extra_headers,omitempty"`
 	TraceMessages    *bool    `json:"trace_msg,omitempty"`
 	StatPrintPeriod  *string  `json:"stat_period,omitempty"`
 	InjectionFile    *string  `json:"injection_file,omitempty"`
@@ -216,6 +221,21 @@ func applyRunSpec(cfg *Config, spec *runSpec, configDir string) error {
 	}
 	if spec.SummaryJSON != nil {
 		cfg.SummaryJSON = strings.TrimSpace(*spec.SummaryJSON)
+	}
+	if spec.SummaryHTML != nil {
+		cfg.SummaryHTML = strings.TrimSpace(*spec.SummaryHTML)
+	}
+	if spec.SipFrom != nil {
+		cfg.SipFrom = strings.TrimSpace(*spec.SipFrom)
+	}
+	if spec.SipPAI != nil {
+		cfg.SipPAI = strings.TrimSpace(*spec.SipPAI)
+	}
+	if spec.SipProvider != nil {
+		cfg.SipProvider = strings.TrimSpace(*spec.SipProvider)
+	}
+	if len(spec.SipExtraHeaders) > 0 {
+		cfg.SipExtraHeaders = append([]string(nil), spec.SipExtraHeaders...)
 	}
 	if spec.TraceMessages != nil {
 		cfg.TraceMessages = *spec.TraceMessages

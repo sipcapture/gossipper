@@ -114,6 +114,10 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		InjectionFile:    cfg.InjectionFile,
 		Role:             roleFromScenario(sc),
 		PCAPLinkLayer:    cfg.PCAPLinkLayer,
+		SipFrom:          cfg.SipFrom,
+		SipPAI:           cfg.SipPAI,
+		SipProvider:      cfg.SipProvider,
+		SipExtraHeaders:  append([]string(nil), cfg.SipExtraHeaders...),
 	}
 
 	return Prepared{

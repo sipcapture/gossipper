@@ -115,6 +115,15 @@ type Config struct {
 	// PCAPLinkLayer selects the PCAP datalink decoder for play_pcap_* replay (and mirrors CLI -pcap-link).
 	// Empty means auto (uses file DLT; LINUX_SLL2 is detected from the global header).
 	PCAPLinkLayer string
+
+	// SipFrom is the SIP From header value before ";tag=" (name-addr or URI). Empty uses gossip@local.
+	SipFrom string
+	// SipPAI is the P-Asserted-Identity header value (without the header name).
+	SipPAI string
+	// SipProvider sets X-provider to this token (empty omits the header).
+	SipProvider string
+	// SipExtraHeaders are full header lines "Name: value" appended after Via on the first request (repeatable -sip_extra_header).
+	SipExtraHeaders []string
 }
 
 type Engine struct {
@@ -1452,6 +1461,7 @@ func (e *Engine) executeCall(
 		BasePath:          scen.BasePath,
 		InjectionFile:     e.cfg.InjectionFile,
 	}
+	applySIPIdentityKeywords(renderCtx.ExtraKeywords, e.cfg, localIP, localPort)
 	currentRemoteHost := remoteHost
 	currentRemoteIP := remoteHost
 	currentRemotePort := remotePort

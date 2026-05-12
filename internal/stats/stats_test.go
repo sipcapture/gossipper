@@ -48,7 +48,7 @@ func TestCollectorWriteJSONIncludesMediaStats(t *testing.T) {
 	collector.FinishCall(true, 10*time.Millisecond)
 
 	path := filepath.Join(t.TempDir(), "summary.json")
-	if err := collector.WriteJSON(path); err != nil {
+	if err := collector.WriteJSON(path, nil); err != nil {
 		t.Fatalf("WriteJSON() error = %v", err)
 	}
 
@@ -66,6 +66,39 @@ func TestCollectorWriteJSONIncludesMediaStats(t *testing.T) {
 	}
 	if summary.Media.RTCPSenderReports != 2 || summary.Media.RTCPPacketsReceived != 2 {
 		t.Fatalf("unexpected RTCP stats in JSON: %+v", summary.Media)
+	}
+}
+
+func TestCollectorAggregatesRTCPReceptionQoS(t *testing.T) {
+	t.Parallel()
+	collector := New()
+	collector.AddMediaStats(media.Stats{
+		RTCPReportBlocks:    2,
+		RTCPMaxFractionLost: 10,
+		RTCPMaxJitter:       100,
+		RTCPJitterSum:       30,
+		RTCPJitterSamples:   2,
+	})
+	collector.AddMediaStats(media.Stats{
+		RTCPReportBlocks:    1,
+		RTCPMaxFractionLost: 20,
+		RTCPMaxJitter:       50,
+		RTCPJitterSum:       40,
+		RTCPJitterSamples:   1,
+	})
+	summary := collector.Snapshot()
+	if summary.Media.RTCPReceptionReports != 3 {
+		t.Fatalf("reports: %+v", summary.Media.RTCPReceptionReports)
+	}
+	wantLoss := 20.0 / 256.0
+	if summary.Media.RTCPMaxFractionLost < wantLoss-1e-9 || summary.Media.RTCPMaxFractionLost > wantLoss+1e-9 {
+		t.Fatalf("max fraction lost: got %v want %v", summary.Media.RTCPMaxFractionLost, wantLoss)
+	}
+	if summary.Media.RTCPMaxJitterTS != 100 {
+		t.Fatalf("max jitter: %d", summary.Media.RTCPMaxJitterTS)
+	}
+	if summary.Media.RTCPAvgJitterTS < 23.32 || summary.Media.RTCPAvgJitterTS > 23.34 {
+		t.Fatalf("avg jitter: %v", summary.Media.RTCPAvgJitterTS)
 	}
 }
 
@@ -100,7 +133,7 @@ func TestCollectorWriteJSONIncludesRTDStats(t *testing.T) {
 	collector.AddRTD("invite", 18*time.Millisecond)
 
 	path := filepath.Join(t.TempDir(), "summary.json")
-	if err := collector.WriteJSON(path); err != nil {
+	if err := collector.WriteJSON(path, nil); err != nil {
 		t.Fatalf("WriteJSON() error = %v", err)
 	}
 
@@ -147,7 +180,7 @@ func TestCollectorWriteJSONIncludesCounterAndDisplayStats(t *testing.T) {
 	collector.AddDisplay("Invite sent")
 
 	path := filepath.Join(t.TempDir(), "summary.json")
-	if err := collector.WriteJSON(path); err != nil {
+	if err := collector.WriteJSON(path, nil); err != nil {
 		t.Fatalf("WriteJSON() error = %v", err)
 	}
 
@@ -177,7 +210,7 @@ func TestCollectorWriteJSONIncludesFailureClasses(t *testing.T) {
 	collector.AddFailureClass("transport_error")
 
 	path := filepath.Join(t.TempDir(), "summary.json")
-	if err := collector.WriteJSON(path); err != nil {
+	if err := collector.WriteJSON(path, nil); err != nil {
 		t.Fatalf("WriteJSON() error = %v", err)
 	}
 

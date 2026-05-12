@@ -28,34 +28,40 @@ const (
 )
 
 type Config struct {
-	ScenarioFile            string
-	ScenarioName            string
-	Service                 string
-	Transport               string
-	LocalIP                 string
-	LocalPort               int
-	RemoteHost              string
-	RemotePort              int
-	AuthUsername            string
-	AuthPassword            string
-	Rate                    float64
-	RateScale               float64
-	RateIncrease            float64
-	RateIncreaseStep        time.Duration
-	RateMax                 float64
-	MaxReconnect            int
-	ReconnectSleep          time.Duration
-	ReconnectClose          bool
-	BaseCSeq                int
-	TotalCalls              int
-	MaxConcurrent           int
-	MaxSockets              int
-	Users                   int
-	DefaultPause            time.Duration
-	DefaultRecvTO           time.Duration
-	RecvBYEFloorTO          time.Duration // minimum mandatory recv BYE when scenario timeout omitted; 0=off
-	GlobalTimeout           time.Duration
-	SummaryJSON             string
+	ScenarioFile     string
+	ScenarioName     string
+	Service          string
+	Transport        string
+	LocalIP          string
+	LocalPort        int
+	RemoteHost       string
+	RemotePort       int
+	AuthUsername     string
+	AuthPassword     string
+	Rate             float64
+	RateScale        float64
+	RateIncrease     float64
+	RateIncreaseStep time.Duration
+	RateMax          float64
+	MaxReconnect     int
+	ReconnectSleep   time.Duration
+	ReconnectClose   bool
+	BaseCSeq         int
+	TotalCalls       int
+	MaxConcurrent    int
+	MaxSockets       int
+	Users            int
+	DefaultPause     time.Duration
+	DefaultRecvTO    time.Duration
+	RecvBYEFloorTO   time.Duration // minimum mandatory recv BYE when scenario timeout omitted; 0=off
+	GlobalTimeout    time.Duration
+	SummaryJSON      string
+	SummaryHTML      string
+	// ToolVersion is set by the main package (not a CLI flag) for JSON export.
+	ToolVersion             string
+	HealthMinSuccessRatio   float64
+	HealthMaxFailedCalls    int
+	HealthMaxTimeouts       int
 	TraceMessages           bool
 	TraceShortMsg           bool
 	TraceCounts             bool
@@ -119,33 +125,41 @@ type Config struct {
 
 	// PCAPLinkLayer selects PCAP datalink decoding for play_pcap_* (-pcap-link).
 	PCAPLinkLayer string
+
+	// SipFrom / SipPAI / SipProvider / SipExtraHeaders drive [trunk_*] keywords in built-in scenarios (see docs/compatibility.md).
+	SipFrom         string
+	SipPAI          string
+	SipProvider     string
+	SipExtraHeaders []string
 }
 
 func DefaultConfig() Config {
 	return Config{
-		ScenarioName:     "uac",
-		Service:          "service",
-		Transport:        DefaultTransport,
-		LocalIP:          "0.0.0.0",
-		AuthPassword:     "password",
-		Rate:             DefaultRate,
-		RateScale:        1.0,
-		BaseCSeq:         1,
-		TotalCalls:       DefaultTotalCalls,
-		MaxConcurrent:    DefaultMaxConcurrent,
-		Users:            1,
-		DefaultPause:     DefaultPauseDurationMS * time.Millisecond,
-		DefaultRecvTO:    DefaultRecvTimeout,
-		StatsDumpPeriod:  time.Second,
-		RTTDumpFrequency: 200,
-		TLSSkipVerify:    true,
-		IPField:          -1,
-		RTPCodec:         "PCMU/8000",
-		RTPFreqMs:        20,
-		RTPChannels:      1,
-		LogOTELProto:     "grpc",
-		LogBufferSize:    16384,
-		LogLevel:         "info",
+		ScenarioName:         "uac",
+		Service:              "service",
+		Transport:            DefaultTransport,
+		LocalIP:              "0.0.0.0",
+		AuthPassword:         "password",
+		Rate:                 DefaultRate,
+		RateScale:            1.0,
+		BaseCSeq:             1,
+		TotalCalls:           DefaultTotalCalls,
+		MaxConcurrent:        DefaultMaxConcurrent,
+		Users:                1,
+		DefaultPause:         DefaultPauseDurationMS * time.Millisecond,
+		DefaultRecvTO:        DefaultRecvTimeout,
+		StatsDumpPeriod:      time.Second,
+		RTTDumpFrequency:     200,
+		TLSSkipVerify:        true,
+		IPField:              -1,
+		RTPCodec:             "PCMU/8000",
+		RTPFreqMs:            20,
+		RTPChannels:          1,
+		LogOTELProto:         "grpc",
+		LogBufferSize:        16384,
+		LogLevel:             "info",
+		HealthMaxFailedCalls: -1,
+		HealthMaxTimeouts:    -1,
 	}
 }
 
@@ -197,7 +211,7 @@ func Parse(args []string) (Config, error) {
 		fs.PrintDefaults()
 	}
 	fs.StringVar(&cfg.ScenarioFile, "sf", cfg.ScenarioFile, "path to XML scenario file")
-	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas)")
+	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas, invite_media)")
 	fs.StringVar(&cfg.Service, "s", cfg.Service, "service name used in templates")
 	fs.StringVar(&cfg.Transport, "t", cfg.Transport, "transport: u1/un/ui, t1/tn, l1/ln; client TLS aliases cl/cln; server UDP s1/sn; server TLS sl")
 	fs.StringVar(&cfg.LocalIP, "i", cfg.LocalIP, "local IP address")
@@ -207,6 +221,13 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.IPField, "ipfield", cfg.IPField, "alias for -ip_field (SIPp-compatible)")
 	fs.StringVar(&cfg.AuthUsername, "au", cfg.AuthUsername, "authorization username for authentication challenges")
 	fs.StringVar(&cfg.AuthPassword, "ap", cfg.AuthPassword, "authorization password for authentication challenges")
+	fs.StringVar(&cfg.SipFrom, "sip_from", cfg.SipFrom, "SIP From value before ;tag= in built-in UAC scenarios (name-addr or URI); empty = gossip <sip:gossip@local_ip:local_port>")
+	fs.StringVar(&cfg.SipPAI, "sip_pai", cfg.SipPAI, "P-Asserted-Identity value only (no header name); empty omits the header")
+	fs.StringVar(&cfg.SipProvider, "sip_provider", cfg.SipProvider, "sets X-provider to this token; empty omits")
+	fs.Func("sip_extra_header", "repeatable: one extra SIP header line \"Name: value\" after Via on first in-dialog requests in built-in UAC scenarios", func(s string) error {
+		cfg.SipExtraHeaders = append(cfg.SipExtraHeaders, strings.TrimSpace(s))
+		return nil
+	})
 	fs.Float64Var(&cfg.Rate, "r", cfg.Rate, "calls per second")
 	fs.Float64Var(&cfg.RateScale, "rate_scale", cfg.RateScale, "interactive rate control step scale (SIPp-compatible)")
 	fs.Float64Var(&cfg.RateIncrease, "rate_increase", 0, "change target cps by this amount every -rate_interval milliseconds")
@@ -222,6 +243,10 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.TotalCalls, "m", cfg.TotalCalls, "total calls to place (0 = unlimited until SIGINT or -timeout_global; stress/long-run)")
 	fs.IntVar(&cfg.Users, "users", cfg.Users, "number of logical users for user-scoped variables")
 	fs.StringVar(&cfg.SummaryJSON, "summary_json", cfg.SummaryJSON, "write final stats to JSON file")
+	fs.StringVar(&cfg.SummaryHTML, "summary_html", cfg.SummaryHTML, "write final stats to a standalone HTML report (same data as -summary_json; can be used without JSON)")
+	fs.Float64Var(&cfg.HealthMinSuccessRatio, "health_min_success_ratio", 0, "when >0 with -summary_json or -summary_html, fail run if success_ratio is lower (e.g. 0.95); exit code 2")
+	fs.IntVar(&cfg.HealthMaxFailedCalls, "health_max_failed_calls", -1, "when >=0 with -summary_json or -summary_html, fail if failed_calls exceed this (0 means any failure fails); exit code 2")
+	fs.IntVar(&cfg.HealthMaxTimeouts, "health_max_timeouts", -1, "when >=0 with -summary_json or -summary_html, fail if timeouts exceed this; exit code 2")
 	fs.BoolVar(&cfg.TraceMessages, "trace_msg", cfg.TraceMessages, "trace sent and received SIP messages")
 	fs.BoolVar(&cfg.TraceShortMsg, "trace_shortmsg", false, "trace sent and received messages as compact CSV")
 	fs.BoolVar(&cfg.TraceCounts, "trace_counts", false, "write periodic SIP message counters as CSV")
@@ -729,6 +754,7 @@ func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "  gossipper tui                full-screen launcher / runtime UI")
 	fmt.Fprintln(w, "  gossipper -interactive       same as tui")
 	fmt.Fprintln(w, "  gossipper pcap2scenario ...  PCAP → XML scenarios")
+	fmt.Fprintln(w, "  gossipper report-html ...  summary JSON → standalone HTML report")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "See also: docs/interactive-shell.md, docs/tui.md")
 	fmt.Fprintln(w)
