@@ -3,10 +3,12 @@ package engine
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
 
+	"github.com/sipcapture/gossipper/internal/scheduler"
 	"github.com/sipcapture/gossipper/internal/sip"
 	"github.com/sipcapture/gossipper/internal/transport"
 )
@@ -32,17 +34,19 @@ func (e *Engine) runClientSharedTLS(ctx context.Context) error {
 	go registry.dispatchMessages(shared.Receive())
 
 	sem := make(chan struct{}, e.callConcurrencyLimit(false))
-	ticker := e.sched.Interval(e.cfg.Rate)
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
 	for i := 1; e.clientShouldSpawnAnother(i); i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker:
+		if err := e.waitForNextCall(ctx); err != nil {
+			if errors.Is(err, scheduler.ErrStopped) {
+				break
+			}
+			return err
 		}
-		sem <- struct{}{}
+		if err := acquireCallSemaphore(ctx, sem); err != nil {
+			return err
+		}
 		wg.Add(1)
 		go func(callNumber int) {
 			defer wg.Done()
@@ -84,17 +88,19 @@ func (e *Engine) runClientPerCallTLS(ctx context.Context) error {
 		return err
 	}
 	sem := make(chan struct{}, e.callConcurrencyLimit(true))
-	ticker := e.sched.Interval(e.cfg.Rate)
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
 	for i := 1; e.clientShouldSpawnAnother(i); i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker:
+		if err := e.waitForNextCall(ctx); err != nil {
+			if errors.Is(err, scheduler.ErrStopped) {
+				break
+			}
+			return err
 		}
-		sem <- struct{}{}
+		if err := acquireCallSemaphore(ctx, sem); err != nil {
+			return err
+		}
 		wg.Add(1)
 		go func(callNumber int) {
 			defer wg.Done()
