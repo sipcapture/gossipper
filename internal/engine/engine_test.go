@@ -1833,6 +1833,92 @@ Content-Length: 0
 	}
 }
 
+func TestEngineUACPauseDistribution(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+	defer serverConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
+				return
+			}
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			via, _ := sip.Header(msg.Headers, "Via")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+
+			switch strings.ToUpper(msg.Method) {
+			case "INVITE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContact: <sip:127.0.0.1:%d>\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq, serverConn.LocalAddr().(*net.UDPAddr).Port,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			case "ACK":
+				// OK
+			case "BYE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				return
+			}
+		}
+	}()
+
+	sc, err := scenario.ParseFile("../../testdata/scenarios/uac_pause_distribution.xml")
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	<-done
+
+	summary := app.Stats().Snapshot()
+	if summary.SuccessCalls != 1 {
+		t.Fatalf("expected one successful call, got %+v", summary)
+	}
+	if summary.FailedCalls != 0 {
+		t.Fatalf("expected zero failed calls, got %+v", summary)
+	}
+}
+
 func TestEngineAppliesStrCmpAndExtendedTestComparisons(t *testing.T) {
 	t.Parallel()
 

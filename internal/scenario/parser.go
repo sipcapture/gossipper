@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sipcapture/gossipper/internal/distribution"
 	"golang.org/x/text/encoding/charmap"
 )
 
@@ -49,6 +50,11 @@ type rawScenarioItem struct {
 	Variables       string       `xml:"variables,attr"`
 	Actions         []rawAction  `xml:"action"`
 	Elements        []rawElement `xml:",any"`
+	Distribution    string       `xml:"distribution,attr"`
+	Mean            string       `xml:"mean,attr"`
+	Stdev           string       `xml:"stdev,attr"`
+	Min             string       `xml:"min,attr"`
+	Max             string       `xml:"max,attr"`
 }
 
 type rawElement struct {
@@ -74,6 +80,11 @@ type rawElement struct {
 	Dest            string      `xml:"dest,attr"`
 	Src             string      `xml:"src,attr"`
 	Actions         []rawAction `xml:"action"`
+	Distribution    string      `xml:"distribution,attr"`
+	Mean            string      `xml:"mean,attr"`
+	Stdev           string      `xml:"stdev,attr"`
+	Min             string      `xml:"min,attr"`
+	Max             string      `xml:"max,attr"`
 }
 
 type rawAction struct {
@@ -229,6 +240,11 @@ func rawScenarioItemToCommand(elem rawScenarioItem, index int) (Command, error) 
 		Dest:            elem.Dest,
 		Src:             elem.Src,
 		Actions:         elem.Actions,
+		Distribution:    elem.Distribution,
+		Mean:            elem.Mean,
+		Stdev:           elem.Stdev,
+		Min:             elem.Min,
+		Max:             elem.Max,
 	}, index)
 }
 
@@ -262,7 +278,18 @@ func rawElementToCommand(elem rawElement, index int) (Command, error) {
 		cmd.Timeout = parseDurationMilliseconds(elem.Timeout)
 	case "pause":
 		cmd.Type = CommandPause
-		cmd.Pause = parseDurationMilliseconds(elem.Milliseconds)
+		sampler, err := distribution.NewFromXML(
+			elem.Distribution,
+			elem.Milliseconds,
+			elem.Mean,
+			elem.Stdev,
+			elem.Min,
+			elem.Max,
+		)
+		if err != nil {
+			return Command{}, fmt.Errorf("pause at index %d: %w", index, err)
+		}
+		cmd.Pause = sampler
 	case "nop":
 		cmd.Type = CommandNop
 	case "label":
@@ -271,7 +298,15 @@ func rawElementToCommand(elem rawElement, index int) (Command, error) {
 	case "timewait":
 		cmd.Type = CommandTimeWait
 		cmd.TimeWait = true
-		cmd.Pause = parseDurationMilliseconds(elem.Milliseconds)
+		sampler, err := distribution.NewFromXML(
+			"fixed",
+			elem.Milliseconds,
+			"", "", "", "",
+		)
+		if err != nil {
+			return Command{}, fmt.Errorf("timewait at index %d: %w", index, err)
+		}
+		cmd.Pause = sampler
 	default:
 		return Command{}, nil
 	}

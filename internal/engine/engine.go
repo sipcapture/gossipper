@@ -1607,7 +1607,10 @@ func (e *Engine) executeCall(
 				continue
 			}
 		case scenario.CommandPause, scenario.CommandTimeWait:
-			pause := cmd.Pause
+			var pause time.Duration
+			if cmd.Pause != nil {
+				pause = cmd.Pause.Sample()
+			}
 			if pause <= 0 {
 				pause = e.cfg.DefaultPause
 			}
