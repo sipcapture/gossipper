@@ -35,14 +35,22 @@ func NewFromXML(distType, milliseconds, mean, stdev, min, max string) (Sampler, 
 		if strings.TrimSpace(max) == "" {
 			return nil, fmt.Errorf("uniform distribution: max attribute is required")
 		}
-		minMs, err := parseDurationMs(min)
+		minFloat, err := parseFloat(min)
 		if err != nil {
 			return nil, fmt.Errorf("uniform distribution: invalid min: %w", err)
 		}
-		maxMs, err := parseDurationMs(max)
+		maxFloat, err := parseFloat(max)
 		if err != nil {
 			return nil, fmt.Errorf("uniform distribution: invalid max: %w", err)
 		}
+		if minFloat < 0 {
+			return nil, fmt.Errorf("uniform distribution: min must be non-negative")
+		}
+		if maxFloat < 0 {
+			return nil, fmt.Errorf("uniform distribution: max must be non-negative")
+		}
+		minMs := time.Duration(minFloat * float64(time.Millisecond))
+		maxMs := time.Duration(maxFloat * float64(time.Millisecond))
 		if minMs > maxMs {
 			return nil, fmt.Errorf("uniform distribution: min (%v) cannot be greater than max (%v)", minMs, maxMs)
 		}

@@ -52,6 +52,25 @@ func TestNewFromXML(t *testing.T) {
 			},
 		},
 		{
+			name:     "uniform distribution supports fractional milliseconds",
+			distType: "uniform",
+			min:      "10.5",
+			max:      "20.75",
+			assertValue: func(t *testing.T, sampler Sampler) {
+				t.Helper()
+				got, ok := sampler.(*Uniform)
+				if !ok {
+					t.Fatalf("expected *Uniform, got %T", sampler)
+				}
+				if got.Min != 10500000*time.Nanosecond {
+					t.Fatalf("expected min 10.5ms, got %v", got.Min)
+				}
+				if got.Max != 20750000*time.Nanosecond {
+					t.Fatalf("expected max 20.75ms, got %v", got.Max)
+				}
+			},
+		},
+		{
 			name:     "normal distribution supports fractional milliseconds",
 			distType: "normal",
 			mean:     "100.5",
@@ -87,6 +106,20 @@ func TestNewFromXML(t *testing.T) {
 			min:      "20",
 			max:      "10",
 			wantErr:  "uniform distribution: min",
+		},
+		{
+			name:     "uniform negative min",
+			distType: "uniform",
+			min:      "-5",
+			max:      "10",
+			wantErr:  "uniform distribution: min must be non-negative",
+		},
+		{
+			name:     "uniform negative max",
+			distType: "uniform",
+			min:      "5",
+			max:      "-10",
+			wantErr:  "uniform distribution: max must be non-negative",
 		},
 		{
 			name:     "normal negative mean",
