@@ -10,6 +10,7 @@ incremental XML scenario compatibility, and a cleaner engine architecture.
 The current MVP implements:
 
 - XML scenarios with `send`, `recv`, `pause`, `nop`, `label`, `timewait`, and `init`
+- `<pause>` command with `distribution` attribute for `fixed`, `uniform`, and `normal` distributions
 - XML command handoff via `sendCmd` / `recvCmd`, both inside one `Gossipper` process and across multiple instances
 - SIPp-style 3PCC CLI aliases `-master`, `-slave`, and `-slave_cfg` on top of the external command transport
 - Out-of-call SIP scenarios such as stateless `OPTIONS` ping/pong
