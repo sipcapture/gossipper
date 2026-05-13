@@ -1488,7 +1488,7 @@ func (e *Engine) executeCall(
 		LocalPort:   localPort,
 		MediaIP:     localIP,
 		MediaIPType: ipType(localIP),
-		MediaPort:   localPort + 2 + ((callNumber - 1) * 2),
+		MediaPort:   clampMediaPort(localPort + 2 + ((callNumber - 1) * 2)),
 		CallID:      callID,
 		CSeq:        e.cfg.BaseCSeq,
 		CallNumber:  callNumber,
@@ -2098,6 +2098,24 @@ func nextRetrans(value time.Duration) time.Duration {
 		return 0
 	}
 	return value
+}
+
+// clampMediaPort wraps a computed media port into the valid [1024, 65535] range.
+// Without this, high ephemeral local ports combined with large call numbers can
+// produce port values > 65535, which rtpengine rejects as an invalid m= line.
+func clampMediaPort(port int) int {
+	const (
+		minPort  = 1024
+		maxPort  = 65535
+		portSpan = maxPort - minPort + 1 // 64512
+	)
+	if port < minPort || port > maxPort {
+		port = ((port - minPort) % portSpan) + minPort
+		if port < minPort {
+			port += portSpan
+		}
+	}
+	return port
 }
 
 func ipType(ip string) string {
