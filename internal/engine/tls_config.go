@@ -9,8 +9,9 @@ import (
 
 func (e *Engine) clientTLSConfig() (*tls.Config, error) {
 	cfg := &tls.Config{
-		InsecureSkipVerify: e.cfg.TLSSkipVerify,
-		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify:          e.cfg.TLSSkipVerify,
+		MinVersion:                  tls.VersionTLS12,
+		DynamicRecordSizingDisabled: true, // send each SIP message in a single TLS record; split records cause SIP proxies to time out while awaiting a complete message
 	}
 	if e.cfg.TLSCAFile != "" {
 		pool := x509.NewCertPool()

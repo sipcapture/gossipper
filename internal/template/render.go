@@ -78,6 +78,14 @@ func (c Context) Render(raw string) string {
 		first = false
 	}
 	result := out.String()
+	// For messages with a body (header/body separator \r\n\r\n present), ensure
+	// the body ends with \r\n so that computeBodyLength counts the trailing
+	// line ending. Without this, ensureMessageTerminator appends \r\n after the
+	// Content-Length has already been computed, producing a 2-byte mismatch that
+	// leaves stale bytes in the peer's receive buffer.
+	if strings.Contains(result, "\r\n\r\n") && !strings.HasSuffix(result, "\r\n") {
+		result += "\r\n"
+	}
 	builderPool.Put(out)
 	linesPool.Put(ptr)
 	return result
@@ -191,6 +199,14 @@ func (c Context) RenderStrict(raw string) (string, error) {
 		first = false
 	}
 	result := out.String()
+	// For messages with a body (header/body separator \r\n\r\n present), ensure
+	// the body ends with \r\n so that computeBodyLength counts the trailing
+	// line ending. Without this, ensureMessageTerminator appends \r\n after the
+	// Content-Length has already been computed, producing a 2-byte mismatch that
+	// leaves stale bytes in the peer's receive buffer.
+	if strings.Contains(result, "\r\n\r\n") && !strings.HasSuffix(result, "\r\n") {
+		result += "\r\n"
+	}
 	builderPool.Put(out)
 	linesPool.Put(ptr)
 	return result, nil

@@ -37,7 +37,9 @@ func TestRenderMessageComputesLengthAndHeaders(t *testing.T) {
 	raw := "SIP/2.0 200 OK\r\n[last_Via:]\r\n[last_To:][peer_tag_param]\r\nContent-Length: [len]\r\n\r\nhello"
 	got := RenderMessage(raw, ctx)
 
-	if !strings.Contains(got, "Content-Length: 5") {
+	// Body "hello" will be sent as "hello\r\n" (7 bytes) because Render appends
+	// \r\n to the body so that Content-Length matches the actual wire length.
+	if !strings.Contains(got, "Content-Length: 7") {
 		t.Fatalf("expected computed content length, got %q", got)
 	}
 	if !strings.Contains(got, ";tag=peer") {

@@ -5369,4 +5369,20 @@ func TestEffectiveSIPRecvTimeoutBYE(t *testing.T) {
 	if got := effectiveSIPRecvTimeout(cmd, 5*time.Second, 0); got != 5*time.Second {
 		t.Fatalf("floor disabled: got %v", got)
 	}
+	// Provisional (1xx) optional recvs must NOT receive the sipTimerB floor.
+	// Waiting 32s for a 100/180/183 would keep the connection idle long enough
+	// for the server's TCP read timeout to fire and close the socket.
+	for _, prov := range []string{"100", "180", "183"} {
+		cmd = scenario.Command{RecvResp: prov, Optional: true}
+		if got := effectiveSIPRecvTimeout(cmd, 5*time.Second, 90*time.Second); got != 5*time.Second {
+			t.Fatalf("provisional optional %s: got %v, want default 5s", prov, got)
+		}
+	}
+	// Final-response optional recvs (200, 4xx) still get sipTimerB.
+	for _, final := range []string{"200", "4xx"} {
+		cmd = scenario.Command{RecvResp: final, Optional: true}
+		if got := effectiveSIPRecvTimeout(cmd, 5*time.Second, 90*time.Second); got != sipTimerB {
+			t.Fatalf("final optional %s: got %v, want sipTimerB", final, got)
+		}
+	}
 }

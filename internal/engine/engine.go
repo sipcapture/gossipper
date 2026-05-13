@@ -75,7 +75,7 @@ type Config struct {
 	// the scenario omits recv timeout (zero uses DefaultRecvTO). Prevents UAS
 	// from failing while the UAC is still in a long media pause before BYE.
 	// Zero disables (BYE uses only DefaultRecvTO).
-	RecvBYEFloorTO   time.Duration
+	RecvBYEFloorTO  time.Duration
 	TraceMessages    bool
 	TraceShortMsg    bool
 	TraceCounts      bool
@@ -1610,9 +1610,22 @@ func (e *Engine) executeCall(
 			}
 		case scenario.CommandRecv:
 			recvTimeout := effectiveSIPRecvTimeout(cmd, e.cfg.DefaultRecvTO, e.cfg.RecvBYEFloorTO)
+			// For mandatory recv steps within an active INVITE transaction, apply
+			// the remaining RFC 3261 Timer B as a minimum timeout.  Timer B starts
+			// at INVITE send time and runs for 32 s; by the time we reach the
+			// mandatory recv 200 we may have consumed several seconds on optional
+			// provisional recvs (100/180/183), so use whatever time is left rather
+			// than the short default.  Once the 200 has been received and the
+			// invite latency recorded, Timer B is no longer relevant.
+			if !cmd.Optional && !inviteStartedAt.IsZero() && !inviteLatencySet {
+				if remaining := sipTimerB - time.Since(inviteStartedAt); remaining > recvTimeout {
+					recvTimeout = remaining
+				}
+			}
 
 			retransmit := lastRetrans
-			if !strings.HasPrefix(e.cfg.Transport, "u") {
+			isTCP := !strings.HasPrefix(e.cfg.Transport, "u")
+			if isTCP {
 				retransmit = 0
 			}
 			receiveWithPending := func(waitCtx context.Context) (*sip.Message, bool, error) {
@@ -1780,16 +1793,25 @@ func effectiveSIPRecvTimeout(cmd scenario.Command, defaultRecv, recvBYEFloor tim
 		return cmd.Timeout
 	}
 	out := defaultRecv
-	if cmd.Optional && out < sipTimerB {
-		// Optional recvs must wait at least RFC 3261 Timer B so that slow
-		// INVITE transactions (TLS + media processing) have time to deliver
-		// their 200 OK before the scenario gives up.
+	if cmd.Optional && !isProvisionalResponse(cmd.RecvResp) && out < sipTimerB {
+		// Apply RFC 3261 Timer B only for optional recvs waiting for a final
+		// response (2xx-6xx or any): these may represent the end of a slow INVITE
+		// transaction. Provisional (1xx) optional recvs use the default timeout;
+		// waiting sipTimerB (32s) for a 100/180/183 keeps the connection idle long
+		// enough for the server's TCP read timeout to fire and close the socket.
 		out = sipTimerB
 	}
 	if !cmd.Optional && recvBYEFloor > 0 && strings.EqualFold(strings.TrimSpace(cmd.RecvReq), "BYE") && out < recvBYEFloor {
 		out = recvBYEFloor
 	}
 	return out
+}
+
+// isProvisionalResponse reports whether resp denotes a SIP 1xx provisional
+// status. resp is the raw string from the scenario RecvResp field (e.g. "180").
+func isProvisionalResponse(resp string) bool {
+	resp = strings.TrimSpace(resp)
+	return len(resp) > 0 && resp[0] == '1'
 }
 
 // emitTimeoutEvent surfaces a structured timeout for the SIP recv hot path so
