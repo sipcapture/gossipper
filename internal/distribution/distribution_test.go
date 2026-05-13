@@ -137,6 +137,13 @@ func TestNewFromXML(t *testing.T) {
 			wantErr:  "normal distribution: stdev must be non-negative",
 		},
 		{
+			name:     "normal both mean and stdev zero is rejected",
+			distType: "normal",
+			mean:     "0",
+			stdev:    "0",
+			wantErr:  "normal distribution: mean and stdev cannot both be zero",
+		},
+		{
 			name:     "normal empty mean is rejected",
 			distType: "normal",
 			mean:     "",

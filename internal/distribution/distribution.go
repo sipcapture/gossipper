@@ -77,6 +77,9 @@ func NewFromXML(distType, milliseconds, mean, stdev, min, max string) (Sampler, 
 		if stdevFloat < 0 {
 			return nil, fmt.Errorf("normal distribution: stdev must be non-negative")
 		}
+		if meanFloat == 0 && stdevFloat == 0 {
+			return nil, fmt.Errorf("normal distribution: mean and stdev cannot both be zero")
+		}
 		return &Normal{
 			Mean:  time.Duration(meanFloat * float64(time.Millisecond)),
 			Stdev: time.Duration(stdevFloat * float64(time.Millisecond)),
