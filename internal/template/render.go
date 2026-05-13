@@ -903,7 +903,12 @@ func csvRecordAt(basePath, name string, lineNumber int, overrides map[string]map
 		// SIPp -inf: optional first non-data row names distribution (SEQUENTIAL|RANDOM|USER).
 		// Implicit [fieldN] line = call_number selects the Nth data row, not that header row.
 		start := findInfDataRecordsStart(records)
-		idx = start + lineNumber - 1
+		dataRows := len(records) - start
+		if dataRows <= 0 {
+			return nil, false, nil
+		}
+		// Wrap around when call number exceeds available data rows (SIPp SEQUENTIAL).
+		idx = start + ((lineNumber - 1) % dataRows)
 	}
 	if idx < 0 || idx >= len(records) {
 		return nil, false, nil

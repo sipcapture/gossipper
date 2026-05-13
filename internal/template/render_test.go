@@ -1,6 +1,7 @@
 package template
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,6 +133,41 @@ func TestRenderFieldTokenWithVariableLine(t *testing.T) {
 	got := RenderMessage(raw, ctx)
 	if !strings.Contains(got, "X-Field: bob") {
 		t.Fatalf("expected variable-based line lookup, got %q", got)
+	}
+}
+
+func TestRenderFieldTokenWrapsAroundCSVRows(t *testing.T) {
+	t.Parallel()
+
+	// inject.csv: "id,value,name" / "1,alpha,alice" / "2,beta,bob"
+	// No SIPp distribution header so all 3 rows are data rows.
+	// field2 → column index 2 (name column): "name", "alice", "bob"
+	tests := []struct {
+		callNumber int
+		wantName   string
+	}{
+		{1, "name"},
+		{2, "alice"},
+		{3, "bob"},
+		{4, "name"},  // wrap to row 1
+		{5, "alice"}, // wrap to row 2
+		{6, "bob"},   // wrap to row 3
+		{7, "name"},  // wrap again
+	}
+	for _, tt := range tests {
+		ctx := Context{
+			BasePath:      "../../testdata/injection",
+			CallNumber:    tt.callNumber,
+			InjectionFile: "../../testdata/injection/inject.csv",
+		}
+		raw := fmt.Sprintf("X: [field2]\r\n\r\n")
+		got, err := RenderMessageStrict(raw, ctx)
+		if err != nil {
+			t.Fatalf("callNumber=%d: unexpected error: %v", tt.callNumber, err)
+		}
+		if !strings.Contains(got, "X: "+tt.wantName) {
+			t.Errorf("callNumber=%d: expected %q, got %q", tt.callNumber, tt.wantName, got)
+		}
 	}
 }
 
