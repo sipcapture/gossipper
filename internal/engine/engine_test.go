@@ -28,6 +28,7 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/pion/rtcp"
+	"github.com/sipcapture/gossipper/internal/distribution"
 	"github.com/sipcapture/gossipper/internal/hep"
 	"github.com/sipcapture/gossipper/internal/media"
 
@@ -1888,6 +1889,34 @@ func TestEngineUACPauseDistribution(t *testing.T) {
 		t.Fatalf("ParseFile() error = %v", err)
 	}
 
+	// Verify that the pause commands were parsed with the correct sampler types
+	var uniformPauseFound, normalPauseFound bool
+	for _, cmd := range sc.Commands {
+		if cmd.Type == scenario.CommandPause && cmd.Pause != nil {
+			switch cmd.Pause.(type) {
+			case *distribution.Uniform:
+				uniformPauseFound = true
+				u := cmd.Pause.(*distribution.Uniform)
+				if u.Min != 50*time.Millisecond || u.Max != 150*time.Millisecond {
+					t.Fatalf("uniform pause has wrong bounds: min=%v max=%v", u.Min, u.Max)
+				}
+			case *distribution.Normal:
+				normalPauseFound = true
+				n := cmd.Pause.(*distribution.Normal)
+				if n.Mean != 100*time.Millisecond || n.Stdev != 10*time.Millisecond {
+					t.Fatalf("normal pause has wrong parameters: mean=%v stdev=%v", n.Mean, n.Stdev)
+				}
+			}
+		}
+	}
+	if !uniformPauseFound {
+		t.Fatal("uniform distribution pause not found in parsed scenario")
+	}
+	if !normalPauseFound {
+		t.Fatal("normal distribution pause not found in parsed scenario")
+	}
+
+	startTime := time.Now()
 	app := New(Config{
 		Scenario:      sc,
 		Transport:     "u1",
@@ -1909,6 +1938,7 @@ func TestEngineUACPauseDistribution(t *testing.T) {
 		t.Fatalf("Run() error = %v", err)
 	}
 	<-done
+	elapsed := time.Since(startTime)
 
 	summary := app.Stats().Snapshot()
 	if summary.SuccessCalls != 1 {
@@ -1916,6 +1946,18 @@ func TestEngineUACPauseDistribution(t *testing.T) {
 	}
 	if summary.FailedCalls != 0 {
 		t.Fatalf("expected zero failed calls, got %+v", summary)
+	}
+
+	// Verify that the pauses were actually sampled (not falling back to DefaultPause).
+	// The scenario has two pauses:
+	// 1. uniform(50-150ms) after receiving 200 OK
+	// 2. normal(mean=100ms, stdev=10ms) after ACK
+	// Total expected pause time: ~150-250ms (50+100 to 150+100, roughly)
+	// If samplers were bypassed and DefaultPause (10ms) was used, total would be ~20ms.
+	// We check that elapsed time is at least 100ms to confirm samplers were used.
+	minExpectedDuration := 100 * time.Millisecond
+	if elapsed < minExpectedDuration {
+		t.Fatalf("call completed too quickly (%v), suggesting pauses were not sampled (expected at least %v)", elapsed, minExpectedDuration)
 	}
 }
 
