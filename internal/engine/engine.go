@@ -150,12 +150,23 @@ type Engine struct {
 	startTime time.Time
 	// dynamicID is incremented per rendered SIP message; wraps at math.MaxInt32 to mirror SIPp.
 	dynamicID atomic.Int64
+
+	// sem is the engine-wide concurrency semaphore, resizable at runtime.
+	// perSocketMode tracks whether the active run loop uses per-call socket limiting
+	// so SetMaxConcurrent can apply the same cap when resizing.
+	sem            *dynSemaphore
+	perSocketMode  atomic.Bool
+	runtimeMaxConc atomic.Int64 // user-set value (0 = use cfg.MaxConcurrent)
 }
 
 func New(cfg Config) *Engine {
 	log := cfg.Log
 	if log == nil {
 		log = eventlog.Noop()
+	}
+	limit := cfg.MaxConcurrent
+	if limit < 1 {
+		limit = 1
 	}
 	return &Engine{
 		cfg:          cfg,
@@ -168,6 +179,7 @@ func New(cfg Config) *Engine {
 		log:          log,
 		liveScenario: cfg.Scenario,
 		startTime:    time.Now(),
+		sem:          newDynSemaphore(limit),
 	}
 }
 
@@ -255,6 +267,28 @@ func (e *Engine) Paused() bool {
 
 func (e *Engine) StopScheduling() {
 	e.rate.Stop()
+}
+
+// MaxConcurrent returns the current maximum simultaneous calls limit.
+func (e *Engine) MaxConcurrent() int {
+	return e.sem.Limit()
+}
+
+// SetMaxConcurrent updates the maximum simultaneous calls limit at runtime.
+// The new limit is clamped to at least 1. When a per-call-socket mode is active
+// the limit is further capped by MaxSockets (same rule as the initial sizing).
+// Returns the effective limit after clamping.
+func (e *Engine) SetMaxConcurrent(n int) int {
+	if n < 1 {
+		n = 1
+	}
+	e.runtimeMaxConc.Store(int64(n))
+	limit := n
+	if e.perSocketMode.Load() && e.cfg.MaxSockets > 0 && e.cfg.MaxSockets < limit {
+		limit = e.cfg.MaxSockets
+	}
+	e.sem.Resize(limit)
+	return e.sem.Limit()
 }
 
 func (e *Engine) Run(ctx context.Context) (runErr error) {
@@ -354,7 +388,8 @@ func (e *Engine) runClient(ctx context.Context) error {
 }
 
 func (e *Engine) runClientCommandOnly(ctx context.Context) error {
-	sem := make(chan struct{}, e.callConcurrencyLimit(false))
+	e.perSocketMode.Store(false)
+	e.sem.Resize(e.callConcurrencyLimit(false))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -367,13 +402,13 @@ func (e *Engine) runClientCommandOnly(ctx context.Context) error {
 			return err
 		}
 
-		if err := acquireCallSemaphore(ctx, sem); err != nil {
+		if err := e.sem.Acquire(ctx); err != nil {
 			return err
 		}
 		wg.Add(1)
 		go func(callNumber int) {
 			defer wg.Done()
-			defer func() { <-sem }()
+			defer e.sem.Release()
 
 			callID := newCallID(callNumber)
 			send := func(payload []byte) error {
@@ -423,7 +458,8 @@ func (e *Engine) runClientShared(ctx context.Context) error {
 	registry := newMailboxRegistry(e.log)
 	go registry.dispatch(shared.Receive())
 
-	sem := make(chan struct{}, e.callConcurrencyLimit(true))
+	e.perSocketMode.Store(true)
+	e.sem.Resize(e.callConcurrencyLimit(true))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -436,13 +472,13 @@ func (e *Engine) runClientShared(ctx context.Context) error {
 			return err
 		}
 
-		if err := acquireCallSemaphore(ctx, sem); err != nil {
+		if err := e.sem.Acquire(ctx); err != nil {
 			return err
 		}
 		wg.Add(1)
 		go func(callNumber int) {
 			defer wg.Done()
-			defer func() { <-sem }()
+			defer e.sem.Release()
 
 			callID := newCallID(callNumber)
 			inbox := registry.register(callID)
@@ -484,7 +520,8 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 		return err
 	}
 
-	sem := make(chan struct{}, e.callConcurrencyLimit(false))
+	e.perSocketMode.Store(false)
+	e.sem.Resize(e.callConcurrencyLimit(false))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -497,13 +534,13 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 			return err
 		}
 
-		if err := acquireCallSemaphore(ctx, sem); err != nil {
+		if err := e.sem.Acquire(ctx); err != nil {
 			return err
 		}
 		wg.Add(1)
 		go func(callNumber int) {
 			defer wg.Done()
-			defer func() { <-sem }()
+			defer e.sem.Release()
 
 			dialog, err := transport.NewDialogUDP(
 				fmt.Sprintf("%s:%d", e.cfg.LocalIP, e.cfg.LocalPort),
@@ -573,7 +610,8 @@ func (e *Engine) runClientPerSourceIP(ctx context.Context) error {
 	}
 	defer closeSharedSocketPool(sharedByIP)
 
-	sem := make(chan struct{}, e.callConcurrencyLimit(false))
+	e.perSocketMode.Store(false)
+	e.sem.Resize(e.callConcurrencyLimit(false))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -586,13 +624,13 @@ func (e *Engine) runClientPerSourceIP(ctx context.Context) error {
 			return err
 		}
 
-		if err := acquireCallSemaphore(ctx, sem); err != nil {
+		if err := e.sem.Acquire(ctx); err != nil {
 			return err
 		}
 		wg.Add(1)
 		go func(callNumber int) {
 			defer wg.Done()
-			defer func() { <-sem }()
+			defer e.sem.Release()
 
 			sourceIP := e.sourceIPForCall(callNumber)
 			shared, ok := sharedByIP[sourceIP]
@@ -650,7 +688,8 @@ func (e *Engine) runClientSharedTCP(ctx context.Context) error {
 	registry := newMailboxRegistry(e.log)
 	go registry.dispatchMessages(shared.Receive())
 
-	sem := make(chan struct{}, e.callConcurrencyLimit(true))
+	e.perSocketMode.Store(true)
+	e.sem.Resize(e.callConcurrencyLimit(true))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -663,13 +702,13 @@ func (e *Engine) runClientSharedTCP(ctx context.Context) error {
 			return err
 		}
 
-		if err := acquireCallSemaphore(ctx, sem); err != nil {
+		if err := e.sem.Acquire(ctx); err != nil {
 			return err
 		}
 		wg.Add(1)
 		go func(callNumber int) {
 			defer wg.Done()
-			defer func() { <-sem }()
+			defer e.sem.Release()
 
 			callID := newCallID(callNumber)
 			inbox := registry.register(callID)
@@ -698,7 +737,8 @@ func (e *Engine) runClientSharedTCP(ctx context.Context) error {
 func (e *Engine) runClientPerCallTCP(ctx context.Context) error {
 	remoteAddr := fmt.Sprintf("%s:%d", e.cfg.RemoteHost, e.cfg.RemotePort)
 
-	sem := make(chan struct{}, e.cfg.MaxConcurrent)
+	e.perSocketMode.Store(false)
+	e.sem.Resize(e.callConcurrencyLimit(false))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -711,13 +751,13 @@ func (e *Engine) runClientPerCallTCP(ctx context.Context) error {
 			return err
 		}
 
-		if err := acquireCallSemaphore(ctx, sem); err != nil {
+		if err := e.sem.Acquire(ctx); err != nil {
 			return err
 		}
 		wg.Add(1)
 		go func(callNumber int) {
 			defer wg.Done()
-			defer func() { <-sem }()
+			defer e.sem.Release()
 
 			dialog, err := transport.NewDialogTCP(
 				fmt.Sprintf("%s:%d", e.cfg.LocalIP, e.cfg.LocalPort),

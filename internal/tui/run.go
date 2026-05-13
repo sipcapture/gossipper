@@ -266,6 +266,34 @@ func Run() error {
 				dashboard.SetText(state.renderDashboard())
 				return nil
 			}
+		case 'l':
+			if eng := state.engine(); eng != nil && state.prepared.Scenario.Mode != scenario.ModeServer {
+				n := eng.SetMaxConcurrent(eng.MaxConcurrent() + 1)
+				state.setStatus(fmt.Sprintf("Max simultaneous calls set to %d", n))
+				dashboard.SetText(state.renderDashboard())
+				return nil
+			}
+		case 'L':
+			if eng := state.engine(); eng != nil && state.prepared.Scenario.Mode != scenario.ModeServer {
+				n := eng.SetMaxConcurrent(eng.MaxConcurrent() - 1)
+				state.setStatus(fmt.Sprintf("Max simultaneous calls set to %d", n))
+				dashboard.SetText(state.renderDashboard())
+				return nil
+			}
+		case '[':
+			if eng := state.engine(); eng != nil && state.prepared.Scenario.Mode != scenario.ModeServer {
+				n := eng.SetMaxConcurrent(eng.MaxConcurrent() - 10)
+				state.setStatus(fmt.Sprintf("Max simultaneous calls set to %d", n))
+				dashboard.SetText(state.renderDashboard())
+				return nil
+			}
+		case ']':
+			if eng := state.engine(); eng != nil && state.prepared.Scenario.Mode != scenario.ModeServer {
+				n := eng.SetMaxConcurrent(eng.MaxConcurrent() + 10)
+				state.setStatus(fmt.Sprintf("Max simultaneous calls set to %d", n))
+				dashboard.SetText(state.renderDashboard())
+				return nil
+			}
 		case 'p', 'P':
 			if eng := state.engine(); eng != nil && state.prepared.Scenario.Mode != scenario.ModeServer {
 				if eng.Paused() {
@@ -361,10 +389,12 @@ func (s *runtimeState) renderDashboard() string {
 	var (
 		targetRate float64
 		paused     bool
+		maxConc    int
 	)
 	if s.eng != nil {
 		targetRate = s.eng.Rate()
 		paused = s.eng.Paused()
+		maxConc = s.eng.MaxConcurrent()
 	}
 
 	summary := s.lastSummary
@@ -388,7 +418,7 @@ func (s *runtimeState) renderDashboard() string {
 
 	return fmt.Sprintf(`[yellow]Profile:[-] %s
 [yellow]Mode:[-] %s   [yellow]Transport:[-] %s   [yellow]State:[-] %s
-[yellow]Target CPS:[-] %.2f   [yellow]Measured CPS(avg):[-] %.2f   [yellow]Measured CPS(1s):[-] %.2f
+[yellow]Target CPS:[-] %.2f   [yellow]Measured CPS(avg):[-] %.2f   [yellow]Measured CPS(1s):[-] %.2f   [yellow]Max calls:[-] %d
 
 [yellow]Calls:[-] total=%d active=%d success=%d failed=%d
 [yellow]Latency:[-] avg_call=%s avg_invite=%s
@@ -397,7 +427,7 @@ func (s *runtimeState) renderDashboard() string {
 
 [yellow]Status:[-] %s
 
-[green]Keys[-]: +/- step CPS, */ change CPS by 10x step, p pause/resume, q stop run, Esc back after finish`,
+[green]Keys[-]: +/- step CPS, */ change CPS by 10x step, l/L max calls ±1, [/] max calls ±10, p pause/resume, q stop run, Esc back after finish`,
 		s.currentProf.Name,
 		s.prepared.Scenario.Mode,
 		s.prepared.EngineConfig.Transport,
@@ -405,6 +435,7 @@ func (s *runtimeState) renderDashboard() string {
 		targetRate,
 		summary.CallsPerSecond,
 		s.intervalCPS,
+		maxConc,
 		summary.TotalCalls,
 		summary.ActiveCalls,
 		summary.SuccessCalls,

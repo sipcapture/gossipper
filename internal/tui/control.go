@@ -108,6 +108,34 @@ func RunControl(ctx context.Context, prepared launcher.Prepared) error {
 				dashboard.SetText(state.renderDashboard())
 				return nil
 			}
+		case 'l':
+			if eng := state.engine(); eng != nil && prepared.Scenario.Mode != scenario.ModeServer {
+				n := eng.SetMaxConcurrent(eng.MaxConcurrent() + 1)
+				state.setStatus(fmt.Sprintf("Max simultaneous calls set to %d", n))
+				dashboard.SetText(state.renderDashboard())
+				return nil
+			}
+		case 'L':
+			if eng := state.engine(); eng != nil && prepared.Scenario.Mode != scenario.ModeServer {
+				n := eng.SetMaxConcurrent(eng.MaxConcurrent() - 1)
+				state.setStatus(fmt.Sprintf("Max simultaneous calls set to %d", n))
+				dashboard.SetText(state.renderDashboard())
+				return nil
+			}
+		case '[':
+			if eng := state.engine(); eng != nil && prepared.Scenario.Mode != scenario.ModeServer {
+				n := eng.SetMaxConcurrent(eng.MaxConcurrent() - 10)
+				state.setStatus(fmt.Sprintf("Max simultaneous calls set to %d", n))
+				dashboard.SetText(state.renderDashboard())
+				return nil
+			}
+		case ']':
+			if eng := state.engine(); eng != nil && prepared.Scenario.Mode != scenario.ModeServer {
+				n := eng.SetMaxConcurrent(eng.MaxConcurrent() + 10)
+				state.setStatus(fmt.Sprintf("Max simultaneous calls set to %d", n))
+				dashboard.SetText(state.renderDashboard())
+				return nil
+			}
 		case 'p', 'P':
 			if eng := state.engine(); eng != nil && prepared.Scenario.Mode != scenario.ModeServer {
 				if eng.Paused() {
