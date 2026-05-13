@@ -33,7 +33,8 @@ func (e *Engine) runClientSharedTLS(ctx context.Context) error {
 	registry := newMailboxRegistry(e.log)
 	go registry.dispatchMessages(shared.Receive())
 
-	sem := make(chan struct{}, e.callConcurrencyLimit(false))
+	e.perSocketMode.Store(false)
+	e.sem.Resize(e.callConcurrencyLimit(false))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -44,13 +45,13 @@ func (e *Engine) runClientSharedTLS(ctx context.Context) error {
 			}
 			return err
 		}
-		if err := acquireCallSemaphore(ctx, sem); err != nil {
+		if err := e.sem.Acquire(ctx); err != nil {
 			return err
 		}
 		wg.Add(1)
 		go func(callNumber int) {
 			defer wg.Done()
-			defer func() { <-sem }()
+			defer e.sem.Release()
 			callID := newCallID(callNumber)
 			inbox := registry.register(callID)
 			defer registry.unregister(callID)
@@ -87,7 +88,8 @@ func (e *Engine) runClientPerCallTLS(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	sem := make(chan struct{}, e.callConcurrencyLimit(true))
+	e.perSocketMode.Store(true)
+	e.sem.Resize(e.callConcurrencyLimit(true))
 	var wg sync.WaitGroup
 	var once sync.Once
 	var runErr error
@@ -98,13 +100,13 @@ func (e *Engine) runClientPerCallTLS(ctx context.Context) error {
 			}
 			return err
 		}
-		if err := acquireCallSemaphore(ctx, sem); err != nil {
+		if err := e.sem.Acquire(ctx); err != nil {
 			return err
 		}
 		wg.Add(1)
 		go func(callNumber int) {
 			defer wg.Done()
-			defer func() { <-sem }()
+			defer e.sem.Release()
 			dialog, err := transport.NewDialogTLS(ctx, fmt.Sprintf("%s:%d", e.cfg.LocalIP, e.cfg.LocalPort), remoteAddr, tlsCfg)
 			if err != nil {
 				once.Do(func() { runErr = err })
