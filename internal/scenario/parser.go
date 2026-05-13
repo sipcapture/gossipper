@@ -19,6 +19,15 @@ func ErrUnknownScenario(name string) error {
 	return fmt.Errorf("unknown built-in scenario %q", name)
 }
 
+// rawDistributionAttrs holds XML attributes for pause distribution configuration.
+type rawDistributionAttrs struct {
+	Distribution string `xml:"distribution,attr"`
+	Mean         string `xml:"mean,attr"`
+	Stdev        string `xml:"stdev,attr"`
+	Min          string `xml:"min,attr"`
+	Max          string `xml:"max,attr"`
+}
+
 type rawScenario struct {
 	XMLName  xml.Name          `xml:"scenario"`
 	Name     string            `xml:"name,attr"`
@@ -50,11 +59,7 @@ type rawScenarioItem struct {
 	Variables       string       `xml:"variables,attr"`
 	Actions         []rawAction  `xml:"action"`
 	Elements        []rawElement `xml:",any"`
-	Distribution    string       `xml:"distribution,attr"`
-	Mean            string       `xml:"mean,attr"`
-	Stdev           string       `xml:"stdev,attr"`
-	Min             string       `xml:"min,attr"`
-	Max             string       `xml:"max,attr"`
+	rawDistributionAttrs
 }
 
 type rawElement struct {
@@ -80,11 +85,7 @@ type rawElement struct {
 	Dest            string      `xml:"dest,attr"`
 	Src             string      `xml:"src,attr"`
 	Actions         []rawAction `xml:"action"`
-	Distribution    string      `xml:"distribution,attr"`
-	Mean            string      `xml:"mean,attr"`
-	Stdev           string      `xml:"stdev,attr"`
-	Min             string      `xml:"min,attr"`
-	Max             string      `xml:"max,attr"`
+	rawDistributionAttrs
 }
 
 type rawAction struct {
@@ -218,33 +219,29 @@ func ParseString(data string) (Scenario, error) {
 
 func rawScenarioItemToCommand(elem rawScenarioItem, index int) (Command, error) {
 	return rawElementToCommand(rawElement{
-		XMLName:         elem.XMLName,
-		Text:            elem.Text,
-		Next:            elem.Next,
-		Test:            elem.Test,
-		Chance:          elem.Chance,
-		CondExec:        elem.CondExec,
-		CondExecInverse: elem.CondExecInverse,
-		Counter:         elem.Counter,
-		Display:         elem.Display,
-		StartRTD:        elem.StartRTD,
-		RTD:             elem.RTD,
-		Retrans:         elem.Retrans,
-		Request:         elem.Request,
-		Response:        elem.Response,
-		RRS:             elem.RRS,
-		Optional:        elem.Optional,
-		Timeout:         elem.Timeout,
-		Milliseconds:    elem.Milliseconds,
-		ID:              elem.ID,
-		Dest:            elem.Dest,
-		Src:             elem.Src,
-		Actions:         elem.Actions,
-		Distribution:    elem.Distribution,
-		Mean:            elem.Mean,
-		Stdev:           elem.Stdev,
-		Min:             elem.Min,
-		Max:             elem.Max,
+		XMLName:              elem.XMLName,
+		Text:                 elem.Text,
+		Next:                 elem.Next,
+		Test:                 elem.Test,
+		Chance:               elem.Chance,
+		CondExec:             elem.CondExec,
+		CondExecInverse:      elem.CondExecInverse,
+		Counter:              elem.Counter,
+		Display:              elem.Display,
+		StartRTD:             elem.StartRTD,
+		RTD:                  elem.RTD,
+		Retrans:              elem.Retrans,
+		Request:              elem.Request,
+		Response:             elem.Response,
+		RRS:                  elem.RRS,
+		Optional:             elem.Optional,
+		Timeout:              elem.Timeout,
+		Milliseconds:         elem.Milliseconds,
+		ID:                   elem.ID,
+		Dest:                 elem.Dest,
+		Src:                  elem.Src,
+		Actions:              elem.Actions,
+		rawDistributionAttrs: elem.rawDistributionAttrs,
 	}, index)
 }
 
