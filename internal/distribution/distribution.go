@@ -10,7 +10,7 @@ import (
 
 // Sampler defines an interface for sampling a duration.
 type Sampler interface {
-	Sample() time.Duration
+	Sample(rng *rand.Rand) time.Duration
 }
 
 // NewFromXML creates a new Sampler from XML attributes.
@@ -93,7 +93,7 @@ type Fixed struct {
 }
 
 // Sample returns the fixed duration.
-func (f *Fixed) Sample() time.Duration {
+func (f *Fixed) Sample(rng *rand.Rand) time.Duration {
 	return f.Value
 }
 
@@ -103,7 +103,7 @@ type Uniform struct {
 }
 
 // Sample returns a random duration between Min and Max.
-func (u *Uniform) Sample() time.Duration {
+func (u *Uniform) Sample(rng *rand.Rand) time.Duration {
 	if u.Min >= u.Max {
 		return u.Min
 	}
@@ -111,7 +111,7 @@ func (u *Uniform) Sample() time.Duration {
 	minNs := u.Min.Nanoseconds()
 	maxNs := u.Max.Nanoseconds()
 	delta := maxNs - minNs
-	return time.Duration(minNs + rand.Int63n(delta))
+	return time.Duration(minNs + rng.Int63n(delta))
 }
 
 // Normal distribution (Gaussian).
@@ -121,10 +121,10 @@ type Normal struct {
 
 // Sample returns a normally distributed random duration.
 // The result is capped at 0 to prevent negative durations.
-func (n *Normal) Sample() time.Duration {
+func (n *Normal) Sample(rng *rand.Rand) time.Duration {
 	// Use rand.NormFloat64 which gives a normal distribution with mean 0 and stdev 1.
 	// We then scale and shift it.
-	sample := rand.NormFloat64()*float64(n.Stdev) + float64(n.Mean)
+	sample := rng.NormFloat64()*float64(n.Stdev) + float64(n.Mean)
 	if sample < 0 {
 		return 0
 	}

@@ -1,6 +1,7 @@
 package distribution
 
 import (
+	"math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -192,8 +193,9 @@ func TestNewFromXML(t *testing.T) {
 func TestFixedSample(t *testing.T) {
 	t.Parallel()
 
+	rng := rand.New(rand.NewSource(42))
 	s := &Fixed{Value: 42 * time.Millisecond}
-	if got := s.Sample(); got != 42*time.Millisecond {
+	if got := s.Sample(rng); got != 42*time.Millisecond {
 		t.Fatalf("expected 42ms, got %v", got)
 	}
 }
@@ -203,17 +205,19 @@ func TestUniformSample(t *testing.T) {
 
 	t.Run("equal bounds", func(t *testing.T) {
 		t.Parallel()
+		rng := rand.New(rand.NewSource(42))
 		s := &Uniform{Min: 30 * time.Millisecond, Max: 30 * time.Millisecond}
-		if got := s.Sample(); got != 30*time.Millisecond {
+		if got := s.Sample(rng); got != 30*time.Millisecond {
 			t.Fatalf("expected 30ms, got %v", got)
 		}
 	})
 
 	t.Run("sample stays within range", func(t *testing.T) {
 		t.Parallel()
+		rng := rand.New(rand.NewSource(42))
 		s := &Uniform{Min: 10 * time.Millisecond, Max: 20 * time.Millisecond}
 		for i := 0; i < 100; i++ {
-			got := s.Sample()
+			got := s.Sample(rng)
 			if got < 10*time.Millisecond || got >= 20*time.Millisecond {
 				t.Fatalf("sample out of range: %v", got)
 			}
@@ -226,8 +230,9 @@ func TestNormalSample(t *testing.T) {
 
 	t.Run("returns mean when stdev is zero", func(t *testing.T) {
 		t.Parallel()
+		rng := rand.New(rand.NewSource(42))
 		s := &Normal{Mean: 12 * time.Millisecond, Stdev: 0}
-		if got := s.Sample(); got != 12*time.Millisecond {
+		if got := s.Sample(rng); got != 12*time.Millisecond {
 			t.Fatalf("expected 12ms, got %v", got)
 		}
 	})

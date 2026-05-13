@@ -1609,7 +1609,9 @@ func (e *Engine) executeCall(
 		case scenario.CommandPause, scenario.CommandTimeWait:
 			var pause time.Duration
 			if cmd.Pause != nil {
-				pause = cmd.Pause.Sample()
+				e.randomMu.Lock()
+				pause = cmd.Pause.Sample(e.random)
+				e.randomMu.Unlock()
 			}
 			if pause <= 0 {
 				pause = e.cfg.DefaultPause
