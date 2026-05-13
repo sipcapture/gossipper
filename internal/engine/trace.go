@@ -69,9 +69,22 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 		return nil, nil
 	}
 
+	// stemPath is the base used to derive all trace file names (e.g.
+	// "gossipper_<pid>"). Each trace type appends its own suffix so that files
+	// like _messages.log, _errors.log, _stats.log never share a prefix segment.
+	stemPath := filepath.Join(".", fmt.Sprintf("gossipper_%d", os.Getpid()))
+
+	// basePath is the explicit messages-file path when set by the caller;
+	// otherwise it is derived from the stem.  All other trace files are always
+	// derived from stemPath so they never inherit "_messages" in their name.
 	basePath := cfg.MessageFile
 	if basePath == "" {
-		basePath = filepath.Join(".", fmt.Sprintf("gossipper_%d_messages.log", os.Getpid()))
+		basePath = deriveNamedTracePath(stemPath, "_messages")
+	} else {
+		// When the caller provides an explicit path we still want consistent
+		// derivation: strip .log (or any extension) to get a stem.
+		ext := filepath.Ext(basePath)
+		stemPath = strings.TrimSuffix(basePath, ext)
 	}
 
 	logger := &traceLogger{}
@@ -84,7 +97,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 		logger.fullPath = basePath
 	}
 	if cfg.TraceShortMsg {
-		shortPath := deriveShortTracePath(basePath)
+		shortPath := deriveShortTracePath(stemPath)
 		file, err := os.Create(shortPath)
 		if err != nil {
 			if logger.full != nil {
@@ -105,7 +118,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 	if cfg.TraceErrors {
 		errPath := cfg.ErrorFile
 		if errPath == "" {
-			errPath = deriveNamedTracePath(basePath, "_errors")
+			errPath = deriveNamedTracePath(stemPath, "_errors")
 		}
 		file, err := os.Create(errPath)
 		if err != nil {
@@ -116,7 +129,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 		logger.errPath = errPath
 	}
 	if cfg.TraceErrorCodes {
-		errCodesPath := deriveErrorCodesPath(cfg, basePath)
+		errCodesPath := deriveErrorCodesPath(cfg, stemPath)
 		file, err := os.Create(errCodesPath)
 		if err != nil {
 			_ = logger.Close()
@@ -132,7 +145,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 	if cfg.TraceLogs {
 		logPath := cfg.LogFile
 		if logPath == "" {
-			logPath = deriveNamedTracePath(basePath, "_logs")
+			logPath = deriveNamedTracePath(stemPath, "_logs")
 		}
 		file, err := os.Create(logPath)
 		if err != nil {
@@ -143,7 +156,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 		logger.logPath = logPath
 	}
 	if cfg.TraceStats {
-		statsPath := deriveStatsTracePath(basePath)
+		statsPath := deriveStatsTracePath(stemPath)
 		file, err := os.Create(statsPath)
 		if err != nil {
 			_ = logger.Close()
@@ -157,7 +170,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 		}
 	}
 	if cfg.TraceRTT {
-		rttPath := deriveRTTTracePath(basePath)
+		rttPath := deriveRTTTracePath(stemPath)
 		file, err := os.Create(rttPath)
 		if err != nil {
 			_ = logger.Close()
@@ -177,7 +190,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 	if cfg.TraceScreen {
 		screenPath := cfg.ScreenFile
 		if screenPath == "" {
-			screenPath = deriveScreenTracePath(basePath)
+			screenPath = deriveScreenTracePath(stemPath)
 		}
 		file, err := os.Create(screenPath)
 		if err != nil {
@@ -193,7 +206,7 @@ func newTraceLogger(cfg Config) (*traceLogger, error) {
 	}
 	if cfg.TraceCounts {
 		specs := buildTraceCountSpecs(cfg.Scenario)
-		countsPath := deriveCountsTracePath(basePath)
+		countsPath := deriveCountsTracePath(stemPath)
 		file, err := os.Create(countsPath)
 		if err != nil {
 			_ = logger.Close()
