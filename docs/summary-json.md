@@ -18,6 +18,8 @@ When RTCP Receiver Reports are received during RTP sessions, the summary may inc
 - `media.rtcp_min_jitter_ts` — minimum non-zero jitter among sampled RR blocks (timestamp units).
 - `media.media_calls_with_rtp_received` — how many finished calls saw at least one inbound RTP packet.
 - `media.per_call_min_rtp_packets_received` — minimum of per-call `rtp_packets_received` among calls that had inbound RTP (weakest call).
+- `media.rtp_recv_max_cumulative_lost` — maximum per-call peak of the local inbound RTP cumulative loss estimate (RFC 3550-style, see gossipper media session).
+- `media.rtp_recv_interarrival_jitter_peak_ts` — maximum per-call peak of the interarrival jitter estimator on inbound RTP (timestamp units).
 
 ## Health checks (CI)
 

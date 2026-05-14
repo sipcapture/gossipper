@@ -123,6 +123,8 @@ type Config struct {
 	CallRecordsJSONL string
 	// MediaRejectSRTP fails rtp_stream start/mic when remote SDP looks like SRTP (SAVP / crypto / DTLS).
 	MediaRejectSRTP bool
+	// MediaSRTP enables SDES SRTP (a=crypto inline) for rtp_stream start/mic when the peer offers SRTP.
+	MediaSRTP bool
 
 	// SipFrom is the SIP From header value before ";tag=" (name-addr or URI). Empty uses gossip@local.
 	SipFrom string

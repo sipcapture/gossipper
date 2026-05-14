@@ -37,6 +37,19 @@ func (s *Session) attachMicSession(childCtx context.Context, cancel context.Canc
 	s.localIP = localIP
 	s.localPort = localAddr.Port
 	s.rtcpConn = rtcpConn
+	if err := s.buildSRTPContextsLocked(); err != nil {
+		s.conn = nil
+		s.rtcpConn = nil
+		s.cancel = nil
+		s.running = false
+		s.mu.Unlock()
+		cancel()
+		_ = conn.Close()
+		if rtcpConn != nil {
+			_ = rtcpConn.Close()
+		}
+		return fmt.Errorf("media SRTP: %w", err)
+	}
 	obs := s.hepObserver
 	callID := s.callID
 	s.mu.Unlock()
@@ -111,7 +124,12 @@ func (s *Session) startMicrophonePCMReader(ctx context.Context, endpoint Endpoin
 	go func() {
 		_ = cmd.Wait()
 	}()
-	return s.attachMicSession(childCtx, cancel, conn, remoteAddr, localIP, stdout)
+	if err := s.attachMicSession(childCtx, cancel, conn, remoteAddr, localIP, stdout); err != nil {
+		cancel()
+		_ = conn.Close()
+		return err
+	}
+	return nil
 }
 
 func (s *Session) micStreamLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, r io.Reader, cfg StreamConfig, obs HEPObserver, callID string) {
@@ -164,7 +182,17 @@ func (s *Session) micStreamLoop(ctx context.Context, conn *net.UDPConn, remote *
 		if err != nil {
 			return
 		}
-		if _, err := conn.WriteToUDP(frame, remote); err != nil {
+		wire := frame
+		s.mu.Lock()
+		enc := s.srtpSend
+		s.mu.Unlock()
+		if enc != nil {
+			wire, err = enc.EncryptRTP(nil, frame, nil)
+			if err != nil {
+				return
+			}
+		}
+		if _, err := conn.WriteToUDP(wire, remote); err != nil {
 			return
 		}
 		if obs != nil {

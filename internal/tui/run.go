@@ -8,16 +8,16 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unsafe"
 	"time"
+	"unsafe"
 
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/engine"
 	"github.com/sipcapture/gossipper/internal/launcher"
 	"github.com/sipcapture/gossipper/internal/scenario"
 	"github.com/sipcapture/gossipper/internal/stats"
-	"github.com/gdamore/tcell/v2"
-	"github.com/rivo/tview"
 )
 
 type runtimeState struct {
@@ -70,7 +70,7 @@ func Run() error {
 	sendMediaReportField := tview.NewCheckbox().SetLabel("send_media_report ")
 	hepRawRTCPField := tview.NewCheckbox().SetLabel("hep_raw_rtcp ").SetChecked(true)
 	infField := tview.NewInputField().SetLabel("Inf CSV (-inf): ").SetText("")
-	ipFieldField := tview.NewInputField().SetLabel("IP field (-ip_field): ").SetText("")
+	ipFieldField := tview.NewInputField().SetLabel("IP field (-ip_field, optional for ui): ").SetText("")
 	traceStatField := tview.NewCheckbox().SetLabel("trace_stat ")
 	traceRTTField := tview.NewCheckbox().SetLabel("trace_rtt ")
 	traceMsgField := tview.NewCheckbox().SetLabel("trace_msg ")
@@ -599,13 +599,13 @@ func buildArgs(
 		if infPath == "" {
 			return nil, fmt.Errorf("ui transport requires inf CSV path")
 		}
-		if ipField == "" {
-			return nil, fmt.Errorf("ui transport requires ip_field")
+		args = append(args, "-inf", infPath)
+		if ipField != "" {
+			if _, err := strconv.Atoi(ipField); err != nil {
+				return nil, fmt.Errorf("ui ip_field must be an integer")
+			}
+			args = append(args, "-ip_field", ipField)
 		}
-		if _, err := strconv.Atoi(ipField); err != nil {
-			return nil, fmt.Errorf("ui ip_field must be an integer")
-		}
-		args = append(args, "-inf", infPath, "-ip_field", ipField)
 	} else if infPath != "" {
 		args = append(args, "-inf", infPath)
 		// TLS transports optionally support -ip_field for per-row bind IPs.

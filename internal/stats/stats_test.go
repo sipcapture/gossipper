@@ -107,6 +107,26 @@ func TestCollectorAggregatesRTCPReceptionQoS(t *testing.T) {
 	}
 }
 
+func TestCollectorAggregatesRTPRecvPathQoS(t *testing.T) {
+	t.Parallel()
+	collector := New()
+	collector.AddMediaStats(media.Stats{
+		RTPRecvMaxCumulativeLost:      5,
+		RTPRecvInterarrivalJitterPeak: 42,
+	})
+	collector.AddMediaStats(media.Stats{
+		RTPRecvMaxCumulativeLost:      2,
+		RTPRecvInterarrivalJitterPeak: 100,
+	})
+	summary := collector.Snapshot()
+	if summary.Media.RTPRecvMaxCumulativeLost != 5 {
+		t.Fatalf("max cumulative lost: %d", summary.Media.RTPRecvMaxCumulativeLost)
+	}
+	if summary.Media.RTPRecvInterarrivalJitterPeakTS != 100 {
+		t.Fatalf("peak interarrival jitter: %d", summary.Media.RTPRecvInterarrivalJitterPeakTS)
+	}
+}
+
 func TestCollectorAggregatesRTDStats(t *testing.T) {
 	t.Parallel()
 

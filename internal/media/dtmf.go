@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pion/rtp"
+	"github.com/pion/srtp/v3"
 )
 
 // digitToEvent maps DTMF character to RFC 2833 event code.
@@ -93,6 +94,12 @@ func (s *Session) SendDTMF(ctx context.Context, endpoint Endpoint, digits string
 		return nil
 	}
 
+	s.mu.Lock()
+	mat := s.snapshotSRTPMaterial()
+	obs := s.hepObserver
+	callID := s.callID
+	s.mu.Unlock()
+
 	s.Stop()
 
 	remoteAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", endpoint.IP, endpoint.Port))
@@ -117,10 +124,14 @@ func (s *Session) SendDTMF(ctx context.Context, endpoint Endpoint, digits string
 	connLocalIP := connLocalAddr.IP.String()
 	connLocalPort := connLocalAddr.Port
 
-	s.mu.Lock()
-	obs := s.hepObserver
-	callID := s.callID
-	s.mu.Unlock()
+	var enc *srtp.Context
+	if mat != nil {
+		var cerr error
+		enc, cerr = srtp.CreateContext(mat.masterKey, mat.masterSalt, mat.profile)
+		if cerr != nil {
+			return fmt.Errorf("send_dtmf: SRTP: %w", cerr)
+		}
+	}
 
 	ssrc := rand.Uint32()
 	sequence := uint16(rand.Intn(65535))
@@ -138,7 +149,15 @@ func (s *Session) SendDTMF(ctx context.Context, endpoint Endpoint, digits string
 			return err
 		}
 		for _, raw := range packets {
-			if _, err := conn.WriteToUDP(raw, remoteAddr); err != nil {
+			wire := raw
+			if enc != nil {
+				var encErr error
+				wire, encErr = enc.EncryptRTP(nil, raw, nil)
+				if encErr != nil {
+					return encErr
+				}
+			}
+			if _, err := conn.WriteToUDP(wire, remoteAddr); err != nil {
 				return err
 			}
 			if obs != nil {

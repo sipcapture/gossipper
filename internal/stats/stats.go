@@ -53,6 +53,10 @@ type MediaSummary struct {
 	RTCPMinJitterTS uint32 `json:"rtcp_min_jitter_ts,omitempty"`
 	// RTCPAvgJitterTS is the mean jitter across all sampled reception report blocks (timestamp units).
 	RTCPAvgJitterTS float64 `json:"rtcp_avg_jitter_ts,omitempty"`
+	// RTPRecvMaxCumulativeLost is the maximum per-call peak of the local inbound RTP cumulative loss estimate (RFC 3550-style).
+	RTPRecvMaxCumulativeLost uint32 `json:"rtp_recv_max_cumulative_lost,omitempty"`
+	// RTPRecvInterarrivalJitterPeakTS is the maximum per-call peak interarrival jitter (timestamp units) on inbound RTP.
+	RTPRecvInterarrivalJitterPeakTS uint32 `json:"rtp_recv_interarrival_jitter_peak_ts,omitempty"`
 	// CallsWithRTPReceived counts finished calls that saw at least one inbound RTP packet.
 	CallsWithRTPReceived int `json:"media_calls_with_rtp_received,omitempty"`
 	// PerCallMinRTPPacketsReceived is the minimum rtp_packets_received among calls with inbound RTP.
@@ -178,6 +182,12 @@ func (c *Collector) AddMediaStats(value media.Stats) {
 		if c.media.RTCPMinJitterTS == 0 || value.RTCPMinJitter < c.media.RTCPMinJitterTS {
 			c.media.RTCPMinJitterTS = value.RTCPMinJitter
 		}
+	}
+	if value.RTPRecvMaxCumulativeLost > c.media.RTPRecvMaxCumulativeLost {
+		c.media.RTPRecvMaxCumulativeLost = value.RTPRecvMaxCumulativeLost
+	}
+	if value.RTPRecvInterarrivalJitterPeak > c.media.RTPRecvInterarrivalJitterPeakTS {
+		c.media.RTPRecvInterarrivalJitterPeakTS = value.RTPRecvInterarrivalJitterPeak
 	}
 	c.media.rtcpJitterSum += value.RTCPJitterSum
 	c.media.rtcpJitterSamples += value.RTCPJitterSamples

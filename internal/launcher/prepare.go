@@ -122,6 +122,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		RecordWAVDuplex:  cfg.RecordWAVDuplex,
 		CallRecordsJSONL: cfg.CallRecordsJSONL,
 		MediaRejectSRTP:  cfg.MediaRejectSRTP,
+		MediaSRTP:        cfg.MediaSRTP,
 	}
 
 	return Prepared{
@@ -161,8 +162,11 @@ func NormalizeTransport(cfg *cli.Config, sc scenario.Scenario) error {
 		}
 		cfg.Transport = "ln"
 	case "ui":
-		if len(cfg.UISourceIPs) == 0 || cfg.InjectionFile == "" || cfg.IPField < 0 {
-			return fmt.Errorf("transport ui requires inf and ip_field with at least one source IP")
+		if cfg.InjectionFile == "" {
+			return fmt.Errorf("transport ui requires -inf")
+		}
+		if len(cfg.UISourceIPs) == 0 {
+			return fmt.Errorf("transport ui requires at least one bind/source IP (set -ip_field or -i when omitting -ip_field)")
 		}
 	}
 	return nil

@@ -407,10 +407,10 @@ at `/usr/bin/gossipper`.
 - `-reconnect_close` in shared client `t1`/`l1` (or `cl` / `sl`) closes active calls on socket loss by skipping reconnect attempts.
 - `-infindex <file> <field>` generates an index file next to the CSV (`.gossipper.idx.<field>.json`) so lookup-by-key can avoid full-file scans.
 - `-t ui` currently provides an M3 client+server MVP: one shared UDP socket per configured IP (client: per-call source IP rotation, server: one listener per configured IP).
-- `-inf <file>` + `-ip_field <idx>` are required with `-t ui` and select UI bind IPs from the CSV field (zero-based index).
+- `-inf <file>` is required with `-t ui`. Optional `-ip_field <idx>` selects bind/source IPs from that CSV column (zero-based); if omitted, bind uses **`-i`** for all UI sockets (same idea as `u1`/`un` with `-inf` for `[fieldN]` only).
 - In `-t ui` client mode, `-inf` row order is preserved and duplicate IP rows intentionally affect round-robin weighting; in server mode listeners are created per unique IP.
 - XML action `setdest` is supported in the pragmatic M3 scope for UDP shared-socket flows (`u1`, `ui`, and server-side UDP aliases) and enforces protocol compatibility checks.
-- TUI launch form supports `-t ui` with explicit `inf` / `ip_field` inputs and validates them before run start.
+- TUI launch form supports `-t ui` with `inf` and optional `ip_field` (empty uses Local IP).
 - `start_rtd` and `rtd` now record named per-step timings into the summary model; they are especially useful for XML flows like `send INVITE` -> `recv 200`.
 - `counter` and `display` are currently exposed as successful-command execution counters in the summary model, which is a practical first step toward richer SIPp-style reporting.
 - In external 3PCC-style flows, the first incoming `recvCmd` can automatically adopt its `Call-ID` into `[call_id]` for later commands.

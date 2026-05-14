@@ -186,7 +186,7 @@ func TestPrepareRejectsUITransportWithoutResolvedSourceIPs(t *testing.T) {
 	cfg.UISourceIPs = nil
 
 	_, err := Prepare(cfg)
-	if err == nil || !strings.Contains(err.Error(), "transport ui requires inf and ip_field") {
+	if err == nil || !strings.Contains(err.Error(), "transport ui requires at least one bind/source IP") {
 		t.Fatalf("expected ui source ip validation error, got %v", err)
 	}
 }

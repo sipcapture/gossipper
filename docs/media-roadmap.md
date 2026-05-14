@@ -39,7 +39,7 @@
 
 ## Known limits
 
-- No SRTP **media path** (no SDES/DTLS-SRTP encrypt/decrypt or SRTP RTP stack yet). SDP is still parsed for cleartext `RTP/AVP` endpoints; **`-media_reject_srtp`** optionally fails `rtp_stream` / `mic` when the peer offers SRTP in SDP—see `docs/srtp.md`.
+- No **DTLS-SRTP** path yet (`a=fingerprint` without SDES `a=crypto` in `m=audio` is rejected when `-media_srtp` is used). SDES SRTP (`-media_srtp`, AES_CM HMAC suites) encrypts/decrypts RTP via `pion/srtp`; RTCP remains cleartext on the paired UDP port.
 - No full SIPp `rtpcheck` parity (only pragmatic RTP activity checks)
 - No dedicated video media pipeline
 - No advanced RTCP analytics in the summary yet

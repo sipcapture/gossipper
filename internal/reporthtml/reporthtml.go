@@ -148,6 +148,8 @@ ul.findings li { margin:.35rem 0; }
     <tr><th>Avg jitter (ts)</th><td>{{if .Media.RTCPAvgJitterTS}}{{printf "%.2f" .Media.RTCPAvgJitterTS}}{{else}}—{{end}}</td></tr>
     <tr><th>Calls w/ RTP recv</th><td>{{.Media.CallsWithRTPReceived}}</td></tr>
     <tr><th>Per-call min RTP recv</th><td>{{if .Media.PerCallMinRTPPacketsReceived}}{{.Media.PerCallMinRTPPacketsReceived}}{{else}}—{{end}}</td></tr>
+    <tr><th>RTP recv max cumul. lost (est.)</th><td>{{if .Media.RTPRecvMaxCumulativeLost}}{{.Media.RTPRecvMaxCumulativeLost}}{{else}}—{{end}}</td></tr>
+    <tr><th>RTP recv jitter peak (ts)</th><td>{{if .Media.RTPRecvInterarrivalJitterPeakTS}}{{.Media.RTPRecvInterarrivalJitterPeakTS}}{{else}}—{{end}}</td></tr>
   </table>
   <p class="muted">Jitter values are in RTP timestamp units (RFC 3550), not milliseconds.</p>
 </section>

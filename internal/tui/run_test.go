@@ -68,6 +68,50 @@ func TestBuildArgsIncludesUIInfSettings(t *testing.T) {
 	}
 }
 
+func TestBuildArgsUIInfWithoutIPFieldOmitsIPFieldFlag(t *testing.T) {
+	t.Parallel()
+
+	args, err := buildArgs(
+		profile{Name: "builtin-uac", ScenarioName: "uac"},
+		"client",
+		"ui",
+		"127.0.0.1:5060",
+		"10.0.0.5",
+		"0",
+		"service",
+		"1",
+		"1",
+		"1",
+		"1",
+		"1",
+		"",
+		"",
+		"",
+		"",
+		false,
+		true,
+		"/tmp/ui.csv",
+		"",
+		false,
+		false,
+		false,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("buildArgs() error = %v", err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-t ui") || !strings.Contains(joined, "-inf /tmp/ui.csv") {
+		t.Fatalf("unexpected args: %v", args)
+	}
+	if strings.Contains(joined, "-ip_field") {
+		t.Fatalf("expected no -ip_field when empty, got: %v", args)
+	}
+	if !strings.Contains(joined, "-i 10.0.0.5") {
+		t.Fatalf("expected local bind -i, got: %v", args)
+	}
+}
+
 func TestBuildArgsRejectsUIWithoutInf(t *testing.T) {
 	t.Parallel()
 

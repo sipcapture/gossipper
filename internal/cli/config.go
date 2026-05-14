@@ -146,6 +146,8 @@ type Config struct {
 	HealthMinRTPPacketsRecvPerCall int
 	// MediaRejectSRTP fails rtp_stream start/mic when remote SDP suggests SRTP.
 	MediaRejectSRTP bool
+	// MediaSRTP enables SDES SRTP (a=crypto inline) for rtp_stream start/mic when the peer offers SRTP.
+	MediaSRTP bool
 }
 
 func DefaultConfig() Config {
@@ -231,8 +233,8 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.Transport, "t", cfg.Transport, "transport: u1/un/ui, t1/tn, l1/ln; client TLS aliases cl/cln; server UDP s1/sn; server TLS sl")
 	fs.StringVar(&cfg.LocalIP, "i", cfg.LocalIP, "local IP address")
 	fs.IntVar(&cfg.LocalPort, "p", cfg.LocalPort, "local port")
-	fs.StringVar(&cfg.InjectionFile, "inf", cfg.InjectionFile, "CSV path: with ui, bind/source IP column requires -ip_field; with TLS (cl/cln/l1/ln) optional -ip_field for per-row bind IPs; with TCP/UDP client (t1/tn/u1/un) optional -inf without -ip_field for [fieldN] only (bind uses -i)")
-	fs.IntVar(&cfg.IPField, "ip_field", cfg.IPField, "zero-based CSV column for bind/source IP (required with -inf for ui; optional for TLS cl/cln/l1/ln; not supported with TCP/UDP t1/tn/u1/un)")
+	fs.StringVar(&cfg.InjectionFile, "inf", cfg.InjectionFile, "CSV path: with ui, optional -ip_field selects bind/source IP column; if omitted with ui, bind uses -i like u1/un; with TLS (cl/cln/l1/ln) optional -ip_field for per-row bind IPs; with TCP/UDP client (t1/tn/u1/un) optional -inf without -ip_field for [fieldN] only (bind uses -i)")
+	fs.IntVar(&cfg.IPField, "ip_field", cfg.IPField, "zero-based CSV column for bind/source IP (optional with -inf for ui — defaults to -i; optional for TLS cl/cln/l1/ln; not supported with TCP/UDP t1/tn/u1/un)")
 	fs.IntVar(&cfg.IPField, "ipfield", cfg.IPField, "alias for -ip_field (SIPp-compatible)")
 	fs.StringVar(&cfg.AuthUsername, "au", cfg.AuthUsername, "authorization username for authentication challenges")
 	fs.StringVar(&cfg.AuthPassword, "ap", cfg.AuthPassword, "authorization password for authentication challenges")
@@ -270,6 +272,7 @@ func Parse(args []string) (Config, error) {
 	fs.BoolVar(&cfg.RecordWAVDuplex, "record_wav_duplex", false, "with -record_wav_dir, write stereo WAV (L=sent R=received)")
 	fs.StringVar(&cfg.CallRecordsJSONL, "call_records_jsonl", "", "append one JSON call record per finished call to this path")
 	fs.BoolVar(&cfg.MediaRejectSRTP, "media_reject_srtp", false, "fail rtp_stream start/mic when remote SDP suggests SRTP (RTP/SAVP, a=crypto, a=fingerprint)")
+	fs.BoolVar(&cfg.MediaSRTP, "media_srtp", false, "when remote SDP offers SRTP, use SDES (a=crypto inline) to encrypt RTP and decrypt inbound RTP (AES_CM_128_HMAC_SHA1_80/32); requires peer SDES, not DTLS-only")
 	fs.BoolVar(&cfg.TraceMessages, "trace_msg", cfg.TraceMessages, "trace sent and received SIP messages")
 	fs.BoolVar(&cfg.TraceShortMsg, "trace_shortmsg", false, "trace sent and received messages as compact CSV")
 	fs.BoolVar(&cfg.TraceCounts, "trace_counts", false, "write periodic SIP message counters as CSV")
@@ -454,8 +457,8 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.InjectionFile != "" && cfg.IPField < 0 {
 		switch cfg.Transport {
-		case "cl", "cln", "l1", "ln", "t1", "tn", "u1", "un":
-			// SIPp-style: -inf without -ip_field does not load bind IPs; use -i and [local_ip] from socket.
+		case "cl", "cln", "l1", "ln", "t1", "tn", "u1", "un", "ui":
+			// SIPp-style: -inf without -ip_field does not load bind IPs from CSV; bind uses -i (for ui, see transport ui branch).
 		default:
 			return Config{}, errors.New("ip_field must be specified when inf is set")
 		}
@@ -464,14 +467,22 @@ func Parse(args []string) (Config, error) {
 		return Config{}, errors.New("inf must be specified when ip_field is set")
 	}
 	if cfg.Transport == "ui" {
-		if cfg.InjectionFile == "" || cfg.IPField < 0 {
-			return Config{}, errors.New("transport ui requires both inf and ip_field")
+		if cfg.InjectionFile == "" {
+			return Config{}, errors.New("transport ui requires -inf")
 		}
-		sourceIPs, err := loadSourceIPsFromInjection(cfg.InjectionFile, cfg.IPField)
-		if err != nil {
-			return Config{}, err
+		if cfg.IPField >= 0 {
+			sourceIPs, err := loadSourceIPsFromInjection(cfg.InjectionFile, cfg.IPField)
+			if err != nil {
+				return Config{}, err
+			}
+			cfg.UISourceIPs = sourceIPs
+		} else {
+			local := strings.TrimSpace(cfg.LocalIP)
+			if local == "" {
+				return Config{}, errors.New("transport ui without -ip_field requires -i <local bind address>")
+			}
+			cfg.UISourceIPs = []string{local}
 		}
-		cfg.UISourceIPs = sourceIPs
 	} else if cfg.InjectionFile != "" || cfg.IPField >= 0 {
 		switch cfg.Transport {
 		case "cl", "cln", "l1", "ln":

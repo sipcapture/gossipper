@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -58,7 +59,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			mediaSession.Resume()
 		case "stop":
 			mediaSession.Stop()
+			mediaSession.ClearSDESSRTP()
 		case "echo":
+			mediaSession.ClearSDESSRTP()
 			if e.cfg.TraceMessages {
 				fmt.Fprintf(os.Stdout, "rtp_stream echo listen on %s:%d\n", renderCtx.LocalIP, renderCtx.MediaPort)
 			}
@@ -67,12 +70,12 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			}
 		case "mic":
 			last := mustParseLastMessage(renderCtx)
+			if err := configureMediaSRTPForRTPStream(e, mediaSession, last.Body, "mic"); err != nil {
+				return err
+			}
 			endpoint, err := media.ParseAudioEndpoint(last, renderCtx.RemoteIP)
 			if err != nil {
 				return err
-			}
-			if e.cfg.MediaRejectSRTP && media.SDPHintsSRTP(last.Body) {
-				return fmt.Errorf("rtp_stream mic: remote SDP suggests SRTP (drop -media_reject_srtp to allow)")
 			}
 			if e.cfg.TraceMessages {
 				fmt.Fprintf(os.Stdout, "rtp_stream mic -> %s:%d\n", endpoint.IP, endpoint.Port)
@@ -82,12 +85,12 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			}
 		case "start":
 			last := mustParseLastMessage(renderCtx)
+			if err := configureMediaSRTPForRTPStream(e, mediaSession, last.Body, "start"); err != nil {
+				return err
+			}
 			endpoint, err := media.ParseAudioEndpoint(last, renderCtx.RemoteIP)
 			if err != nil {
 				return err
-			}
-			if e.cfg.MediaRejectSRTP && media.SDPHintsSRTP(last.Body) {
-				return fmt.Errorf("rtp_stream start: remote SDP suggests SRTP (drop -media_reject_srtp to allow)")
 			}
 			if e.cfg.TraceMessages {
 				fmt.Fprintf(os.Stdout, "rtp_stream start %s -> %s:%d\n", cfg.Path, endpoint.IP, endpoint.Port)
@@ -137,6 +140,7 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		if err != nil {
 			return err
 		}
+		mediaSession.ClearSDESSRTP()
 		if e.cfg.TraceMessages {
 			fmt.Fprintf(os.Stdout, "play_pcap_audio start %s -> %s:%d\n", path, endpoint.IP, endpoint.Port)
 		}
@@ -170,6 +174,7 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		if err != nil {
 			return err
 		}
+		mediaSession.ClearSDESSRTP()
 		if e.cfg.TraceMessages {
 			fmt.Fprintf(os.Stdout, "play_pcap_video start %s -> %s:%d\n", path, endpoint.IP, endpoint.Port)
 		}
@@ -189,6 +194,7 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		if err != nil {
 			return err
 		}
+		mediaSession.ClearSDESSRTP()
 		if e.cfg.TraceMessages {
 			fmt.Fprintf(os.Stdout, "play_pcap_image start %s -> %s:%d\n", path, endpoint.IP, endpoint.Port)
 		}
@@ -296,6 +302,28 @@ func parseRTPCheckSpec(raw string, renderCtx templ.Context) (rtpcheckSpec, error
 		}
 	}
 	return spec, nil
+}
+
+func configureMediaSRTPForRTPStream(e *Engine, mediaSession *media.Session, sdpBody, verb string) error {
+	hints := media.SDPHintsSRTP(sdpBody)
+	if !hints {
+		mediaSession.ClearSDESSRTP()
+		return nil
+	}
+	mediaSession.ClearSDESSRTP()
+	if e.cfg.MediaRejectSRTP {
+		return fmt.Errorf("rtp_stream %s: remote SDP suggests SRTP (drop -media_reject_srtp to allow)", verb)
+	}
+	if !e.cfg.MediaSRTP {
+		return fmt.Errorf("rtp_stream %s: remote SDP suggests SRTP; use -media_srtp for SDES (a=crypto inline) or -media_reject_srtp to abort", verb)
+	}
+	if err := mediaSession.SetSDESSRTPFromSDP(sdpBody); err != nil {
+		if errors.Is(err, media.ErrNoAudioSDESCrypto) && media.AudioSectionHasFingerprint(sdpBody) {
+			return fmt.Errorf("rtp_stream %s: DTLS-SRTP (a=fingerprint without SDES a=crypto) is not supported yet", verb)
+		}
+		return fmt.Errorf("rtp_stream %s: SRTP: %w", verb, err)
+	}
+	return nil
 }
 
 func mustParseLastMessage(ctx templ.Context) sip.Message {

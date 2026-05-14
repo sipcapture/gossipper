@@ -939,6 +939,31 @@ func TestParseRejectsInvalidMaxReconnect(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsUITransportInfWithoutIPFieldUsesLocalBind(t *testing.T) {
+	t.Parallel()
+
+	injectionPath := filepath.Join(t.TempDir(), "data.csv")
+	if err := os.WriteFile(injectionPath, []byte("alice,bob\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(injection) error = %v", err)
+	}
+	cfg, err := Parse([]string{
+		"-sn", "uac",
+		"-rsa", "127.0.0.1:5060",
+		"-t", "ui",
+		"-i", "192.168.1.50",
+		"-inf", injectionPath,
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.IPField != -1 {
+		t.Fatalf("expected default ip_field -1, got %d", cfg.IPField)
+	}
+	if len(cfg.UISourceIPs) != 1 || cfg.UISourceIPs[0] != "192.168.1.50" {
+		t.Fatalf("expected UISourceIPs from -i, got %+v", cfg.UISourceIPs)
+	}
+}
+
 func TestParseRejectsUITransportWithoutInjection(t *testing.T) {
 	t.Parallel()
 
@@ -947,7 +972,7 @@ func TestParseRejectsUITransportWithoutInjection(t *testing.T) {
 		"-rsa", "127.0.0.1:5060",
 		"-t", "ui",
 	}); err == nil {
-		t.Fatal("expected Parse() to reject ui transport without inf/ip_field")
+		t.Fatal("expected Parse() to reject ui transport without -inf")
 	}
 }
 

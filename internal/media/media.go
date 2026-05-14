@@ -15,6 +15,7 @@ import (
 
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
+	"github.com/pion/srtp/v3"
 )
 
 type Endpoint struct {
@@ -94,6 +95,11 @@ type Session struct {
 	rrArrivalPrev time.Time
 	rrLastSRNTP   uint32    // compact NTP from the last received SR (for DLSR)
 	rrLastSRAt    time.Time // wall time when the last SR was received
+
+	// SRTP (SDES): optional negotiated key material and active pion contexts.
+	srtpMaterial *srtpMaterial
+	srtpSend     *srtp.Context
+	srtpRecv     *srtp.Context
 }
 
 // HEPObserver is implemented by the HEP client to mirror RTP/RTCP traffic to Homer.
@@ -117,6 +123,10 @@ type Stats struct {
 	RTCPMinJitter     uint32
 	RTCPJitterSum     float64
 	RTCPJitterSamples uint64
+	// RTPRecvMaxCumulativeLost is the peak RFC 3550-style cumulative loss estimate for inbound RTP (local recv path).
+	RTPRecvMaxCumulativeLost uint32
+	// RTPRecvInterarrivalJitterPeak is the peak interarrival jitter estimator (timestamp units) on inbound RTP.
+	RTPRecvInterarrivalJitterPeak uint32
 }
 
 type RTPCheckDirection string
@@ -379,6 +389,19 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 	}
 	rtcpConn, _ := net.ListenUDP("udp", rtcpLocalAddr)
 	s.rtcpConn = rtcpConn
+	if err := s.buildSRTPContextsLocked(); err != nil {
+		s.conn = nil
+		s.rtcpConn = nil
+		s.cancel = nil
+		s.running = false
+		s.mu.Unlock()
+		cancel()
+		_ = conn.Close()
+		if rtcpConn != nil {
+			_ = rtcpConn.Close()
+		}
+		return fmt.Errorf("media SRTP: %w", err)
+	}
 	obs := s.hepObserver
 	callID := s.callID
 	s.mu.Unlock()
@@ -458,6 +481,8 @@ func (s *Session) Stop() {
 	s.cancel = nil
 	s.conn = nil
 	s.rtcpConn = nil
+	s.srtpSend = nil
+	s.srtpRecv = nil
 	s.paused = false
 	s.running = false
 	s.echoMode = false
@@ -530,7 +555,17 @@ func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net
 			if err != nil {
 				return
 			}
-			if _, err := conn.WriteToUDP(frame, remote); err != nil {
+			wire := frame
+			s.mu.Lock()
+			enc := s.srtpSend
+			s.mu.Unlock()
+			if enc != nil {
+				wire, err = enc.EncryptRTP(nil, frame, nil)
+				if err != nil {
+					return
+				}
+			}
+			if _, err := conn.WriteToUDP(wire, remote); err != nil {
 				return
 			}
 			if obs != nil {
@@ -984,6 +1019,10 @@ func (s *Session) observeRTPPacket(pkt *rtp.Packet, now time.Time) {
 	}
 	s.rrLost = lost
 
+	if uint32(lost) > s.stats.RTPRecvMaxCumulativeLost {
+		s.stats.RTPRecvMaxCumulativeLost = uint32(lost)
+	}
+
 	// Interarrival jitter (RFC 3550 §A.8).
 	// Auto-detect clock rate from the first pair of packets with different timestamps.
 	if s.rrClockRate == 0 && !s.rrArrivalPrev.IsZero() {
@@ -1001,6 +1040,10 @@ func (s *Session) observeRTPPacket(pkt *rtp.Packet, now time.Time) {
 			d = -d
 		}
 		s.rrJitter += (d - s.rrJitter) / 16.0
+	}
+	j := uint32(s.rrJitter)
+	if j > s.stats.RTPRecvInterarrivalJitterPeak {
+		s.stats.RTPRecvInterarrivalJitterPeak = j
 	}
 	s.rrTSPrev = pkt.Timestamp
 	s.rrArrivalPrev = now
@@ -1056,8 +1099,20 @@ func (s *Session) rtpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
 			}
 			return
 		}
+		buf := buffer[:n]
+		s.mu.Lock()
+		dec := s.srtpRecv
+		s.mu.Unlock()
+		if dec != nil {
+			var h rtp.Header
+			plain, derr := dec.DecryptRTP(nil, buf, &h)
+			if derr != nil {
+				continue
+			}
+			buf = plain
+		}
 		var pkt rtp.Packet
-		if err := pkt.Unmarshal(buffer[:n]); err != nil {
+		if err := pkt.Unmarshal(buf); err != nil {
 			continue
 		}
 		now := time.Now()
