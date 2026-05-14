@@ -39,24 +39,19 @@ func (s *Session) StartPCAPReplay(ctx context.Context, endpoint Endpoint, path, 
 
 	s.Stop()
 
-	remoteAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", endpoint.IP, endpoint.Port))
+	conn, muxPC, remoteAddr, err := s.openRTPDatapath(endpoint, localIP, localPort)
 	if err != nil {
 		return err
 	}
 
-	localAddr := &net.UDPAddr{Port: localPort}
-	if localIP != "" && localIP != "0.0.0.0" && localIP != "::" {
-		localAddr.IP = net.ParseIP(localIP)
-	}
-	conn, err := net.ListenUDP("udp", localAddr)
-	if err != nil {
-		conn, err = net.ListenUDP("udp", &net.UDPAddr{IP: localAddr.IP, Port: 0})
-		if err != nil {
-			return err
-		}
-	}
-
 	childCtx, cancel := context.WithCancel(ctx)
+	rtpReadConn, err := s.prepareRTPReadConn(childCtx, muxPC, remoteAddr)
+	if err != nil {
+		cancel()
+		s.closeTurnResources()
+		_ = conn.Close()
+		return fmt.Errorf("pcap DTLS-SRTP: %w", err)
+	}
 	s.mu.Lock()
 	s.cancel = cancel
 	s.conn = conn
@@ -70,21 +65,46 @@ func (s *Session) StartPCAPReplay(ctx context.Context, endpoint Endpoint, path, 
 	s.stats = Stats{}
 	s.rrReset()
 	s.localIP = localIP
-	s.localPort = conn.LocalAddr().(*net.UDPAddr).Port
-	rtcpPort := conn.LocalAddr().(*net.UDPAddr).Port + 1
-	rtcpLocalAddr := &net.UDPAddr{Port: rtcpPort}
-	if localAddr.IP != nil {
-		rtcpLocalAddr.IP = localAddr.IP
+	rtpBoundPort := conn.LocalAddr().(*net.UDPAddr).Port
+	s.localPort = rtpBoundPort
+	rtcpMux := s.rtcpMux
+	var rtcpConn *net.UDPConn
+	if !rtcpMux {
+		boundLA := conn.LocalAddr().(*net.UDPAddr)
+		rtcpLocalAddr := &net.UDPAddr{Port: rtpBoundPort + 1}
+		if boundLA.IP != nil {
+			rtcpLocalAddr.IP = boundLA.IP
+		}
+		rtcpConn, _ = net.ListenUDP("udp", rtcpLocalAddr)
 	}
-	rtcpConn, _ := net.ListenUDP("udp", rtcpLocalAddr)
 	s.rtcpConn = rtcpConn
+	if err := s.buildSRTPContextsLocked(); err != nil {
+		if s.dtlsConn != nil {
+			_ = s.dtlsConn.Close()
+			s.dtlsConn = nil
+		}
+		s.conn = nil
+		s.rtcpConn = nil
+		s.cancel = nil
+		s.running = false
+		s.mu.Unlock()
+		cancel()
+		s.closeTurnResources()
+		_ = conn.Close()
+		if rtcpConn != nil {
+			_ = rtcpConn.Close()
+		}
+		return fmt.Errorf("media SRTP: %w", err)
+	}
 	obs := s.hepObserver
 	callID := s.callID
 	s.mu.Unlock()
 
-	go s.pcapLoop(childCtx, conn, remoteAddr, packets, obs, callID)
-	go s.rtpReceiveLoop(childCtx, conn)
-	if rtcpConn != nil {
+	go s.pcapLoop(childCtx, muxPC, remoteAddr, packets, obs, callID)
+	go s.rtpReceiveLoop(childCtx, rtpReadConn, rtcpMux)
+	if rtcpMux {
+		go s.rtcpLoop(childCtx, muxPC, remoteAddr, StreamConfig{SSRC: firstSSRC}, obs, callID)
+	} else if rtcpConn != nil {
 		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, StreamConfig{SSRC: firstSSRC}, obs, callID)
 		go s.rtcpReceiveLoop(childCtx, rtcpConn)
 	}
@@ -92,12 +112,23 @@ func (s *Session) StartPCAPReplay(ctx context.Context, endpoint Endpoint, path, 
 	return nil
 }
 
-func (s *Session) pcapLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, packets []pcapPacket, obs HEPObserver, callID string) {
+func (s *Session) pcapLoop(ctx context.Context, w net.PacketConn, remote net.Addr, packets []pcapPacket, obs HEPObserver, callID string) {
 	defer s.Stop()
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	localIP := localAddr.IP.String()
-	localPort := localAddr.Port
+	localAddr := w.LocalAddr()
+	localUDP, _ := localAddr.(*net.UDPAddr)
+	localIP := "0.0.0.0"
+	localPort := 0
+	if localUDP != nil {
+		localIP = localUDP.IP.String()
+		localPort = localUDP.Port
+	}
+	rip := ""
+	rport := 0
+	if ua, ok := remote.(*net.UDPAddr); ok {
+		rip = ua.IP.String()
+		rport = ua.Port
+	}
 
 	for _, packet := range packets {
 		if err := ctx.Err(); err != nil {
@@ -113,16 +144,28 @@ func (s *Session) pcapLoop(ctx context.Context, conn *net.UDPConn, remote *net.U
 			case <-timer.C:
 			}
 		}
-		if _, err := conn.WriteToUDP(packet.data, remote); err != nil {
+		cleartext := packet.data
+		wire := cleartext
+		s.mu.Lock()
+		enc := s.srtpSend
+		s.mu.Unlock()
+		if enc != nil {
+			var encErr error
+			wire, encErr = enc.EncryptRTP(nil, cleartext, nil)
+			if encErr != nil {
+				return
+			}
+		}
+		if _, err := w.WriteTo(wire, remote); err != nil {
 			return
 		}
 		if obs != nil {
-			_ = obs.SendRTP(time.Now(), localIP, localPort, remote.IP.String(), remote.Port, callID, packet.data)
+			_ = obs.SendRTP(time.Now(), localIP, localPort, rip, rport, callID, cleartext)
 		}
 
-		payloadBytes := len(packet.data)
+		payloadBytes := len(cleartext)
 		var parsed rtp.Packet
-		if err := parsed.Unmarshal(packet.data); err == nil {
+		if err := parsed.Unmarshal(cleartext); err == nil {
 			payloadBytes = len(parsed.Payload)
 			s.mu.Lock()
 			s.ssrc = parsed.SSRC

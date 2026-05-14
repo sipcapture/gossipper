@@ -148,6 +148,11 @@ type Config struct {
 	MediaRejectSRTP bool
 	// MediaSRTP enables SDES SRTP (a=crypto inline) for rtp_stream start/mic when the peer offers SRTP.
 	MediaSRTP bool
+	// TURN (optional): host:port and credentials for ICE typ relay paths.
+	TURNServer string
+	TURNUser   string
+	TURNPass   string
+	TURNRealm  string
 }
 
 func DefaultConfig() Config {
@@ -272,7 +277,11 @@ func Parse(args []string) (Config, error) {
 	fs.BoolVar(&cfg.RecordWAVDuplex, "record_wav_duplex", false, "with -record_wav_dir, write stereo WAV (L=sent R=received)")
 	fs.StringVar(&cfg.CallRecordsJSONL, "call_records_jsonl", "", "append one JSON call record per finished call to this path")
 	fs.BoolVar(&cfg.MediaRejectSRTP, "media_reject_srtp", false, "fail rtp_stream start/mic when remote SDP suggests SRTP (RTP/SAVP, a=crypto, a=fingerprint)")
-	fs.BoolVar(&cfg.MediaSRTP, "media_srtp", false, "when remote SDP offers SRTP, use SDES (a=crypto inline) to encrypt RTP and decrypt inbound RTP (AES_CM_128_HMAC_SHA1_80/32); requires peer SDES, not DTLS-only")
+	fs.BoolVar(&cfg.MediaSRTP, "media_srtp", false, "when remote SDP offers SRTP: SDES (a=crypto inline) and/or DTLS-SRTP client (a=fingerprint sha-256); encrypt RTP/SRTCP outbound, decrypt inbound; RTCP stays on RTP port+1 unless peer muxes")
+	fs.StringVar(&cfg.TURNServer, "turn_server", "", "TURN/STUN server host:port for ICE relay (typ relay) RTP/RTCP")
+	fs.StringVar(&cfg.TURNUser, "turn_user", "", "TURN long-term credential username")
+	fs.StringVar(&cfg.TURNPass, "turn_pass", "", "TURN long-term credential password")
+	fs.StringVar(&cfg.TURNRealm, "turn_realm", "", "TURN realm (optional; empty uses server default)")
 	fs.BoolVar(&cfg.TraceMessages, "trace_msg", cfg.TraceMessages, "trace sent and received SIP messages")
 	fs.BoolVar(&cfg.TraceShortMsg, "trace_shortmsg", false, "trace sent and received messages as compact CSV")
 	fs.BoolVar(&cfg.TraceCounts, "trace_counts", false, "write periodic SIP message counters as CSV")

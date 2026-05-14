@@ -276,6 +276,18 @@ func TestRenderMessageStrictSupportsAdditionalHelpers(t *testing.T) {
 	}
 }
 
+func TestRenderMessageStrictIcePlaceholders(t *testing.T) {
+	t.Parallel()
+	ctx := Context{IceUfrag: "AbCdEfGh", IcePwd: "xYz012345678901234567890"}
+	got, err := RenderMessageStrict("a=ice-ufrag:[ice_ufrag]\r\na=ice-pwd:[ice_pwd]\r\n\r\n", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "a=ice-ufrag:AbCdEfGh") || !strings.Contains(got, "a=ice-pwd:xYz012345678901234567890") {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestRenderMessageStrictSupportsM6P0Keywords(t *testing.T) {
 	t.Parallel()
 

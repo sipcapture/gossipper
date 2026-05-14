@@ -16,11 +16,16 @@ import (
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/srtp/v3"
+	"github.com/pion/turn/v4"
+
+	"github.com/pion/dtls/v3"
 )
 
 type Endpoint struct {
 	IP   string
 	Port int
+	// ICECandidateTyp is set when the RTP endpoint was taken from an ICE candidate (e.g. host, srflx, relay).
+	ICECandidateTyp string
 }
 
 type StreamConfig struct {
@@ -100,6 +105,30 @@ type Session struct {
 	srtpMaterial *srtpMaterial
 	srtpSend     *srtp.Context
 	srtpRecv     *srtp.Context
+
+	// DTLS-SRTP (WebRTC-style): expected peer cert fingerprint (sha-256 or sha-384) before Start; live DTLS conn after handshake.
+	dtlsPeerCertAlgo string
+	dtlsPeerFP       []byte
+	// dtlsPeerSetup is the remote m=audio a=setup value (active|passive|actpass). If "active", peer starts DTLS as client → we act as DTLS server.
+	dtlsPeerSetup string
+	dtlsConn      *dtls.Conn
+
+	// rtcp-mux: send/receive RTCP on the RTP socket and remote RTP port (from a=rtcp-mux in remote SDP).
+	rtcpMux bool
+
+	// ICE (WebRTC): local credentials for our SDP offer; remote from peer answer (DTLS-SRTP path).
+	iceLocalUfrag  string
+	iceLocalPwd    string
+	iceRemoteUfrag string
+	iceRemotePwd   string
+
+	// TURN (optional): used when ICE picks typ relay for the remote RTP candidate.
+	turnServer string
+	turnUser   string
+	turnPass   string
+	turnRealm  string
+	turnClient *turn.Client
+	turnRelay  net.PacketConn
 }
 
 // HEPObserver is implemented by the HEP client to mirror RTP/RTCP traffic to Homer.
@@ -156,12 +185,29 @@ func (s *Session) SetCallID(callID string) {
 	s.callID = callID
 }
 
+// SetRtcpMuxFromSDP sets whether RTCP is multiplexed on the RTP port (a=rtcp-mux in m=audio).
+func (s *Session) SetRtcpMuxFromSDP(sdpBody string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rtcpMux = AudioSectionHasRtcpMux(sdpBody)
+}
+
 // SetPCAPLinkLayer sets the datalink override for PCAP replay (play_pcap_*).
 // Empty string means auto: use the file's DLT from the global header (including LINUX_SLL2).
 func (s *Session) SetPCAPLinkLayer(spec string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.pcapLinkLayer = strings.TrimSpace(spec)
+}
+
+// SetTURN configures a TURN/STUN server (host:port) and long-term credentials for ICE relay paths.
+func (s *Session) SetTURN(server, user, pass, realm string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turnServer = strings.TrimSpace(server)
+	s.turnUser = user
+	s.turnPass = pass
+	s.turnRealm = realm
 }
 
 func BuildPacket(cfg StreamConfig, payload []byte) ([]byte, error) {
@@ -335,6 +381,85 @@ func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, err
 	return "start", cfg, nil
 }
 
+// openRTPDatapath binds a local UDP socket and, for ICE typ relay, allocates a TURN relay transport.
+func (s *Session) openRTPDatapath(endpoint Endpoint, localIP string, localPort int) (conn *net.UDPConn, dataPC net.PacketConn, remote *net.UDPAddr, err error) {
+	if endpoint.IP == "" || endpoint.Port <= 0 {
+		return nil, nil, nil, fmt.Errorf("invalid RTP endpoint %s:%d", endpoint.IP, endpoint.Port)
+	}
+	remote, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", endpoint.IP, endpoint.Port))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	localAddr := &net.UDPAddr{Port: localPort}
+	if localIP != "" && localIP != "0.0.0.0" && localIP != "::" {
+		localAddr.IP = net.ParseIP(localIP)
+	}
+	conn, err = net.ListenUDP("udp", localAddr)
+	if err != nil {
+		conn, err = net.ListenUDP("udp", &net.UDPAddr{IP: localAddr.IP, Port: 0})
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	dataPC = conn
+	if !strings.EqualFold(endpoint.ICECandidateTyp, "relay") {
+		return conn, dataPC, remote, nil
+	}
+	s.mu.Lock()
+	svr := s.turnServer
+	user := s.turnUser
+	pass := s.turnPass
+	realm := s.turnRealm
+	s.mu.Unlock()
+	if svr == "" {
+		_ = conn.Close()
+		return nil, nil, nil, fmt.Errorf("ICE relay candidate: set -turn_server -turn_user -turn_pass [-turn_realm]")
+	}
+	tc, err := turn.NewClient(&turn.ClientConfig{
+		STUNServerAddr: svr,
+		TURNServerAddr: svr,
+		Username:       user,
+		Password:       pass,
+		Realm:          realm,
+		Conn:           conn,
+	})
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil, nil, fmt.Errorf("TURN client: %w", err)
+	}
+	if err := tc.Listen(); err != nil {
+		tc.Close()
+		_ = conn.Close()
+		return nil, nil, nil, fmt.Errorf("TURN listen: %w", err)
+	}
+	relayPC, err := tc.Allocate()
+	if err != nil {
+		tc.Close()
+		_ = conn.Close()
+		return nil, nil, nil, fmt.Errorf("TURN allocate: %w", err)
+	}
+	s.mu.Lock()
+	s.turnClient = tc
+	s.turnRelay = relayPC
+	s.mu.Unlock()
+	return conn, relayPC, remote, nil
+}
+
+func (s *Session) closeTurnResources() {
+	s.mu.Lock()
+	relay := s.turnRelay
+	tc := s.turnClient
+	s.turnRelay = nil
+	s.turnClient = nil
+	s.mu.Unlock()
+	if relay != nil {
+		_ = relay.Close()
+	}
+	if tc != nil {
+		tc.Close()
+	}
+}
+
 func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig, localIP string, localPort int) error {
 	if endpoint.IP == "" || endpoint.Port <= 0 {
 		return fmt.Errorf("invalid RTP endpoint %s:%d", endpoint.IP, endpoint.Port)
@@ -351,24 +476,19 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 
 	s.Stop()
 
-	remoteAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", endpoint.IP, endpoint.Port))
+	conn, muxPC, remoteAddr, err := s.openRTPDatapath(endpoint, localIP, localPort)
 	if err != nil {
 		return err
 	}
 
-	localAddr := &net.UDPAddr{Port: localPort}
-	if localIP != "" && localIP != "0.0.0.0" && localIP != "::" {
-		localAddr.IP = net.ParseIP(localIP)
-	}
-	conn, err := net.ListenUDP("udp", localAddr)
-	if err != nil {
-		conn, err = net.ListenUDP("udp", &net.UDPAddr{IP: localAddr.IP, Port: 0})
-		if err != nil {
-			return err
-		}
-	}
-
 	childCtx, cancel := context.WithCancel(ctx)
+	rtpReadConn, err := s.prepareRTPReadConn(childCtx, muxPC, remoteAddr)
+	if err != nil {
+		cancel()
+		s.closeTurnResources()
+		_ = conn.Close()
+		return fmt.Errorf("media DTLS-SRTP: %w", err)
+	}
 	s.mu.Lock()
 	s.cancel = cancel
 	s.conn = conn
@@ -382,20 +502,31 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 	s.stats = Stats{}
 	s.rrReset()
 	s.localIP = localIP
-	s.localPort = conn.LocalAddr().(*net.UDPAddr).Port
-	rtcpLocalAddr := &net.UDPAddr{Port: localAddr.Port + 1}
-	if localAddr.IP != nil {
-		rtcpLocalAddr.IP = localAddr.IP
+	rtpBoundPort := conn.LocalAddr().(*net.UDPAddr).Port
+	s.localPort = rtpBoundPort
+	rtcpMux := s.rtcpMux
+	var rtcpConn *net.UDPConn
+	if !rtcpMux {
+		boundLA := conn.LocalAddr().(*net.UDPAddr)
+		rtcpLocalAddr := &net.UDPAddr{Port: rtpBoundPort + 1}
+		if boundLA.IP != nil {
+			rtcpLocalAddr.IP = boundLA.IP
+		}
+		rtcpConn, _ = net.ListenUDP("udp", rtcpLocalAddr)
 	}
-	rtcpConn, _ := net.ListenUDP("udp", rtcpLocalAddr)
 	s.rtcpConn = rtcpConn
 	if err := s.buildSRTPContextsLocked(); err != nil {
+		if s.dtlsConn != nil {
+			_ = s.dtlsConn.Close()
+			s.dtlsConn = nil
+		}
 		s.conn = nil
 		s.rtcpConn = nil
 		s.cancel = nil
 		s.running = false
 		s.mu.Unlock()
 		cancel()
+		s.closeTurnResources()
 		_ = conn.Close()
 		if rtcpConn != nil {
 			_ = rtcpConn.Close()
@@ -406,9 +537,11 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 	callID := s.callID
 	s.mu.Unlock()
 
-	go s.streamLoop(childCtx, conn, remoteAddr, cfg, packets, obs, callID)
-	go s.rtpReceiveLoop(childCtx, conn)
-	if rtcpConn != nil {
+	go s.streamLoop(childCtx, muxPC, remoteAddr, cfg, packets, obs, callID)
+	go s.rtpReceiveLoop(childCtx, rtpReadConn, rtcpMux)
+	if rtcpMux {
+		go s.rtcpLoop(childCtx, muxPC, remoteAddr, cfg, obs, callID)
+	} else if rtcpConn != nil {
 		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, cfg, obs, callID)
 		go s.rtcpReceiveLoop(childCtx, rtcpConn)
 	}
@@ -478,9 +611,17 @@ func (s *Session) Stop() {
 	cancel := s.cancel
 	conn := s.conn
 	rtcpConn := s.rtcpConn
+	relay := s.turnRelay
+	tc := s.turnClient
 	s.cancel = nil
 	s.conn = nil
 	s.rtcpConn = nil
+	s.turnRelay = nil
+	s.turnClient = nil
+	if s.dtlsConn != nil {
+		_ = s.dtlsConn.Close()
+		s.dtlsConn = nil
+	}
 	s.srtpSend = nil
 	s.srtpRecv = nil
 	s.paused = false
@@ -492,6 +633,12 @@ func (s *Session) Stop() {
 	if cancel != nil {
 		cancel()
 	}
+	if relay != nil {
+		_ = relay.Close()
+	}
+	if tc != nil {
+		tc.Close()
+	}
 	if conn != nil {
 		_ = conn.Close()
 	}
@@ -501,7 +648,7 @@ func (s *Session) Stop() {
 	s.flushRecording()
 }
 
-func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig, packets [][]byte, obs HEPObserver, callID string) {
+func (s *Session) streamLoop(ctx context.Context, w net.PacketConn, remote net.Addr, cfg StreamConfig, packets [][]byte, obs HEPObserver, callID string) {
 	defer s.Stop()
 
 	// Limit total stream time when Duration is set.
@@ -517,9 +664,14 @@ func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net
 		packets = [][]byte{buildSyntheticPayload(cfg)}
 	}
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	localIP := localAddr.IP.String()
-	localPort := localAddr.Port
+	localAddr := w.LocalAddr()
+	localUDP, _ := localAddr.(*net.UDPAddr)
+	localIP := "0.0.0.0"
+	localPort := 0
+	if localUDP != nil {
+		localIP = localUDP.IP.String()
+		localPort = localUDP.Port
+	}
 
 	loops := cfg.LoopCount
 	if loops == 0 {
@@ -565,11 +717,17 @@ func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net
 					return
 				}
 			}
-			if _, err := conn.WriteToUDP(wire, remote); err != nil {
+			if _, err := w.WriteTo(wire, remote); err != nil {
 				return
 			}
 			if obs != nil {
-				_ = obs.SendRTP(time.Now(), localIP, localPort, remote.IP.String(), remote.Port, callID, frame)
+				rip := ""
+				rport := 0
+				if ua, ok := remote.(*net.UDPAddr); ok {
+					rip = ua.IP.String()
+					rport = ua.Port
+				}
+				_ = obs.SendRTP(time.Now(), localIP, localPort, rip, rport, callID, frame)
 			}
 			s.mu.Lock()
 			s.packetCount++
@@ -614,13 +772,18 @@ func (s *Session) echoLoop(ctx context.Context, conn *net.UDPConn) {
 	}
 }
 
-func (s *Session) rtcpLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig, obs HEPObserver, callID string) {
+func (s *Session) rtcpLoop(ctx context.Context, w net.PacketConn, remote net.Addr, cfg StreamConfig, obs HEPObserver, callID string) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	localIP := localAddr.IP.String()
-	localPort := localAddr.Port
+	localAddr := w.LocalAddr()
+	localUDP, _ := localAddr.(*net.UDPAddr)
+	localIP := "0.0.0.0"
+	localPort := 0
+	if localUDP != nil {
+		localIP = localUDP.IP.String()
+		localPort = localUDP.Port
+	}
 
 	for {
 		select {
@@ -651,11 +814,28 @@ func (s *Session) rtcpLoop(ctx context.Context, conn *net.UDPConn, remote *net.U
 			if err != nil {
 				continue
 			}
-			if _, err := conn.WriteToUDP(raw, remote); err != nil {
+			wire := raw
+			s.mu.Lock()
+			enc := s.srtpSend
+			s.mu.Unlock()
+			if enc != nil {
+				var encErr error
+				wire, encErr = enc.EncryptRTCP(nil, raw, nil)
+				if encErr != nil {
+					continue
+				}
+			}
+			if _, err := w.WriteTo(wire, remote); err != nil {
 				continue
 			}
 			if obs != nil {
-				_ = obs.SendRTCP(time.Now(), callID, ssrc, localIP, localPort, remote.IP.String(), remote.Port, 0, raw)
+				rip := ""
+				rport := 0
+				if ua, ok := remote.(*net.UDPAddr); ok {
+					rip = ua.IP.String()
+					rport = ua.Port
+				}
+				_ = obs.SendRTCP(time.Now(), callID, ssrc, localIP, localPort, rip, rport, 0, raw)
 			}
 			s.mu.Lock()
 			s.stats.RTCPSenderReports++
@@ -678,42 +858,16 @@ func (s *Session) rtcpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
 			}
 			return
 		}
-		packets, err := rtcp.Unmarshal(buffer[:n])
-		if err != nil {
-			continue
-		}
-		now := time.Now()
+		buf := buffer[:n]
 		s.mu.Lock()
-		s.stats.RTCPPacketsReceived += uint32(len(packets))
-		for _, packet := range packets {
-			switch p := packet.(type) {
-			case *rtcp.SenderReport:
-				s.stats.RTCPSenderReports++
-				// Record compact NTP and arrival time for DLSR field in our RR.
-				ntp := p.NTPTime
-				s.rrLastSRNTP = uint32((ntp >> 16) & 0xFFFFFFFF)
-				s.rrLastSRAt = now
-			case *rtcp.ReceiverReport:
-				s.stats.RTCPReceiverReports++
-				for _, rep := range p.Reports {
-					s.stats.RTCPReportBlocks++
-					if rep.FractionLost > s.stats.RTCPMaxFractionLost {
-						s.stats.RTCPMaxFractionLost = rep.FractionLost
-					}
-					if rep.Jitter > s.stats.RTCPMaxJitter {
-						s.stats.RTCPMaxJitter = rep.Jitter
-					}
-					if rep.Jitter > 0 {
-						if s.stats.RTCPMinJitter == 0 || rep.Jitter < s.stats.RTCPMinJitter {
-							s.stats.RTCPMinJitter = rep.Jitter
-						}
-					}
-					s.stats.RTCPJitterSum += float64(rep.Jitter)
-					s.stats.RTCPJitterSamples++
-				}
+		dec := s.srtpRecv
+		s.mu.Unlock()
+		if dec != nil {
+			if plain, derr := dec.DecryptRTCP(nil, buf, nil); derr == nil {
+				buf = plain
 			}
 		}
-		s.mu.Unlock()
+		s.processInboundRTCPPayload(time.Now(), buf)
 	}
 }
 
@@ -1085,14 +1239,15 @@ func (s *Session) buildReceiverReport() []rtcp.ReceptionReport {
 }
 
 // rtpReceiveLoop reads incoming RTP on the media socket and updates RR stats.
-func (s *Session) rtpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
+// When rtcpMux is true, RTCP may share the same socket (cleartext heuristic or SRTP decrypt path).
+func (s *Session) rtpReceiveLoop(ctx context.Context, readConn net.PacketConn, rtcpMux bool) {
 	buffer := make([]byte, 2048)
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-		n, _, err := conn.ReadFromUDP(buffer)
+		_ = readConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		n, _, err := readConn.ReadFrom(buffer)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				continue
@@ -1100,29 +1255,39 @@ func (s *Session) rtpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
 			return
 		}
 		buf := buffer[:n]
+		now := time.Now()
 		s.mu.Lock()
 		dec := s.srtpRecv
 		s.mu.Unlock()
 		if dec != nil {
 			var h rtp.Header
-			plain, derr := dec.DecryptRTP(nil, buf, &h)
-			if derr != nil {
+			if plain, derr := dec.DecryptRTP(nil, buf, &h); derr == nil {
+				var pkt rtp.Packet
+				if err := pkt.Unmarshal(plain); err != nil {
+					continue
+				}
+				s.mu.Lock()
+				s.observeRTPPacket(&pkt, now)
+				s.stats.RTPPacketsReceived++
+				if s.recordOn {
+					s.appendRecordInboundWithJitter(&pkt)
+				}
+				s.mu.Unlock()
 				continue
 			}
-			buf = plain
-		}
-		var pkt rtp.Packet
-		if err := pkt.Unmarshal(buf); err != nil {
+			if rtcpMux {
+				if plain, derr := dec.DecryptRTCP(nil, buf, nil); derr == nil {
+					s.processInboundRTCPPayload(now, plain)
+				}
+			}
 			continue
 		}
-		now := time.Now()
-		s.mu.Lock()
-		s.observeRTPPacket(&pkt, now)
-		s.stats.RTPPacketsReceived++
-		if s.recordOn {
-			s.appendRecordInboundWithJitter(&pkt)
+		if s.handleInboundRTPPacketBuf(buf, now) {
+			continue
 		}
-		s.mu.Unlock()
+		if rtcpMux && isProbableRTCPPacket(buf) {
+			s.processInboundRTCPPayload(now, buf)
+		}
 	}
 }
 

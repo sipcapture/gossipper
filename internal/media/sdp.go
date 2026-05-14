@@ -13,7 +13,8 @@ func ParseAudioEndpoint(msg sip.Message, fallbackIP string) (Endpoint, error) {
 }
 
 func ParseMediaEndpoint(msg sip.Message, fallbackIP string, mediaType string) (Endpoint, error) {
-	body := strings.ReplaceAll(msg.Body, "\r\n", "\n")
+	raw := EffectiveMediaSDPBody(msg)
+	body := strings.ReplaceAll(raw, "\r\n", "\n")
 	lines := strings.Split(body, "\n")
 	ip := fallbackIP
 	port := 0
@@ -39,8 +40,19 @@ func ParseMediaEndpoint(msg sip.Message, fallbackIP string, mediaType string) (E
 			}
 		}
 	}
+	var iceTyp string
+	mt := strings.ToLower(strings.TrimSpace(mediaType))
+	if mt == "audio" || mt == "video" || mt == "image" {
+		ApplyBundleMediaEndpointIfNeeded(body, mt, &ip, &port)
+	}
+	if mt == "audio" || mt == "video" || mt == "image" {
+		if iceIP, icePort, typ, ok := PickMediaICERTPEndpoint(body, mt, ip, port); ok {
+			ip, port = iceIP, icePort
+			iceTyp = typ
+		}
+	}
 	if ip == "" || port <= 0 {
 		return Endpoint{}, fmt.Errorf("%s SDP endpoint not found", strings.ToLower(strings.TrimSpace(mediaType)))
 	}
-	return Endpoint{IP: ip, Port: port}, nil
+	return Endpoint{IP: ip, Port: port, ICECandidateTyp: iceTyp}, nil
 }

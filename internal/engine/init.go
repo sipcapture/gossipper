@@ -17,6 +17,8 @@ func (e *Engine) runInit(ctx context.Context) error {
 	store := newVarStore(e.scopes, e.cfg.Scenario.GlobalVariables, e.cfg.Scenario.UserVariables, 0)
 	mediaSession := media.NewSession()
 	mediaSession.SetPCAPLinkLayer(e.cfg.PCAPLinkLayer)
+	mediaSession.SetTURN(e.cfg.TURNServer, e.cfg.TURNUser, e.cfg.TURNPass, e.cfg.TURNRealm)
+	mediaSession.EnsureLocalIceCredentials()
 	defer mediaSession.Stop()
 	renderCtx := templ.Context{
 		Service:       e.cfg.Service,
@@ -31,6 +33,8 @@ func (e *Engine) runInit(ctx context.Context) error {
 		MediaIP:       e.cfg.LocalIP,
 		MediaIPType:   ipType(e.cfg.LocalIP),
 		MediaPort:     e.cfg.LocalPort + 2,
+		IceUfrag:      mediaSession.ICELocalUfrag(),
+		IcePwd:        mediaSession.ICELocalPwd(),
 		CallID:        newCallID(0),
 		Users:         e.cfg.Users,
 		UserID:        0,

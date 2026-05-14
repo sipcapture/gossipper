@@ -123,6 +123,10 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		CallRecordsJSONL: cfg.CallRecordsJSONL,
 		MediaRejectSRTP:  cfg.MediaRejectSRTP,
 		MediaSRTP:        cfg.MediaSRTP,
+		TURNServer:       cfg.TURNServer,
+		TURNUser:         cfg.TURNUser,
+		TURNPass:         cfg.TURNPass,
+		TURNRealm:        cfg.TURNRealm,
 	}
 
 	return Prepared{

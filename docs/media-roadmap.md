@@ -1,64 +1,44 @@
 # RTP roadmap
 
-`Gossipper` keeps RTP as a separate milestone layered on top of the SIP engine.
+Gossipper keeps RTP as a separate milestone layered on top of the SIP engine.
 
 ## Why it is separate
 
 - SIP XML compatibility and dialog timing are the hard dependencies for a useful MVP.
 - RTP support becomes much easier once SIP call lifecycle and media address extraction are stable.
-- The media layer should remain intentionally narrow and avoid pulling in a full WebRTC stack.
+- The media layer remains intentionally narrow: no full browser-style WebRTC stack, but enough hooks for **SDES SRTP**, **DTLS-SRTP**, and **ICE-lite-style** signalling common in SIP-to-WebRTC bridges.
 
-## Current state
+## Current state (summary)
 
-- `internal/media` already depends on `github.com/pion/rtp`.
-- The package can build raw RTP packets, including a simple silent PCMU payload generator.
-- `exec rtp_stream` now starts a real RTP sender, derives the remote audio endpoint from SDP, and supports `pause` / `resume` / `stop`.
-- WAV input is supported for PCM mono 8kHz and is packetized as PCMU or PCMA RTP depending on payload settings.
-- `rtp_stream` understands SIPp-style parameters: `file,loopcount,payloadtype,payloadparam`.
-- `exec rtp_stream="echo"` starts a local RTP echo helper bound to the scenario media port.
-- The media session now emits periodic RTCP sender reports.
-- Incoming RTCP packets are parsed and exposed through basic session counters.
-- Aggregated RTP/RTCP counters are now surfaced through the engine summary and JSON export.
-- `exec play_pcap_audio="capture.pcap"` is implemented for audio PCAP replay with preserved inter-packet timing from the capture.
-- `exec play_pcap_video="capture.pcap"` is implemented in pragmatic mode via SDP `m=video` endpoint discovery and generic RTP payload replay.
-- `exec play_pcap_image="capture.pcap"` is implemented in pragmatic mode via SDP `m=image` endpoint discovery and generic RTP payload replay.
-- Bundled fixtures and demo scenarios now cover both basic audio replay and DTMF-style RTP event replay through PCAP.
+- **`internal/media`** uses **`github.com/pion/rtp`**, **`github.com/pion/rtcp`**, **`github.com/pion/srtp/v3`**, **`github.com/pion/dtls/v3`**, **`github.com/pion/stun/v3`**, **`github.com/pion/turn/v4`** where relevant.
+- **`exec rtp_stream`** starts a real RTP sender (file, synthetic, or microphone), derives the remote endpoint from SDP, supports **`pause` / `resume` / `stop`**, and **`echo`** loopback.
+- **SDP → remote media:** **`ParseAudioEndpoint`** / **`ParseMediaEndpoint`** read **`c=`** and **`m=audio` / `m=video` / `m=image`**. Bodies are normalized with **`EffectiveMediaSDPBody`**: **`Content-Type: application/trickle-ice+json`** is turned into SDP **`a=`** lines before parsing. **`a=group:BUNDLE`** / **`a=mid:`** are honored when placeholders require the bundle transport (first MID in the group). For WebRTC placeholders (**`0.0.0.0` / `::`**, **`m=`** port **9**, or missing **`m=`** for that type), they prefer **`a=candidate`** (UDP, RTP component 1) in the first matching media section, or from a **trickle-style fragment** (no **`m=<type>`** in the body). The chosen ICE **`typ`** is exposed on **`Endpoint.ICECandidateTyp`**. Hostnames in candidates are resolved with a short DNS lookup (prefer IPv4).
+- **SRTP (`-media_srtp`):** **SDES** from **`a=crypto:`** inline, or **DTLS-SRTP** from **`a=fingerprint:`** (SHA-256 / SHA-384). DTLS role follows **`a=setup:`** in **`m=audio`**: **`active`** → gossipper runs **DTLS server**; otherwise **DTLS client**. See **`docs/srtp.md`**.
+- **ICE (lightweight):** Per-call local **`a=ice-ufrag` / `a=ice-pwd`** (templates **`[ice_ufrag]`**, **`[ice_pwd]`**). Remote ICE from peer SDP; **STUN Binding** responses on the RTP/DTLS socket and outbound connectivity checks before DTLS when remote credentials are present. **`SetRemoteIceFromSDP`** merges credentials and **does not clear** them on candidate-only fragments.
+- **Configure path:** If the last SIP body has **ICE attributes** but no SRTP hint, **`configureMediaSRTPForRTPStream`** refreshes ICE only and **does not** wipe an existing DTLS/SDES negotiation (supports trickle INFO after the main answer). The function uses **`EffectiveMediaSDPBody`** on the last message, so **JSON trickle** updates participate in the same path.
+- **RTCP:** Sender reports; inbound parsing and counters; **RTCP-mux** when **`a=rtcp-mux`** is in remote SDP for SRTP paths.
+- **PCAP replay** (`play_pcap_audio` / video / image), **WAV** send/receive, **microphone**, **RTP recording**, **rtpcheck**, engine stats — unchanged broad behaviour; see **`docs/rtp-in-scenarios.md`**.
 
 ## Supported media scope today
 
-- Audio RTP only
-- SDP-driven remote audio endpoint discovery
-- WAV-driven RTP generation for practical SIP call flows
-- RTP echo for quick loopback-style validation
-- Basic RTCP observability
-- Audio PCAP replay for pre-recorded RTP streams and telephone-event style captures
-- Pragmatic video/image PCAP replay where SDP exposes `m=video` / `m=image`
-- Pragmatic RTP activity checks via XML `exec rtpcheck="..."` (`min_packets`, `timeout_ms`, `direction`)
-- **WAV recording** of received G.711 (PT 0/8): `exec rtp_record` and CLI `-record_wav_dir` / `-record_wav_duplex`
-- **Microphone RTP** (`exec rtp_stream="mic"[,device]`) — default builds: Linux `arecord` or `ffmpeg:` tail; macOS/Windows **ffmpeg**. With **`go build -tags audio`**: **PortAudio** (CGO + `libportaudio` / `pkg-config portaudio-2.0`); device string is PortAudio index or name substring. See `docs/rtp-in-scenarios.md`.
+- Audio RTP as the primary path; pragmatic **m=video** / **m=image** for PCAP replay.
+- **Cleartext RTP/AVP** and **SRTP** (SDES or DTLS) when **`-media_srtp`** is enabled and SDP matches.
+- **Partial WebRTC parity:** **BUNDLE** (transport from bundled MID), **SDP + JSON trickle** bodies, and **TURN relay** (see **`-turn_server`** / **`-turn_user`** / **`-turn_pass`** / **`-turn_realm`** in **`docs/srtp.md`**) are supported for RTP addressing and media sockets. Still **not** a full browser stack: ICE **nomination**, rich **controlling/controlled** behaviour, and advanced TURN (TCP allocations, etc.) are not goals of the current layer.
 
 ## Known limits
 
-- No **DTLS-SRTP** path yet (`a=fingerprint` without SDES `a=crypto` in `m=audio` is rejected when `-media_srtp` is used). SDES SRTP (`-media_srtp`, AES_CM HMAC suites) encrypts/decrypts RTP via `pion/srtp`; RTCP remains cleartext on the paired UDP port.
-- No full SIPp `rtpcheck` parity (only pragmatic RTP activity checks)
-- No dedicated video media pipeline
-- No advanced RTCP analytics in the summary yet
-- No claim of full SIPp media parity
+- **TURN** is **UDP allocate** only, using the same **`host:port`** for STUN and TURN in the pion client; no dedicated **TCP TURN** or TURN-TLS mode in gossipper’s CLI yet.
+- **Trickle** works from the **last SIP message** body: **SDP** (full or fragment) or **`application/trickle-ice+json`** after conversion to SDP lines. The scenario must surface that message before **`exec rtp_stream start`** / **`mic`** / PCAP actions, same as before.
+- No dedicated **video encode/decode** pipeline; no full SIPp **`rtpcheck`** parity.
+- **`docs/srtp.md`** is the detailed contract for SRTP/DTLS/ICE flags and limits.
 
-The current implementation is intentionally "useful first" rather than "complete
-first": enough for practical SIP + audio testing, but still narrower than SIPp's
-overall media surface.
+## Planned milestones (media)
 
-## Planned milestones
-
-1. Richer RTCP reporting surfaced into engine summary output
-2. Full SRTP media support (keys from SDP, SRTP send/receive) via a dedicated integration path
-3. Expand pragmatic video/image replay into a dedicated media pipeline only if real scenarios require codec-specific handling
-4. Expand media reporting if real scenarios need jitter/loss-style visibility
+1. Richer RTCP / QoS in engine summary for encrypted and cleartext streams.
+2. Richer **ICE/TURN** (TCP/TLS TURN, clearer error surfaces, optional channel semantics) if real deployments still hit gaps.
+3. Video pipeline only if scenarios need codec-specific handling beyond PCAP replay.
 
 ## Library choices
 
-- `github.com/pion/rtp` for packet modeling and marshaling
-- `github.com/pion/rtcp` for control traffic
-- `github.com/google/gopacket` and `github.com/google/gopacket/pcapgo` for audio PCAP replay input
-- `github.com/pion/srtp/v3` only when SRTP becomes a real requirement
+- **`github.com/pion/rtp`**, **`github.com/pion/rtcp`**, **`github.com/pion/srtp/v3`**, **`github.com/pion/dtls/v3`**, **`github.com/pion/stun/v3`**, **`github.com/pion/turn/v4`**
+- **`github.com/google/gopacket`** / **`pcapgo`** for PCAP replay

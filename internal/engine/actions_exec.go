@@ -70,7 +70,7 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			}
 		case "mic":
 			last := mustParseLastMessage(renderCtx)
-			if err := configureMediaSRTPForRTPStream(e, mediaSession, last.Body, "mic"); err != nil {
+			if err := configureMediaSRTPForRTPStream(e, mediaSession, last, "mic"); err != nil {
 				return err
 			}
 			endpoint, err := media.ParseAudioEndpoint(last, renderCtx.RemoteIP)
@@ -85,7 +85,7 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			}
 		case "start":
 			last := mustParseLastMessage(renderCtx)
-			if err := configureMediaSRTPForRTPStream(e, mediaSession, last.Body, "start"); err != nil {
+			if err := configureMediaSRTPForRTPStream(e, mediaSession, last, "start"); err != nil {
 				return err
 			}
 			endpoint, err := media.ParseAudioEndpoint(last, renderCtx.RemoteIP)
@@ -304,9 +304,15 @@ func parseRTPCheckSpec(raw string, renderCtx templ.Context) (rtpcheckSpec, error
 	return spec, nil
 }
 
-func configureMediaSRTPForRTPStream(e *Engine, mediaSession *media.Session, sdpBody, verb string) error {
+func configureMediaSRTPForRTPStream(e *Engine, mediaSession *media.Session, last sip.Message, verb string) error {
+	sdpBody := media.EffectiveMediaSDPBody(last)
 	hints := media.SDPHintsSRTP(sdpBody)
+	iceOnly := !hints && media.SDPHasIceMediaAttributes(sdpBody)
 	if !hints {
+		if iceOnly {
+			mediaSession.SetRemoteIceFromSDP(sdpBody)
+			return nil
+		}
 		mediaSession.ClearSDESSRTP()
 		return nil
 	}
@@ -315,14 +321,23 @@ func configureMediaSRTPForRTPStream(e *Engine, mediaSession *media.Session, sdpB
 		return fmt.Errorf("rtp_stream %s: remote SDP suggests SRTP (drop -media_reject_srtp to allow)", verb)
 	}
 	if !e.cfg.MediaSRTP {
-		return fmt.Errorf("rtp_stream %s: remote SDP suggests SRTP; use -media_srtp for SDES (a=crypto inline) or -media_reject_srtp to abort", verb)
+		return fmt.Errorf("rtp_stream %s: remote SDP suggests SRTP; use -media_srtp for SDES (a=crypto inline), DTLS (a=fingerprint), or -media_reject_srtp to abort", verb)
 	}
-	if err := mediaSession.SetSDESSRTPFromSDP(sdpBody); err != nil {
-		if errors.Is(err, media.ErrNoAudioSDESCrypto) && media.AudioSectionHasFingerprint(sdpBody) {
-			return fmt.Errorf("rtp_stream %s: DTLS-SRTP (a=fingerprint without SDES a=crypto) is not supported yet", verb)
+	if err := mediaSession.SetSDESSRTPFromSDP(sdpBody); err == nil {
+		mediaSession.SetRtcpMuxFromSDP(sdpBody)
+		mediaSession.SetRemoteIceFromSDP(sdpBody)
+		return nil
+	} else if !errors.Is(err, media.ErrNoAudioSDESCrypto) {
+		return fmt.Errorf("rtp_stream %s: SRTP: %w", verb, err)
+	}
+	if err := mediaSession.SetDTLSFingerprintFromSDP(sdpBody); err != nil {
+		if media.AudioSectionHasFingerprint(sdpBody) {
+			return fmt.Errorf("rtp_stream %s: SRTP (DTLS fingerprint): %w", verb, err)
 		}
 		return fmt.Errorf("rtp_stream %s: SRTP: %w", verb, err)
 	}
+	mediaSession.SetRtcpMuxFromSDP(sdpBody)
+	mediaSession.SetRemoteIceFromSDP(sdpBody)
 	return nil
 }
 

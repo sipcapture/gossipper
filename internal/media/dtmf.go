@@ -102,23 +102,14 @@ func (s *Session) SendDTMF(ctx context.Context, endpoint Endpoint, digits string
 
 	s.Stop()
 
-	remoteAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", endpoint.IP, endpoint.Port))
+	conn, dataPC, remoteAddr, err := s.openRTPDatapath(endpoint, localIP, localPort)
 	if err != nil {
 		return err
 	}
-
-	localAddr := &net.UDPAddr{Port: localPort}
-	if localIP != "" && localIP != "0.0.0.0" && localIP != "::" {
-		localAddr.IP = net.ParseIP(localIP)
-	}
-	conn, err := net.ListenUDP("udp", localAddr)
-	if err != nil {
-		conn, err = net.ListenUDP("udp", &net.UDPAddr{IP: localAddr.IP, Port: 0})
-		if err != nil {
-			return err
-		}
-	}
-	defer conn.Close()
+	defer func() {
+		s.closeTurnResources()
+		_ = conn.Close()
+	}()
 
 	connLocalAddr := conn.LocalAddr().(*net.UDPAddr)
 	connLocalIP := connLocalAddr.IP.String()
@@ -127,7 +118,11 @@ func (s *Session) SendDTMF(ctx context.Context, endpoint Endpoint, digits string
 	var enc *srtp.Context
 	if mat != nil {
 		var cerr error
-		enc, cerr = srtp.CreateContext(mat.masterKey, mat.masterSalt, mat.profile)
+		key, salt := mat.masterKey, mat.masterSalt
+		if len(mat.localKey) > 0 {
+			key, salt = mat.localKey, mat.localSalt
+		}
+		enc, cerr = srtp.CreateContext(key, salt, mat.profile)
 		if cerr != nil {
 			return fmt.Errorf("send_dtmf: SRTP: %w", cerr)
 		}
@@ -157,7 +152,7 @@ func (s *Session) SendDTMF(ctx context.Context, endpoint Endpoint, digits string
 					return encErr
 				}
 			}
-			if _, err := conn.WriteToUDP(wire, remoteAddr); err != nil {
+			if _, err := dataPC.WriteTo(wire, remoteAddr); err != nil {
 				return err
 			}
 			if obs != nil {

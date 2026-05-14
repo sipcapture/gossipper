@@ -248,6 +248,83 @@ Content-Length: 0
   <recv response="200"/>
 </scenario>`
 
+const defaultInviteMediaSavpf = `<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="invite_media_savpf">
+  <send retrans="500">
+    <![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]InvSavpf[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Contact: <sip:gossip@[local_ip]:[local_port]>
+Max-Forwards: 70
+Content-Type: application/sdp
+Content-Length: [len]
+
+v=0
+o=gossip 1 1 IN IP4 [local_ip]
+s=-
+c=IN IP4 [local_ip]
+t=0 0
+m=audio [media_port] UDP/TLS/RTP/SAVPF 0
+a=rtpmap:0 PCMU/8000
+a=ice-ufrag:[ice_ufrag]
+a=ice-pwd:[ice_pwd]
+a=rtcp-mux
+a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:AQEBAQEBAQEBAQEBAQEBAQICAgICAgICAgICAgIC
+]]>
+  </send>
+
+  <recv response="100" optional="true"/>
+  <recv response="180" optional="true"/>
+  <recv response="183" optional="true"/>
+  <recv response="200">
+    <action>
+      <exec rtp_stream="synthetic,,0,PCMU/8000,20,3000"/>
+    </action>
+  </recv>
+
+  <send>
+    <![CDATA[
+ACK sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]InvSavpf[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 1 ACK
+Max-Forwards: 70
+Content-Length: 0
+
+]]>
+  </send>
+
+  <pause milliseconds="500"/>
+
+  <nop>
+    <action>
+      <exec rtp_stream="stop"/>
+    </action>
+  </nop>
+
+  <send retrans="500">
+    <![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]InvSavpf[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Max-Forwards: 70
+Content-Length: 0
+
+]]>
+  </send>
+
+  <recv response="200"/>
+</scenario>`
+
 const defaultInviteMediaEarly180 = `<?xml version="1.0" encoding="UTF-8"?>
 <scenario name="invite_media_early_180">
   <send retrans="500">
@@ -345,6 +422,10 @@ func LoadNamed(name string) (Scenario, error) {
 		return sc, err
 	case "invite_media_early":
 		sc, err := ParseString(defaultInviteMediaEarly)
+		sc.BasePath = "."
+		return sc, err
+	case "invite_media_savpf":
+		sc, err := ParseString(defaultInviteMediaSavpf)
 		sc.BasePath = "."
 		return sc, err
 	case "invite_media_early_180":

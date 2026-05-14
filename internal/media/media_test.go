@@ -139,6 +139,23 @@ func TestParseMediaEndpointVideo(t *testing.T) {
 	}
 }
 
+func TestParseMediaEndpointVideoICECandidate(t *testing.T) {
+	t.Parallel()
+	msg := sip.Message{
+		Body: "v=0\r\n" +
+			"c=IN IP4 0.0.0.0\r\n" +
+			"m=video 9 UDP/TLS/RTP/SAVPF 96\r\n" +
+			"a=candidate:1 1 udp 2122260223 198.51.100.99 50000 typ host\r\n",
+	}
+	ep, err := ParseMediaEndpoint(msg, "127.0.0.1", "video")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ep.IP != "198.51.100.99" || ep.Port != 50000 {
+		t.Fatalf("unexpected endpoint: %+v", ep)
+	}
+}
+
 func TestParseRTPStreamSpecPayloadParams(t *testing.T) {
 	t.Parallel()
 

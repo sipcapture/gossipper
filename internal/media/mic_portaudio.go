@@ -19,14 +19,14 @@ import (
 // Build: CGO_ENABLED=1 go build -tags audio (requires libportaudio + pkg-config portaudio-2.0).
 func (s *Session) StartMicrophone(ctx context.Context, endpoint Endpoint, localIP string, localPort int, micInput string) error {
 	s.Stop()
-	conn, ra, err := dialMicUDP(endpoint, localIP, localPort)
+	conn, dataPC, ra, err := s.openRTPDatapath(endpoint, localIP, localPort)
 	if err != nil {
 		return err
 	}
 	childCtx, cancel := context.WithCancel(ctx)
 	pr, pw := io.Pipe()
 	go runPortaudioMicCapture(childCtx, pw, strings.TrimSpace(micInput))
-	return s.attachMicSession(childCtx, cancel, conn, ra, localIP, pr)
+	return s.attachMicSession(childCtx, cancel, conn, dataPC, ra, localIP, pr)
 }
 
 func pickPortaudioInputDevice(spec string) (*portaudio.DeviceInfo, error) {

@@ -2,6 +2,7 @@ package media
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +10,9 @@ import (
 
 // ErrNoAudioSDESCrypto means no usable a=crypto inline line was found in the first m=audio section.
 var ErrNoAudioSDESCrypto = errors.New("no a=crypto inline in m=audio")
+
+// ErrNoAudioFingerprint means no usable a=fingerprint line was found in the first m=audio section.
+var ErrNoAudioFingerprint = errors.New("no a=fingerprint in m=audio")
 
 // SDPHintsSRTP returns true if the SDP body suggests SRTP (SAVP profile, crypto, or DTLS fingerprint).
 func SDPHintsSRTP(sdpBody string) bool {
@@ -47,6 +51,34 @@ func AudioSectionHasFingerprint(sdpBody string) bool {
 		}
 	}
 	return false
+}
+
+// ParseAudioDTLSSetup returns the first a=setup value in m=audio (active, passive, actpass), lowercased, or "" if absent.
+func ParseAudioDTLSSetup(sdpBody string) string {
+	body := strings.ReplaceAll(sdpBody, "\r\n", "\n")
+	lines := strings.Split(body, "\n")
+	inAudio := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		low := strings.ToLower(line)
+		if strings.HasPrefix(low, "m=audio") {
+			inAudio = true
+			continue
+		}
+		if strings.HasPrefix(low, "m=") {
+			if inAudio {
+				break
+			}
+			continue
+		}
+		if !inAudio {
+			continue
+		}
+		if strings.HasPrefix(low, "a=setup:") {
+			return strings.TrimSpace(strings.ToLower(line[len("a=setup:"):]))
+		}
+	}
+	return ""
 }
 
 // ParseAudioSDESCrypto extracts the first SDES crypto suite and master key/salt from the first m=audio section.
@@ -112,6 +144,94 @@ func ParseAudioSDESCrypto(sdpBody string) (suite string, masterKey, masterSalt [
 		return suite, masterKey, masterSalt, nil
 	}
 	return "", nil, nil, ErrNoAudioSDESCrypto
+}
+
+// ParseAudioFingerprint returns the first supported a=fingerprint in m=audio (sha-256 or sha-384).
+func ParseAudioFingerprint(sdpBody string) (algo string, digest []byte, err error) {
+	body := strings.ReplaceAll(sdpBody, "\r\n", "\n")
+	lines := strings.Split(body, "\n")
+	inAudio := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		low := strings.ToLower(line)
+		if strings.HasPrefix(low, "m=audio") {
+			inAudio = true
+			continue
+		}
+		if strings.HasPrefix(low, "m=") {
+			if inAudio {
+				break
+			}
+			continue
+		}
+		if !inAudio {
+			continue
+		}
+		if !strings.HasPrefix(low, "a=fingerprint:") {
+			continue
+		}
+		rest := strings.TrimSpace(line[len("a=fingerprint:"):])
+		a, digestHex, ok := strings.Cut(rest, " ")
+		if !ok {
+			return "", nil, fmt.Errorf("a=fingerprint: expected algorithm digest, got %q", rest)
+		}
+		a = strings.ToLower(strings.TrimSpace(a))
+		if a != "sha-256" && a != "sha-384" {
+			continue
+		}
+		d := strings.ReplaceAll(strings.TrimSpace(digestHex), ":", "")
+		raw, decErr := hex.DecodeString(d)
+		if decErr != nil {
+			return "", nil, fmt.Errorf("a=fingerprint hex: %w", decErr)
+		}
+		switch a {
+		case "sha-256":
+			if len(raw) != 32 {
+				return "", nil, fmt.Errorf("a=fingerprint sha-256: want 32 bytes, got %d", len(raw))
+			}
+		case "sha-384":
+			if len(raw) != 48 {
+				return "", nil, fmt.Errorf("a=fingerprint sha-384: want 48 bytes, got %d", len(raw))
+			}
+		}
+		return a, raw, nil
+	}
+	return "", nil, ErrNoAudioFingerprint
+}
+
+// ParseAudioFingerprintSHA256 returns the first SHA-256 certificate fingerprint from m=audio.
+func ParseAudioFingerprintSHA256(sdpBody string) ([]byte, error) {
+	algo, digest, err := ParseAudioFingerprint(sdpBody)
+	if err != nil {
+		return nil, err
+	}
+	if algo != "sha-256" {
+		return nil, ErrNoAudioFingerprint
+	}
+	return digest, nil
+}
+
+// AudioSectionHasRtcpMux returns true if m=audio contains a=rtcp-mux.
+func AudioSectionHasRtcpMux(sdpBody string) bool {
+	body := strings.ReplaceAll(sdpBody, "\r\n", "\n")
+	lines := strings.Split(body, "\n")
+	inAudio := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		low := strings.ToLower(line)
+		if strings.HasPrefix(low, "m=audio") {
+			inAudio = true
+			continue
+		}
+		if strings.HasPrefix(low, "m=") {
+			inAudio = false
+			continue
+		}
+		if inAudio && low == "a=rtcp-mux" {
+			return true
+		}
+	}
+	return false
 }
 
 func sdesSuiteKeySaltLen(suite string) (keyLen, saltLen int, err error) {

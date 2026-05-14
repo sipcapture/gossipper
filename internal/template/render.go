@@ -34,6 +34,8 @@ type Context struct {
 	MediaIP       string
 	MediaIPType   string
 	MediaPort     int
+	IceUfrag      string
+	IcePwd        string
 	CallID        string
 	CSeq          int
 	CallNumber    int
@@ -322,6 +324,10 @@ func (c Context) resolveToken(token string) (string, bool, bool) {
 		return c.MediaIPType, true, false
 	case "media_port", "rtpstream_audio_port", "auto_media_port":
 		return strconv.Itoa(c.MediaPort + delta), true, false
+	case "ice_ufrag":
+		return c.IceUfrag, true, false
+	case "ice_pwd":
+		return c.IcePwd, true, false
 	case "rtpstream_video_port":
 		return strconv.Itoa(c.MediaPort + 2 + delta), true, false
 	case "call_id":
@@ -463,6 +469,10 @@ func (c Context) resolveTokenStrict(token string) (string, bool, error) {
 		return c.MediaIPType, false, nil
 	case "media_port", "rtpstream_audio_port", "auto_media_port":
 		return strconv.Itoa(c.MediaPort + delta), false, nil
+	case "ice_ufrag":
+		return c.IceUfrag, false, nil
+	case "ice_pwd":
+		return c.IcePwd, false, nil
 	case "rtpstream_video_port":
 		return strconv.Itoa(c.MediaPort + 2 + delta), false, nil
 	case "call_id":

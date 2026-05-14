@@ -12,6 +12,14 @@ configuration is required inside the scenario XML.
 
 The local bind IP and port are derived from `[local_ip]` and `[media_port]`.
 
+### WebRTC-style SDP (ICE placeholders and SRTP)
+
+For **`m=audio`**, **`m=video`**, or **`m=image`**, if the classic **`c=` / `m=`** pair uses placeholders (**`0.0.0.0`**, **`::`**, or **`m=`** port **9**), the engine prefers the best **`a=candidate:`** line (UDP, RTP component 1) inside **that** media section. If the SIP body has **no matching `m=`** line but only ICE lines (e.g. a trickle fragment with **`a=candidate:`**), the same parser can still supply IP and port for **audio** when you run **`exec rtp_stream start`** / **`mic`**, or for **video** / **image** when you run **`play_pcap_video`** / **`play_pcap_image`** on that message.
+
+**BUNDLE, JSON trickle, TURN:** When the message is **`application/trickle-ice+json`**, gossipper converts the JSON payload to SDP-style lines (**`EffectiveMediaSDPBody`**) before extracting addresses or ICE. **`a=group:BUNDLE`** is applied when the media section is in the bundle and still uses placeholders, so the RTP port/IP can follow the first bundled MID. If ICE selects **`typ relay`**, pass **`-turn_server`**, **`-turn_user`**, and **`-turn_pass`** (and **`-turn_realm`** if your server needs it); gossipper allocates a **UDP TURN** relay and sends RTP/SRTP on that path. Details: **[srtp.md](srtp.md)**.
+
+**`-media_srtp`** enables **SDES** (`a=crypto:`) or **DTLS-SRTP** (`a=fingerprint:`), local ICE material for offers, STUN handling on the media socket, and DTLS role from **`a=setup:`**. After the first full SRTP answer, a follow-up SIP body that contains only ICE attributes (no SAVP/fingerprint hint) **does not** tear down negotiated keys; see **[srtp.md](srtp.md)** for flags, DTLS client vs server, TURN/relay, JSON trickle, and remaining limits (no full ICE nomination, no TCP TURN in CLI).
+
 ---
 
 ## exec rtp_stream

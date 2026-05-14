@@ -125,6 +125,11 @@ type Config struct {
 	MediaRejectSRTP bool
 	// MediaSRTP enables SDES SRTP (a=crypto inline) for rtp_stream start/mic when the peer offers SRTP.
 	MediaSRTP bool
+	// TURNServer is host:port for TURN/STUN (long-term credentials); used when ICE selects typ relay.
+	TURNServer string
+	TURNUser   string
+	TURNPass   string
+	TURNRealm  string
 
 	// SipFrom is the SIP From header value before ";tag=" (name-addr or URI). Empty uses gossip@local.
 	SipFrom string
@@ -1427,11 +1432,13 @@ func (e *Engine) executeCall(
 	success := false
 	mediaSession := media.NewSession()
 	mediaSession.SetPCAPLinkLayer(e.cfg.PCAPLinkLayer)
+	mediaSession.SetTURN(e.cfg.TURNServer, e.cfg.TURNUser, e.cfg.TURNPass, e.cfg.TURNRealm)
 	if e.hep != nil {
 		mediaSession.SetHEPObserver(e.hep)
 	}
 	mediaSession.SetCallID(callID)
 	mediaSession.SetAutoRecord(e.cfg.RecordWAVDir, e.cfg.RecordWAVDuplex)
+	mediaSession.EnsureLocalIceCredentials()
 	sawUnexpectedSIP := false
 	e.log.Emit(eventlog.Event{
 		Time:  startedAt,
@@ -1503,6 +1510,8 @@ func (e *Engine) executeCall(
 		MediaIP:     localIP,
 		MediaIPType: ipType(localIP),
 		MediaPort:   clampMediaPort(localPort + 2 + ((callNumber - 1) * 2)),
+		IceUfrag:    mediaSession.ICELocalUfrag(),
+		IcePwd:      mediaSession.ICELocalPwd(),
 		CallID:      callID,
 		CSeq:        e.cfg.BaseCSeq,
 		CallNumber:  callNumber,

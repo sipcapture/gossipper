@@ -10,19 +10,31 @@ import (
 )
 
 // attachMicSession binds RTP/RTCP session state and starts mic + RTCP loops (r = mono s16le 8 kHz).
-func (s *Session) attachMicSession(childCtx context.Context, cancel context.CancelFunc, conn *net.UDPConn, remoteAddr *net.UDPAddr, localIP string, r io.Reader) error {
+func (s *Session) attachMicSession(childCtx context.Context, cancel context.CancelFunc, conn *net.UDPConn, dataPC net.PacketConn, remoteAddr *net.UDPAddr, localIP string, r io.Reader) error {
+	rtpReadConn, err := s.prepareRTPReadConn(childCtx, dataPC, remoteAddr)
+	if err != nil {
+		cancel()
+		s.closeTurnResources()
+		_ = conn.Close()
+		return fmt.Errorf("mic DTLS-SRTP: %w", err)
+	}
 	cfg := DefaultConfig("")
 	cfg.Synthetic = false
 	ApplyPayloadParams(&cfg, "PCMU/8000")
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	rtcpLocalAddr := &net.UDPAddr{Port: localAddr.Port + 1}
-	if localAddr.IP != nil {
-		rtcpLocalAddr.IP = localAddr.IP
-	}
-	rtcpConn, _ := net.ListenUDP("udp", rtcpLocalAddr)
+	rtpBoundPort := localAddr.Port
 
 	s.mu.Lock()
+	rtcpMux := s.rtcpMux
+	var rtcpConn *net.UDPConn
+	if !rtcpMux {
+		rtcpLocalAddr := &net.UDPAddr{Port: rtpBoundPort + 1}
+		if localAddr.IP != nil {
+			rtcpLocalAddr.IP = localAddr.IP
+		}
+		rtcpConn, _ = net.ListenUDP("udp", rtcpLocalAddr)
+	}
 	s.cancel = cancel
 	s.conn = conn
 	s.ssrc = cfg.SSRC
@@ -35,15 +47,20 @@ func (s *Session) attachMicSession(childCtx context.Context, cancel context.Canc
 	s.stats = Stats{}
 	s.rrReset()
 	s.localIP = localIP
-	s.localPort = localAddr.Port
+	s.localPort = rtpBoundPort
 	s.rtcpConn = rtcpConn
 	if err := s.buildSRTPContextsLocked(); err != nil {
+		if s.dtlsConn != nil {
+			_ = s.dtlsConn.Close()
+			s.dtlsConn = nil
+		}
 		s.conn = nil
 		s.rtcpConn = nil
 		s.cancel = nil
 		s.running = false
 		s.mu.Unlock()
 		cancel()
+		s.closeTurnResources()
 		_ = conn.Close()
 		if rtcpConn != nil {
 			_ = rtcpConn.Close()
@@ -54,56 +71,31 @@ func (s *Session) attachMicSession(childCtx context.Context, cancel context.Canc
 	callID := s.callID
 	s.mu.Unlock()
 
-	go s.micStreamLoop(childCtx, conn, remoteAddr, r, cfg, obs, callID)
-	go s.rtpReceiveLoop(childCtx, conn)
-	if rtcpConn != nil {
+	go s.micStreamLoop(childCtx, dataPC, remoteAddr, r, cfg, obs, callID)
+	go s.rtpReceiveLoop(childCtx, rtpReadConn, rtcpMux)
+	if rtcpMux {
+		go s.rtcpLoop(childCtx, dataPC, remoteAddr, cfg, obs, callID)
+	} else if rtcpConn != nil {
 		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, cfg, obs, callID)
-		go s.rtcpReceiveLoop(childCtx, rtcpConn)
+		go s.rtpReceiveLoop(childCtx, rtcpConn, false)
 	}
 	s.maybeStartAutoRecord()
 	return nil
 }
 
-func listenMicUDP(localIP string, localPort int) (*net.UDPConn, error) {
-	localAddr := &net.UDPAddr{Port: localPort}
-	if localIP != "" && localIP != "0.0.0.0" && localIP != "::" {
-		localAddr.IP = net.ParseIP(localIP)
-	}
-	conn, err := net.ListenUDP("udp", localAddr)
-	if err != nil {
-		conn, err = net.ListenUDP("udp", &net.UDPAddr{IP: localAddr.IP, Port: 0})
-	}
-	return conn, err
-}
-
-func dialMicUDP(endpoint Endpoint, localIP string, localPort int) (*net.UDPConn, *net.UDPAddr, error) {
-	if endpoint.IP == "" || endpoint.Port <= 0 {
-		return nil, nil, fmt.Errorf("invalid RTP endpoint %s:%d", endpoint.IP, endpoint.Port)
-	}
-	remoteAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", endpoint.IP, endpoint.Port))
-	if err != nil {
-		return nil, nil, err
-	}
-	conn, err := listenMicUDP(localIP, localPort)
-	if err != nil {
-		return nil, nil, err
-	}
-	return conn, remoteAddr, nil
-}
-
 // startMicrophonePCMFromReader binds UDP and streams mono s16le 8 kHz PCM from r into PCMU RTP.
 func (s *Session) startMicrophonePCMFromReader(ctx context.Context, endpoint Endpoint, localIP string, localPort int, r io.Reader) error {
-	conn, remoteAddr, err := dialMicUDP(endpoint, localIP, localPort)
+	conn, dataPC, remoteAddr, err := s.openRTPDatapath(endpoint, localIP, localPort)
 	if err != nil {
 		return err
 	}
 	childCtx, cancel := context.WithCancel(ctx)
-	return s.attachMicSession(childCtx, cancel, conn, remoteAddr, localIP, r)
+	return s.attachMicSession(childCtx, cancel, conn, dataPC, remoteAddr, localIP, r)
 }
 
 // startMicrophonePCMReader starts bin/args (mono s16le 8 kHz PCM on stdout) and streams PCMU RTP.
 func (s *Session) startMicrophonePCMReader(ctx context.Context, endpoint Endpoint, localIP string, localPort int, bin string, args []string) error {
-	conn, remoteAddr, err := dialMicUDP(endpoint, localIP, localPort)
+	conn, dataPC, remoteAddr, err := s.openRTPDatapath(endpoint, localIP, localPort)
 	if err != nil {
 		return err
 	}
@@ -113,31 +105,45 @@ func (s *Session) startMicrophonePCMReader(ctx context.Context, endpoint Endpoin
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
+		s.closeTurnResources()
 		_ = conn.Close()
 		return fmt.Errorf("rtp_stream mic: stdout pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
 		cancel()
+		s.closeTurnResources()
 		_ = conn.Close()
 		return fmt.Errorf("rtp_stream mic start: %w", err)
 	}
 	go func() {
 		_ = cmd.Wait()
 	}()
-	if err := s.attachMicSession(childCtx, cancel, conn, remoteAddr, localIP, stdout); err != nil {
+	if err := s.attachMicSession(childCtx, cancel, conn, dataPC, remoteAddr, localIP, stdout); err != nil {
 		cancel()
+		s.closeTurnResources()
 		_ = conn.Close()
 		return err
 	}
 	return nil
 }
 
-func (s *Session) micStreamLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, r io.Reader, cfg StreamConfig, obs HEPObserver, callID string) {
+func (s *Session) micStreamLoop(ctx context.Context, w net.PacketConn, remote net.Addr, r io.Reader, cfg StreamConfig, obs HEPObserver, callID string) {
 	defer s.Stop()
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	localIP := localAddr.IP.String()
-	localPort := localAddr.Port
+	localAddr := w.LocalAddr()
+	localUDP, _ := localAddr.(*net.UDPAddr)
+	localIP := "0.0.0.0"
+	localPort := 0
+	if localUDP != nil {
+		localIP = localUDP.IP.String()
+		localPort = localUDP.Port
+	}
+	rip := ""
+	rport := 0
+	if ua, ok := remote.(*net.UDPAddr); ok {
+		rip = ua.IP.String()
+		rport = ua.Port
+	}
 
 	sequence := cfg.Sequence
 	timestamp := cfg.Timestamp
@@ -192,11 +198,11 @@ func (s *Session) micStreamLoop(ctx context.Context, conn *net.UDPConn, remote *
 				return
 			}
 		}
-		if _, err := conn.WriteToUDP(wire, remote); err != nil {
+		if _, err := w.WriteTo(wire, remote); err != nil {
 			return
 		}
 		if obs != nil {
-			_ = obs.SendRTP(time.Now(), localIP, localPort, remote.IP.String(), remote.Port, callID, frame)
+			_ = obs.SendRTP(time.Now(), localIP, localPort, rip, rport, callID, frame)
 		}
 		s.mu.Lock()
 		s.packetCount++
