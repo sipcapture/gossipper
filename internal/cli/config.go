@@ -457,7 +457,7 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.InjectionFile != "" && cfg.IPField < 0 {
 		switch cfg.Transport {
-		case "cl", "cln", "l1", "ln", "t1", "tn", "u1", "un", "ui":
+		case "cl", "cln", "l1", "ln", "s1", "sl", "sn", "t1", "tn", "u1", "un", "ui":
 			// SIPp-style: -inf without -ip_field does not load bind IPs from CSV; bind uses -i (for ui, see transport ui branch).
 		default:
 			return Config{}, errors.New("ip_field must be specified when inf is set")
@@ -493,9 +493,9 @@ func Parse(args []string) (Config, error) {
 				}
 				cfg.UISourceIPs = sourceIPs
 			}
-		case "t1", "tn", "u1", "un":
+		case "t1", "tn", "u1", "un", "s1", "sn", "sl":
 			if cfg.IPField >= 0 {
-				return Config{}, errors.New("transport u1/un/t1/tn does not support -ip_field with -inf (use -i for local bind; use -inf without -ip_field for CSV [fieldN] only)")
+				return Config{}, errors.New("transport u1/un/t1/tn/s1/sn/sl does not support -ip_field with -inf (use -i for local bind; use -inf without -ip_field for CSV [fieldN] only)")
 			}
 		default:
 			return Config{}, errors.New("inf and ip_field are only supported with transport ui, TLS client (cl/cln/l1/ln), or -inf alone with TCP/UDP client (t1/tn/u1/un)")

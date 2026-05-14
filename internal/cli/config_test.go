@@ -1064,7 +1064,7 @@ func TestParseAcceptsClientInfWithoutIPField(t *testing.T) {
 	if err := os.WriteFile(injectionPath, []byte("SEQUENTIAL\n127.0.0.2\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(injection) error = %v", err)
 	}
-	for _, transport := range []string{"cl", "cln", "l1", "ln", "t1", "tn", "u1", "un"} {
+	for _, transport := range []string{"cl", "cln", "l1", "ln", "s1", "sl", "sn", "t1", "tn", "u1", "un"} {
 		transport := transport
 		t.Run(transport, func(t *testing.T) {
 			t.Parallel()
