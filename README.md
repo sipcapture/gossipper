@@ -79,28 +79,34 @@ The current MVP implements:
 
 ## Quick start
 
+Build the binary once (repo root), then invoke **`./gossipper`** as argv0 (or `gossipper` if it is on your `PATH`):
+
+```bash
+go build -o gossipper ./cmd/gossip
+```
+
 Run the built-in UAC scenario against a SIP endpoint:
 
 ```bash
-go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
+./gossipper -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
 Run SIPp-style rate period scheduling (`-r n -rp m`):
 
 ```bash
-go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -r 7 -rp 2000 -m 50
+./gossipper -sn uac -rsa 127.0.0.1:5060 -r 7 -rp 2000 -m 50
 ```
 
 Run with periodic CPS ramping:
 
 ```bash
-go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -r 10 -rate_increase 2 -rate_interval 1000 -rate_max 50 -m 1000
+./gossipper -sn uac -rsa 127.0.0.1:5060 -r 10 -rate_increase 2 -rate_interval 1000 -rate_max 50 -m 1000
 ```
 
 Run with a deterministic global timeout (CI-friendly):
 
 ```bash
-go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 10000 -r 50 -timeout_global 30
+./gossipper -sn uac -rsa 127.0.0.1:5060 -m 10000 -r 50 -timeout_global 30
 ```
 
 Benchmark gossipper vs SIPp (requires UAS or `-start-uas`):
@@ -113,19 +119,19 @@ make benchmark   # same, via Makefile
 Generate CSV lookup index for faster `lookup` action resolution:
 
 ```bash
-go run ./cmd/gossip -infindex ./testdata/injection/inject.csv 0
+./gossipper -infindex ./testdata/injection/inject.csv 0
 ```
 
 Run M3 `ui` transport MVP (source IP selected per call from CSV):
 
 ```bash
-go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -t ui -inf ./testdata/injection/ui_ips.csv -ip_field 0 -m 20 -r 10
+./gossipper -sn uac -rsa 127.0.0.1:5060 -t ui -inf ./testdata/injection/ui_ips.csv -ip_field 0 -m 20 -r 10
 ```
 
 Print build version information:
 
 ```bash
-go run ./cmd/gossip -version
+./gossipper -version
 ```
 
 ### Profiling
@@ -133,69 +139,69 @@ go run ./cmd/gossip -version
 Enable pprof HTTP server for live CPU/memory/goroutine profiling:
 
 ```bash
-go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 1000 -r 50 -pprof :6060
+./gossipper -sn uac -rsa 127.0.0.1:5060 -m 1000 -r 50 -pprof :6060
 # In another terminal: go tool pprof -http=:8080 http://localhost:6060/debug/pprof/profile?seconds=30
 ```
 
 Write CPU and memory profiles to files at exit:
 
 ```bash
-go run ./cmd/gossip -sn uac -rsa 127.0.0.1:5060 -m 500 -r 20 -cpuprofile cpu.prof -memprofile mem.prof
+./gossipper -sn uac -rsa 127.0.0.1:5060 -m 500 -r 20 -cpuprofile cpu.prof -memprofile mem.prof
 go tool pprof -http=:8080 cpu.prof   # or mem.prof for heap
 ```
 
 Launch the interactive TUI:
 
 ```bash
-go run ./cmd/gossip tui
+./gossipper tui
 ```
 
 or:
 
 ```bash
-go run ./cmd/gossip -interactive
+./gossipper -interactive
 ```
 
 Run a custom XML scenario:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -m 10 -r 5
+./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -m 10 -r 5
 ```
 
 Write a JSON summary:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -summary_json summary.json
+./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -summary_json summary.json
 ```
 
 Write full and short message traces:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_msg -trace_shortmsg -message_file ./messages.log
+./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_msg -trace_shortmsg -message_file ./messages.log
 ```
 
 Write unexpected responses and action logs to dedicated files:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_err -trace_error_codes -error_file ./errors.log -trace_logs -log_file ./actions.log
+./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_err -trace_error_codes -error_file ./errors.log -trace_logs -log_file ./actions.log
 ```
 
 Write periodic CSV stats snapshots:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_stat -fd 2 -message_file ./messages.log
+./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_stat -fd 2 -message_file ./messages.log
 ```
 
 Write periodic per-command SIP message counters:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_counts -fd 2 -message_file ./messages.log
+./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_counts -fd 2 -message_file ./messages.log
 ```
 
 Write periodic non-interactive runtime screen snapshots:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_screen -fd 2 -screen_file ./screen.log
+./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_screen -fd 2 -screen_file ./screen.log
 ```
 
 Interactive controls during a TUI run:
@@ -209,13 +215,13 @@ Interactive controls during a TUI run:
 Write RTD CSV samples:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_rtt -rtt_freq 50 -message_file ./messages.log
+./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_rtt -rtt_freq 50 -message_file ./messages.log
 ```
 
 Mirror SIP messages to Homer over HEP3:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -hep_addr 127.0.0.1:9060 -hep_capture_id 2001 -hep_password secret
+./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -hep_addr 127.0.0.1:9060 -hep_capture_id 2001 -hep_password secret
 ```
 
 ### Structured event logging (OTel)
@@ -235,7 +241,7 @@ is also added — typical use is `self_tag` / `peer_tag` to label nodes such as
 Client `NYC02` shipping logs to a collector via OTLP/gRPC:
 
 ```bash
-go run ./cmd/gossip -sn uac -rsa 10.0.0.3:5060 \
+./gossipper -sn uac -rsa 10.0.0.3:5060 \
   -log_otel_endpoint otel-collector:4317 -log_otel_proto grpc -log_otel_insecure \
   -log_attr self_tag=NYC02 -log_attr peer_tag=NYC01 -log_stdout
 ```
@@ -244,7 +250,7 @@ Server `NYC01` shipping logs over OTLP/HTTP (typical when the collector sits
 behind a TLS-terminating proxy):
 
 ```bash
-go run ./cmd/gossip -sn uas -t s1 -i 0.0.0.0 -p 5060 \
+./gossipper -sn uas -t s1 -i 0.0.0.0 -p 5060 \
   -log_otel_endpoint http://otel-collector:4318 -log_otel_proto http \
   -log_attr self_tag=NYC01 -log_attr peer_tag=NYC02 \
   -log_file_jsonl /tmp/gossipper-events.jsonl
@@ -258,13 +264,13 @@ are unaffected by event logging.
 Run over TLS (UAC; `-t cl` is the same as `-t l1` after startup):
 
 ```bash
-go run ./cmd/gossip -t cl -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
+./gossipper -t cl -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
 ```
 
 Same with explicit `l1`:
 
 ```bash
-go run ./cmd/gossip -t l1 -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
+./gossipper -t l1 -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
 ```
 
 **SIP TLS (answers to common support questions):** signaling over TLS **is supported**. For **UAC** use `-t l1` or `-t ln`, or the aliases **`-t cl` / `-t cln`** (same as `l1` / `ln`). For a **UAS**, `-t s1` / `-t sn` are **UDP-only** aliases; use `-t l1` / `-t ln` or the TLS server shortcut `-t sl` (same as `l1`). A TLS listener needs `-tls_cert` and `-tls_key`; clients often use `-tls_ca` and `-tls_skip_verify=false` when validating the peer. The default `-tls_skip_verify=true` is convenient for lab setups only.
@@ -272,66 +278,66 @@ go run ./cmd/gossip -t l1 -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:
 Run the built-in **UAS over TLS** (replace certificate paths with real files):
 
 ```bash
-go run ./cmd/gossip -sn uas -t sl -i 0.0.0.0 -p 5061 \
+./gossipper -sn uas -t sl -i 0.0.0.0 -p 5061 \
   -tls_cert ./server.crt -tls_key ./server.key -m 1
 ```
 
 Run the built-in UAS in SIPp-style server transport mode:
 
 ```bash
-go run ./cmd/gossip -sn uas -t s1 -i 0.0.0.0 -p 5060 -m 1
+./gossipper -sn uas -t s1 -i 0.0.0.0 -p 5060 -m 1
 ```
 
 Run out-of-call `OPTIONS` ping/pong between two `Gossipper` instances:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/options_server.xml -t s1 -i 0.0.0.0 -p 5060 -m 1
-go run ./cmd/gossip -sf ./testdata/scenarios/options_client.xml -rsa 127.0.0.1:5060 -s options -m 1 -r 1
+./gossipper -sf ./testdata/scenarios/options_server.xml -t s1 -i 0.0.0.0 -p 5060 -m 1
+./gossipper -sf ./testdata/scenarios/options_client.xml -rsa 127.0.0.1:5060 -s options -m 1 -r 1
 ```
 
 Run a challenged Digest auth scenario with SIPp-style credentials:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/auth_uac.xml -rsa 127.0.0.1:5060 -s alice -au alice -ap secret -m 1 -r 1
+./gossipper -sf ./testdata/scenarios/auth_uac.xml -rsa 127.0.0.1:5060 -s alice -au alice -ap secret -m 1 -r 1
 ```
 
 Run with an explicit base CSeq for `[cseq]` tokens:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -base_cseq 42 -m 1 -r 1
+./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -base_cseq 42 -m 1 -r 1
 ```
 
 Run a SIPp-style audio PCAP replay action from a scenario:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -m 1 -r 1
+./gossipper -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
 Run the bundled local two-sided PCAP demo between two `Gossipper` instances:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
-go run ./cmd/gossip -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
+./gossipper -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
+./gossipper -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
 ```
 
 Run the bundled DTMF-over-PCAP demo against the same local UAS:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
-go run ./cmd/gossip -sf ./testdata/scenarios/uac_dtmf_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
+./gossipper -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
+./gossipper -sf ./testdata/scenarios/uac_dtmf_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
 ```
 
 Run 3PCC-style command exchange between instances with the low-level transport flags:
 
 ```bash
-go run ./cmd/gossip -sf ./scenario.xml -rsa 127.0.0.1:5060 -cmd_name m -cmd_peers ./peers.cfg
+./gossipper -sf ./scenario.xml -rsa 127.0.0.1:5060 -cmd_name m -cmd_peers ./peers.cfg
 ```
 
 Run the same flow with SIPp-style master/slave aliases:
 
 ```bash
-go run ./cmd/gossip -sf ./testdata/scenarios/3pcc_slave.xml -slave s1 -slave_cfg ./peers.cfg
-go run ./cmd/gossip -sf ./testdata/scenarios/3pcc_master.xml -master m -slave_cfg ./peers.cfg -rsa 127.0.0.1:5060
+./gossipper -sf ./testdata/scenarios/3pcc_slave.xml -slave s1 -slave_cfg ./peers.cfg
+./gossipper -sf ./testdata/scenarios/3pcc_master.xml -master m -slave_cfg ./peers.cfg -rsa 127.0.0.1:5060
 ```
 
 ## Packaging
