@@ -359,19 +359,21 @@ make build
 Build Linux packages with `nfpm`:
 
 ```bash
+make package          # deb + rpm in one shot (recommended)
 make package-deb
 make package-rpm
 ```
 
-Or call the builder script directly:
+Or call the packaging script directly (same layout as Homer `scripts/build_package.sh`):
 
 ```bash
-VERSION=0.1.0 ARCH=amd64 scripts/build-package.sh deb
-VERSION=0.1.0 ARCH=amd64 scripts/build-package.sh rpm
+VERSION=0.1.0 ARCH=amd64 OS=linux scripts/build_package.sh deb
+VERSION=0.1.0 ARCH=amd64 OS=linux scripts/build_package.sh rpm
+# or both in one run (one frontend + one compile):
+VERSION=0.1.0 ARCH=amd64 OS=linux scripts/build_package.sh all
 ```
 
-The builder uses local `nfpm` when available and falls back to the
-`goreleaser/nfpm` Docker image otherwise.
+The script mirrors CI: checks Node for the Control UI, runs `npm ci` / `npm run build` in `web/control-ui`, compiles a static `gossipper` into `dist/`, downloads `nfpm` v2.41.1 into the repo root if missing, then runs `nfpm package`. The legacy name `scripts/build-package.sh` is a thin wrapper around `scripts/build_package.sh`.
 
 By default, package versions are taken from `cmd/gossip/version.go`. You can
 override them by exporting `VERSION=...` for ad-hoc builds.

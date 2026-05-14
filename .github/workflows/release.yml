@@ -99,8 +99,7 @@ jobs:
           OS: ${{ matrix.goos }}
           ARCH: ${{ matrix.goarch }}
         run: |
-          scripts/build-package.sh deb
-          scripts/build-package.sh rpm
+          scripts/build_package.sh all
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4

@@ -27,13 +27,14 @@ dynamic: frontend
 	mkdir -p $(DIST)
 	GOOS=$(OS) GOARCH=$(ARCH) go build $(LDFLAGS) -o $(DIST)/$(BIN) $(CMD)
 
-package: package-deb package-rpm
+package:
+	VERSION="$(VERSION)" ARCH="$(ARCH)" OS="$(OS)" scripts/build_package.sh all
 
 package-deb:
-	VERSION="$(VERSION)" ARCH="$(ARCH)" scripts/build-package.sh deb
+	VERSION="$(VERSION)" ARCH="$(ARCH)" OS="$(OS)" scripts/build_package.sh deb
 
 package-rpm:
-	VERSION="$(VERSION)" ARCH="$(ARCH)" scripts/build-package.sh rpm
+	VERSION="$(VERSION)" ARCH="$(ARCH)" OS="$(OS)" scripts/build_package.sh rpm
 
 benchmark:
 	scripts/benchmark-sipp-vs-gossipper.sh "$${BENCH_TARGET:-127.0.0.1:5060}" "$${BENCH_CALLS:-1000}" "$${BENCH_RATE:-50}" "$${BENCH_CONCURRENT:-100}"

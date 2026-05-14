@@ -46,7 +46,7 @@ npm run build
 
 Продакшен-сборка Vite пишет файлы в **`internal/api/webdist/`** в корне репозитория (относительный путь из `web/control-ui`: `../../internal/api/webdist/`), откуда их подхватывает **`go:embed`** в `internal/api/embed_ui.go` и отдаёт тот же HTTP-сервер, что и `/api/v1/*`, на **`GET /`** и **`/assets/*`**.
 
-Для удобства в корне репозитория есть цель **`make frontend`** (и **`make build`** / `scripts/build-package.sh` вызывают её автоматически).
+Для удобства в корне репозитория есть цель **`make frontend`** (и **`make build`** / `scripts/build_package.sh` вызывают её автоматически).
 
 В каталоге лежит отдельный **`go.mod`** (пустой модуль): чтобы **`go list ./...`** / **`go test ./...`** из корня gossipper не заходили в `node_modules` после `npm ci`.
 
