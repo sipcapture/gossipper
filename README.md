@@ -44,7 +44,7 @@ The current MVP implements:
 - Pragmatic RTP activity checks via `exec rtpcheck="..."` with configurable `min_packets`, `timeout_ms`, and `direction=any|send|recv|both` (legacy `bidirectional` alias is also supported)
 - RTP echo helper mode via `exec rtp_stream="echo"`
 - Periodic RTCP sender reports plus basic incoming RTCP counters via `pion/rtcp`
-- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause)
+- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a copy under **`/usr/share/gossipper/control-ui/`** for optional static hosting.
 
 ## Project layout
 
@@ -57,7 +57,7 @@ The current MVP implements:
 - `internal/sip`: SIP message parsing helpers
 - `internal/transport`: UDP, TCP, and TLS transports
 - `internal/api`: optional HTTP management API (`-api_addr`) for live stats, scenario file read/write, hot apply, and rate/pause control
-- `web/control-ui`: optional Vite/React control panel for that HTTP API (see `web/control-ui/README.md`)
+- `web/control-ui`: optional Vite/React control panel for that HTTP API (see `web/control-ui/README.md`); production build is written to `internal/api/webdist/` and embedded into the binary (`go:embed`). A tiny `web/control-ui/go.mod` exists so `go test ./...` does not scan `node_modules`.
 - `internal/scheduler`: timing abstraction
 - `internal/stats`: counters and summaries
 - `internal/media`: RTP helpers backed by Pion
@@ -80,7 +80,14 @@ The current MVP implements:
 
 ## Quick start
 
-Build the binary once (repo root), then invoke **`./gossipper`** as argv0 (or `gossipper` if it is on your `PATH`):
+Production-style binary (includes embedded Control UI for `-api_addr`, like Homer’s `make all`):
+
+```bash
+make build
+# binary: ./dist/gossipper
+```
+
+Quick local compile **without** rebuilding the web UI (API only, no `GET /` panel until you run `make frontend`):
 
 ```bash
 go build -o gossipper ./cmd/gossip

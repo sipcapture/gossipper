@@ -69,8 +69,12 @@ jobs:
           fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
-      - name: Test
-        run: go test ./...
+      - name: Set up Node (Control UI for embed + packages)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/control-ui/package-lock.json
 
       - name: Build binary
         env:
@@ -78,7 +82,7 @@ jobs:
           OS: ${{ matrix.goos }}
           ARCH: ${{ matrix.goarch }}
         run: |
-          make build VERSION="${VERSION}" OS="${OS}" ARCH="${ARCH}"
+          make frontend && go test ./... && make build-go VERSION="${VERSION}" OS="${OS}" ARCH="${ARCH}"
           mv "dist/gossipper" "dist/gossipper_${OS}_${ARCH}"
 
       - name: Install nfpm

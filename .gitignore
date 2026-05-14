@@ -1,3 +1,7 @@
 dist/
 build/
 *.prof
+
+# Vite build output for embedded Control UI (tracked placeholder: internal/api/webdist/.gitkeep)
+internal/api/webdist/*
+!internal/api/webdist/.gitkeep

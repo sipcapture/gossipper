@@ -37,6 +37,7 @@ mkdir -p "${DIST_DIR}"
 
 (
   cd "${ROOT_DIR}"
+  make frontend
   CGO_ENABLED=0 GOOS="${OS}" GOARCH="${ARCH}" go build \
     -ldflags "-X main.Version=${VERSION} -X main.BuildDate=${BUILD_DATE} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT} -X main.GoVersion=${GO_VERSION} -X main.BuildOS=${OS} -X main.BuildArch=${ARCH}" \
     -o "${DIST_DIR}/${BIN_NAME}" "${CMD_PATH}"

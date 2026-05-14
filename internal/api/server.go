@@ -57,6 +57,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/scenario/apply", s.wrap(s.handleScenarioApply))
 	mux.HandleFunc("GET /api/v1/control", s.wrap(s.handleControlGet))
 	mux.HandleFunc("POST /api/v1/control", s.wrap(s.handleControlPost))
+	registerEmbeddedControlUI(mux)
 	return mux
 }
 

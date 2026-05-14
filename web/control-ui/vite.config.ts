@@ -24,7 +24,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
-      outDir: 'dist',
+      // Embedded into gossipper binary (see internal/api/embed_ui.go); same idea as Homer src/ui → src/dist.
+      outDir: '../../internal/api/webdist',
       emptyOutDir: true,
     },
   }

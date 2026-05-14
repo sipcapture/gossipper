@@ -327,7 +327,7 @@ func Parse(args []string) (Config, error) {
 	timeoutGlobalSec := fs.Int("timeout_global", 0, "exit after N seconds of total runtime (SIPp-compatible)")
 	hepCaptureID := fs.Uint("hep_capture_id", uint(cfg.HEPCaptureID), "HEP3 capture node ID")
 	fs.StringVar(&cfg.PprofAddr, "pprof", "", "pprof HTTP address (e.g. :6060) for live CPU/memory/goroutine profiling")
-	fs.StringVar(&cfg.ApiAddr, "api_addr", "", "HTTP listen address for management API (e.g. :8080); see /api/v1/health")
+	fs.StringVar(&cfg.ApiAddr, "api_addr", "", "HTTP listen address for management API (e.g. :8080); GET / serves embedded Control UI when built with `make frontend`, API under /api/v1/")
 	fs.StringVar(&cfg.ApiToken, "api_token", "", "optional Bearer token required for all /api/v1 requests when set")
 	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "write CPU profile to file at exit")
 	fs.StringVar(&cfg.MemProfile, "memprofile", "", "write memory profile to file at exit")

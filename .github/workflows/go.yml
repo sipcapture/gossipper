@@ -26,8 +26,12 @@ jobs:
           go-version: "1.26.1"
           cache: false
 
-      - name: Test
-        run: go test ./...
+      - name: Set up Node (Control UI for embed + packages)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/control-ui/package-lock.json
 
-      - name: Build
-        run: make build
+      - name: Test and build
+        run: make frontend && go test ./... && make build-go

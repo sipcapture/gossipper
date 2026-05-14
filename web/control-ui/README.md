@@ -38,13 +38,23 @@ VITE_API_TARGET=http://10.0.0.5:9090 npm run dev
 -sf /path/to/scenario.xml
 ```
 
-## Сборка для статики
+## Сборка для статики / встраивание в gossipper
 
 ```bash
 npm run build
 ```
 
-Артефакты в каталоге `dist/`. Раздавайте их любым статическим сервером и проксируйте `/api/v1` на тот же хост/порт, где слушает gossipper (или соберите с `VITE_API_BASE=https://gossipper.example:8080/api/v1` для прямых запросов в браузере — учитывайте CORS).
+Продакшен-сборка Vite пишет файлы в **`internal/api/webdist/`** в корне репозитория (относительный путь из `web/control-ui`: `../../internal/api/webdist/`), откуда их подхватывает **`go:embed`** в `internal/api/embed_ui.go` и отдаёт тот же HTTP-сервер, что и `/api/v1/*`, на **`GET /`** и **`/assets/*`**.
+
+Для удобства в корне репозитория есть цель **`make frontend`** (и **`make build`** / `scripts/build-package.sh` вызывают её автоматически).
+
+В каталоге лежит отдельный **`go.mod`** (пустой модуль): чтобы **`go list ./...`** / **`go test ./...`** из корня gossipper не заходили в `node_modules` после `npm ci`.
+
+Файл **`.env.production`** задаёт `VITE_API_BASE=/api/v1` (тот же origin, что и встроенный UI).
+
+## Сборка только в `dist/` (без embed)
+
+Если нужен классический каталог **`dist/`** под nginx без встраивания в бинарник, временно поменяйте в `vite.config.ts` поле `build.outDir` на `dist` и соберите как обычно.
 
 ## Эндпоинты (для справки)
 

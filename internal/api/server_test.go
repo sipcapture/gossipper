@@ -179,3 +179,24 @@ Content-Length: 0
 		t.Fatalf("live scenario name: got %q want t2", snap.Name)
 	}
 }
+
+func TestEmbeddedControlUIIndex(t *testing.T) {
+	if !HasEmbeddedControlUI() {
+		t.Skip("no embedded UI (run `make frontend` in repo root)")
+	}
+	srv := New(ServerConfig{})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := ts.Client().Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET /: %s", res.Status)
+	}
+	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("Content-Type: %q", ct)
+	}
+}

@@ -10,13 +10,20 @@ OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildDate=$(BUILD_DATE) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT) -X main.GoVersion=$(GO_VERSION) -X main.BuildOS=$(OS) -X main.BuildArch=$(ARCH)"
 
-.PHONY: build dynamic package package-deb package-rpm benchmark bench-transport clean
+.PHONY: build build-go dynamic frontend package package-deb package-rpm benchmark bench-transport clean
 
-build:
+# Control UI for -api_addr (embedded via go:embed); same role as Homer Makefile frontend target.
+frontend:
+	cd web/control-ui && npm ci && npm run build
+	@git checkout -- internal/api/webdist/.gitkeep 2>/dev/null || : > internal/api/webdist/.gitkeep
+
+build-go:
 	mkdir -p $(DIST)
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build $(LDFLAGS) -o $(DIST)/$(BIN) $(CMD)
 
-dynamic:
+build: frontend build-go
+
+dynamic: frontend
 	mkdir -p $(DIST)
 	GOOS=$(OS) GOARCH=$(ARCH) go build $(LDFLAGS) -o $(DIST)/$(BIN) $(CMD)
 

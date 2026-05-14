@@ -32,6 +32,10 @@ contents:
   - src: ./docs
     dst: /usr/share/doc/gossipper/docs
 
+  - src: ./internal/api/webdist
+    dst: /usr/share/gossipper/control-ui
+    type: tree
+
   - dst: /etc/gossipper
     type: dir
     file_info:

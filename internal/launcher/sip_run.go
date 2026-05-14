@@ -51,7 +51,11 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 			},
 		})
 		go func() {
-			fmt.Fprintf(os.Stderr, "api: listening on http://%s/api/v1/health\n", prepared.CLIConfig.ApiAddr)
+			if api.HasEmbeddedControlUI() {
+				fmt.Fprintf(os.Stderr, "api: listening on http://%s/ (Control UI) and http://%s/api/v1/health\n", prepared.CLIConfig.ApiAddr, prepared.CLIConfig.ApiAddr)
+			} else {
+				fmt.Fprintf(os.Stderr, "api: listening on http://%s/api/v1/health (run `make frontend` to embed Control UI at /)\n", prepared.CLIConfig.ApiAddr)
+			}
 			if err := api.StartListenAndServe(runCtx, prepared.CLIConfig.ApiAddr, apSrv.Handler()); err != nil {
 				fmt.Fprintf(os.Stderr, "api: %v\n", err)
 			}
