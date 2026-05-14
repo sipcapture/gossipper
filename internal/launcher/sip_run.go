@@ -103,9 +103,13 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 	opts := &stats.SummaryWriteOptions{
 		ToolVersion: prepared.CLIConfig.ToolVersion,
 		Health: stats.HealthConfig{
-			MinSuccessRatio: prepared.CLIConfig.HealthMinSuccessRatio,
-			MaxFailedCalls:  prepared.CLIConfig.HealthMaxFailedCalls,
-			MaxTimeouts:     prepared.CLIConfig.HealthMaxTimeouts,
+			MinSuccessRatio:                prepared.CLIConfig.HealthMinSuccessRatio,
+			MaxFailedCalls:                 prepared.CLIConfig.HealthMaxFailedCalls,
+			MaxTimeouts:                    prepared.CLIConfig.HealthMaxTimeouts,
+			HealthMaxRTCPFractionLost:      prepared.CLIConfig.HealthMaxRTCPFractionLost,
+			HealthMaxRTCPJitterTS:          prepared.CLIConfig.HealthMaxRTCPJitterTS,
+			HealthMinRTPPacketsRecv:        prepared.CLIConfig.HealthMinRTPPacketsRecv,
+			HealthMinRTPPacketsRecvPerCall: prepared.CLIConfig.HealthMinRTPPacketsRecvPerCall,
 		},
 	}
 	writeJSON := prepared.CLIConfig.SummaryJSON != ""

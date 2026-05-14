@@ -34,6 +34,8 @@
 - Audio PCAP replay for pre-recorded RTP streams and telephone-event style captures
 - Pragmatic video/image PCAP replay where SDP exposes `m=video` / `m=image`
 - Pragmatic RTP activity checks via XML `exec rtpcheck="..."` (`min_packets`, `timeout_ms`, `direction`)
+- **WAV recording** of received G.711 (PT 0/8): `exec rtp_record` and CLI `-record_wav_dir` / `-record_wav_duplex`
+- **Microphone RTP** (`exec rtp_stream="mic"[,device]`) — default builds: Linux `arecord` or `ffmpeg:` tail; macOS/Windows **ffmpeg**. With **`go build -tags audio`**: **PortAudio** (CGO + `libportaudio` / `pkg-config portaudio-2.0`); device string is PortAudio index or name substring. See `docs/rtp-in-scenarios.md`.
 
 ## Known limits
 

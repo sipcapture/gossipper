@@ -118,6 +118,10 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		SipPAI:           cfg.SipPAI,
 		SipProvider:      cfg.SipProvider,
 		SipExtraHeaders:  append([]string(nil), cfg.SipExtraHeaders...),
+		RecordWAVDir:     cfg.RecordWAVDir,
+		RecordWAVDuplex:  cfg.RecordWAVDuplex,
+		CallRecordsJSONL: cfg.CallRecordsJSONL,
+		MediaRejectSRTP:  cfg.MediaRejectSRTP,
 	}
 
 	return Prepared{

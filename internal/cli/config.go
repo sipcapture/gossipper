@@ -131,6 +131,21 @@ type Config struct {
 	SipPAI          string
 	SipProvider     string
 	SipExtraHeaders []string
+
+	// RecordWAVDir enables automatic per-call WAV capture (decoded remote G.711); see docs/media-roadmap.md.
+	RecordWAVDir    string
+	RecordWAVDuplex bool
+	// CallRecordsJSONL appends one JSON object per finished call (schema gossipper_call_record_v1).
+	CallRecordsJSONL string
+
+	// HealthMaxRTCPFractionLost, when > 0, fails if media.rtcp_max_fraction_lost exceeds this (0..1).
+	HealthMaxRTCPFractionLost float64
+	HealthMaxRTCPJitterTS     int
+	HealthMinRTPPacketsRecv   int
+	// HealthMinRTPPacketsRecvPerCall gates on per-call minimum inbound RTP (see media.per_call_min_rtp_packets_received).
+	HealthMinRTPPacketsRecvPerCall int
+	// MediaRejectSRTP fails rtp_stream start/mic when remote SDP suggests SRTP.
+	MediaRejectSRTP bool
 }
 
 func DefaultConfig() Config {
@@ -211,13 +226,13 @@ func Parse(args []string) (Config, error) {
 		fs.PrintDefaults()
 	}
 	fs.StringVar(&cfg.ScenarioFile, "sf", cfg.ScenarioFile, "path to XML scenario file")
-	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas, invite_media)")
+	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas, invite_media, invite_media_early, invite_media_early_180)")
 	fs.StringVar(&cfg.Service, "s", cfg.Service, "service name used in templates")
 	fs.StringVar(&cfg.Transport, "t", cfg.Transport, "transport: u1/un/ui, t1/tn, l1/ln; client TLS aliases cl/cln; server UDP s1/sn; server TLS sl")
 	fs.StringVar(&cfg.LocalIP, "i", cfg.LocalIP, "local IP address")
 	fs.IntVar(&cfg.LocalPort, "p", cfg.LocalPort, "local port")
-	fs.StringVar(&cfg.InjectionFile, "inf", cfg.InjectionFile, "CSV path: with ui, bind/source IP column requires -ip_field; with TLS (cl/cln/l1/ln) optional -ip_field for per-row bind IPs; with TCP (t1/tn) optional -inf without -ip_field for [fieldN] only (bind uses -i)")
-	fs.IntVar(&cfg.IPField, "ip_field", cfg.IPField, "zero-based CSV column for bind/source IP (required with -inf for ui; optional for TLS cl/cln/l1/ln; not supported with TCP t1/tn)")
+	fs.StringVar(&cfg.InjectionFile, "inf", cfg.InjectionFile, "CSV path: with ui, bind/source IP column requires -ip_field; with TLS (cl/cln/l1/ln) optional -ip_field for per-row bind IPs; with TCP/UDP client (t1/tn/u1/un) optional -inf without -ip_field for [fieldN] only (bind uses -i)")
+	fs.IntVar(&cfg.IPField, "ip_field", cfg.IPField, "zero-based CSV column for bind/source IP (required with -inf for ui; optional for TLS cl/cln/l1/ln; not supported with TCP/UDP t1/tn/u1/un)")
 	fs.IntVar(&cfg.IPField, "ipfield", cfg.IPField, "alias for -ip_field (SIPp-compatible)")
 	fs.StringVar(&cfg.AuthUsername, "au", cfg.AuthUsername, "authorization username for authentication challenges")
 	fs.StringVar(&cfg.AuthPassword, "ap", cfg.AuthPassword, "authorization password for authentication challenges")
@@ -247,6 +262,14 @@ func Parse(args []string) (Config, error) {
 	fs.Float64Var(&cfg.HealthMinSuccessRatio, "health_min_success_ratio", 0, "when >0 with -summary_json or -summary_html, fail run if success_ratio is lower (e.g. 0.95); exit code 2")
 	fs.IntVar(&cfg.HealthMaxFailedCalls, "health_max_failed_calls", -1, "when >=0 with -summary_json or -summary_html, fail if failed_calls exceed this (0 means any failure fails); exit code 2")
 	fs.IntVar(&cfg.HealthMaxTimeouts, "health_max_timeouts", -1, "when >=0 with -summary_json or -summary_html, fail if timeouts exceed this; exit code 2")
+	fs.Float64Var(&cfg.HealthMaxRTCPFractionLost, "health_max_rtcp_fraction_lost", 0, "when >0 with summary/health output, fail if media rtcp_max_fraction_lost exceeds this (0..1); exit code 2")
+	fs.IntVar(&cfg.HealthMaxRTCPJitterTS, "health_max_rtcp_jitter_ts", 0, "when >0 with summary/health output, fail if media rtcp_max_jitter_ts exceeds this; exit code 2")
+	fs.IntVar(&cfg.HealthMinRTPPacketsRecv, "health_min_rtp_packets_recv", 0, "when >0 with summary/health output, fail if aggregated rtp_packets_received is below this; exit code 2")
+	fs.IntVar(&cfg.HealthMinRTPPacketsRecvPerCall, "health_min_rtp_packets_recv_per_call", 0, "when >0, fail if any call had fewer inbound RTP packets than this (per-call min); exit code 2")
+	fs.StringVar(&cfg.RecordWAVDir, "record_wav_dir", "", "auto-record incoming RTP (G.711) to WAV per call in this directory (requires active media)")
+	fs.BoolVar(&cfg.RecordWAVDuplex, "record_wav_duplex", false, "with -record_wav_dir, write stereo WAV (L=sent R=received)")
+	fs.StringVar(&cfg.CallRecordsJSONL, "call_records_jsonl", "", "append one JSON call record per finished call to this path")
+	fs.BoolVar(&cfg.MediaRejectSRTP, "media_reject_srtp", false, "fail rtp_stream start/mic when remote SDP suggests SRTP (RTP/SAVP, a=crypto, a=fingerprint)")
 	fs.BoolVar(&cfg.TraceMessages, "trace_msg", cfg.TraceMessages, "trace sent and received SIP messages")
 	fs.BoolVar(&cfg.TraceShortMsg, "trace_shortmsg", false, "trace sent and received messages as compact CSV")
 	fs.BoolVar(&cfg.TraceCounts, "trace_counts", false, "write periodic SIP message counters as CSV")
@@ -431,7 +454,7 @@ func Parse(args []string) (Config, error) {
 	}
 	if cfg.InjectionFile != "" && cfg.IPField < 0 {
 		switch cfg.Transport {
-		case "cl", "cln", "l1", "ln", "t1", "tn":
+		case "cl", "cln", "l1", "ln", "t1", "tn", "u1", "un":
 			// SIPp-style: -inf without -ip_field does not load bind IPs; use -i and [local_ip] from socket.
 		default:
 			return Config{}, errors.New("ip_field must be specified when inf is set")
@@ -459,12 +482,12 @@ func Parse(args []string) (Config, error) {
 				}
 				cfg.UISourceIPs = sourceIPs
 			}
-		case "t1", "tn":
+		case "t1", "tn", "u1", "un":
 			if cfg.IPField >= 0 {
-				return Config{}, errors.New("transport t1/tn does not support -ip_field with -inf (use -i for local bind; use -inf without -ip_field for CSV [fieldN] only)")
+				return Config{}, errors.New("transport u1/un/t1/tn does not support -ip_field with -inf (use -i for local bind; use -inf without -ip_field for CSV [fieldN] only)")
 			}
 		default:
-			return Config{}, errors.New("inf and ip_field are only supported with transport ui, TLS client (cl/cln/l1/ln), or -inf alone with TCP client (t1/tn)")
+			return Config{}, errors.New("inf and ip_field are only supported with transport ui, TLS client (cl/cln/l1/ln), or -inf alone with TCP/UDP client (t1/tn/u1/un)")
 		}
 	}
 

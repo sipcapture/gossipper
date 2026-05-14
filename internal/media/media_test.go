@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipcapture/gossipper/internal/sip"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/pion/rtcp"
+	"github.com/sipcapture/gossipper/internal/sip"
 )
 
 func TestTestdataRawFile(t *testing.T) {
@@ -151,6 +151,24 @@ func TestParseRTPStreamSpecPayloadParams(t *testing.T) {
 	}
 	if cfg.LoopCount != -1 || cfg.PayloadType != 8 || cfg.PayloadName != "PCMA/8000" {
 		t.Fatalf("unexpected cfg: %+v", cfg)
+	}
+}
+
+func TestParseRTPStreamMicInput(t *testing.T) {
+	t.Parallel()
+	cmd, cfg, err := ParseRTPStreamSpec("mic", "")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec(mic): %v", err)
+	}
+	if cmd != "mic" || cfg.MicInput != "" {
+		t.Fatalf("mic: got cmd=%q cfg=%+v", cmd, cfg)
+	}
+	cmd, cfg, err = ParseRTPStreamSpec("mic, plughw:1,0 ", "")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec(mic,dev): %v", err)
+	}
+	if cmd != "mic" || cfg.MicInput != "plughw:1,0" {
+		t.Fatalf("mic device: got cmd=%q cfg=%+v", cmd, cfg)
 	}
 }
 

@@ -951,19 +951,26 @@ func TestParseRejectsUITransportWithoutInjection(t *testing.T) {
 	}
 }
 
-func TestParseRejectsInfWithoutIPField(t *testing.T) {
+func TestParseAcceptsInfWithoutIPFieldForUDPClient(t *testing.T) {
 	t.Parallel()
 
 	injectionPath := filepath.Join(t.TempDir(), "ips.csv")
 	if err := os.WriteFile(injectionPath, []byte("127.0.0.2\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(injection) error = %v", err)
 	}
-	if _, err := Parse([]string{
+	cfg, err := Parse([]string{
 		"-sn", "uac",
 		"-rsa", "127.0.0.1:5060",
 		"-inf", injectionPath,
-	}); err == nil {
-		t.Fatal("expected Parse() to reject inf without ip_field")
+	})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if cfg.InjectionFile != injectionPath || cfg.IPField != -1 {
+		t.Fatalf("unexpected injection config: file=%q ip_field=%d", cfg.InjectionFile, cfg.IPField)
+	}
+	if len(cfg.UISourceIPs) != 0 {
+		t.Fatalf("expected empty UISourceIPs, got %+v", cfg.UISourceIPs)
 	}
 }
 
@@ -1032,7 +1039,7 @@ func TestParseAcceptsClientInfWithoutIPField(t *testing.T) {
 	if err := os.WriteFile(injectionPath, []byte("SEQUENTIAL\n127.0.0.2\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(injection) error = %v", err)
 	}
-	for _, transport := range []string{"cl", "cln", "l1", "ln", "t1", "tn"} {
+	for _, transport := range []string{"cl", "cln", "l1", "ln", "t1", "tn", "u1", "un"} {
 		transport := transport
 		t.Run(transport, func(t *testing.T) {
 			t.Parallel()
@@ -1448,12 +1455,16 @@ func TestParseRejectsOSSIncompatibleMediaReport(t *testing.T) {
 
 type parseTestStubExporter struct{}
 
-func (parseTestStubExporter) SendRTP(time.Time, string, int, string, int, string, []byte) error { return nil }
+func (parseTestStubExporter) SendRTP(time.Time, string, int, string, int, string, []byte) error {
+	return nil
+}
 func (parseTestStubExporter) SendRTCP(time.Time, string, uint32, string, int, string, int, uint32, []byte) error {
 	return nil
 }
 func (parseTestStubExporter) SendFinalReports(string) {}
-func (parseTestStubExporter) Close() error { return nil }
+func (parseTestStubExporter) Close() error {
+	return nil
+}
 
 func TestParseAllowsSendMediaReportShortJSONWhenExtensionRegistered(t *testing.T) {
 	mediasink.RegisterMediaExporterExtension(func(conn *net.UDPConn, addr *net.UDPAddr, cfg mediasink.MediaConfig) (mediasink.MediaExporter, error) {

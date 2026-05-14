@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -75,7 +76,7 @@ type Config struct {
 	// the scenario omits recv timeout (zero uses DefaultRecvTO). Prevents UAS
 	// from failing while the UAC is still in a long media pause before BYE.
 	// Zero disables (BYE uses only DefaultRecvTO).
-	RecvBYEFloorTO  time.Duration
+	RecvBYEFloorTO   time.Duration
 	TraceMessages    bool
 	TraceShortMsg    bool
 	TraceCounts      bool
@@ -115,6 +116,13 @@ type Config struct {
 	// PCAPLinkLayer selects the PCAP datalink decoder for play_pcap_* replay (and mirrors CLI -pcap-link).
 	// Empty means auto (uses file DLT; LINUX_SLL2 is detected from the global header).
 	PCAPLinkLayer string
+
+	// RecordWAVDir enables automatic WAV capture per call (file named from Call-ID).
+	RecordWAVDir     string
+	RecordWAVDuplex  bool
+	CallRecordsJSONL string
+	// MediaRejectSRTP fails rtp_stream start/mic when remote SDP looks like SRTP (SAVP / crypto / DTLS).
+	MediaRejectSRTP bool
 
 	// SipFrom is the SIP From header value before ";tag=" (name-addr or URI). Empty uses gossip@local.
 	SipFrom string
@@ -157,6 +165,8 @@ type Engine struct {
 	sem            *dynSemaphore
 	perSocketMode  atomic.Bool
 	runtimeMaxConc atomic.Int64 // user-set value (0 = use cfg.MaxConcurrent)
+
+	callRecordsMu sync.Mutex
 }
 
 func New(cfg Config) *Engine {
@@ -1419,6 +1429,7 @@ func (e *Engine) executeCall(
 		mediaSession.SetHEPObserver(e.hep)
 	}
 	mediaSession.SetCallID(callID)
+	mediaSession.SetAutoRecord(e.cfg.RecordWAVDir, e.cfg.RecordWAVDuplex)
 	sawUnexpectedSIP := false
 	e.log.Emit(eventlog.Event{
 		Time:  startedAt,
@@ -1445,6 +1456,7 @@ func (e *Engine) executeCall(
 		}
 		mediaSession.Stop()
 		duration := time.Since(startedAt)
+		e.appendCallRecordJSONL(callNumber, callID, success, duration, runErr, sawUnexpectedSIP, mediaSession.Snapshot())
 		e.stats.FinishCall(success, duration)
 		e.traceCallCompleted()
 		result := "success"
@@ -3245,6 +3257,46 @@ func scenarioNeedsSIPTransport(sc scenario.Scenario) bool {
 		}
 	}
 	return false
+}
+
+func (e *Engine) appendCallRecordJSONL(callNumber int, callID string, success bool, duration time.Duration, runErr error, sawUnexpectedSIP bool, snap media.Stats) {
+	path := strings.TrimSpace(e.cfg.CallRecordsJSONL)
+	if path == "" {
+		return
+	}
+	rec := struct {
+		Schema     string      `json:"schema_version"`
+		CallID     string      `json:"call_id"`
+		CallNumber int         `json:"call_number"`
+		Success    bool        `json:"success"`
+		DurationMs int64       `json:"duration_ms"`
+		Error      string      `json:"error,omitempty"`
+		Unexpected bool        `json:"sip_unexpected,omitempty"`
+		Media      media.Stats `json:"media"`
+	}{
+		Schema:     "gossipper_call_record_v1",
+		CallID:     callID,
+		CallNumber: callNumber,
+		Success:    success,
+		DurationMs: duration.Milliseconds(),
+		Unexpected: sawUnexpectedSIP,
+		Media:      snap,
+	}
+	if runErr != nil {
+		rec.Error = runErr.Error()
+	}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		return
+	}
+	e.callRecordsMu.Lock()
+	defer e.callRecordsMu.Unlock()
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	_, _ = f.Write(append(b, '\n'))
+	_ = f.Close()
 }
 
 type tcpReader interface {

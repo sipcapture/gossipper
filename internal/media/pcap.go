@@ -88,6 +88,7 @@ func (s *Session) StartPCAPReplay(ctx context.Context, endpoint Endpoint, path, 
 		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, StreamConfig{SSRC: firstSSRC}, obs, callID)
 		go s.rtcpReceiveLoop(childCtx, rtcpConn)
 	}
+	s.maybeStartAutoRecord()
 	return nil
 }
 
@@ -130,6 +131,7 @@ func (s *Session) pcapLoop(ctx context.Context, conn *net.UDPConn, remote *net.U
 			s.octetCount += uint32(len(parsed.Payload))
 			s.stats.RTPPacketsSent++
 			s.stats.RTPOctetsSent += uint32(len(parsed.Payload))
+			s.appendRecordOutbound(parsed.PayloadType, parsed.Payload)
 			s.mu.Unlock()
 			continue
 		}

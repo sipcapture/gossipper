@@ -26,10 +26,14 @@ type Collector struct {
 	callLatency     latencyAccumulator
 	inviteLatency   latencyAccumulator
 	media           MediaSummary
-	rtds            map[string]latencyAccumulator
-	counters        map[string]int
-	displays        map[string]int
-	failureClasses  map[string]int
+	// Per-call inbound RTP extrema (updated in AddMediaStats).
+	perCallRtpMinValid        bool
+	perCallRtpMin             uint32
+	mediaCallsWithRTPReceived int
+	rtds                      map[string]latencyAccumulator
+	counters                  map[string]int
+	displays                  map[string]int
+	failureClasses            map[string]int
 }
 
 type MediaSummary struct {
@@ -45,8 +49,14 @@ type MediaSummary struct {
 	RTCPMaxFractionLost float64 `json:"rtcp_max_fraction_lost,omitempty"`
 	// RTCPMaxJitterTS is the maximum reported interarrival jitter in RTP timestamp units.
 	RTCPMaxJitterTS uint32 `json:"rtcp_max_jitter_ts,omitempty"`
+	// RTCPMinJitterTS is the minimum non-zero jitter from inbound RR blocks (timestamp units).
+	RTCPMinJitterTS uint32 `json:"rtcp_min_jitter_ts,omitempty"`
 	// RTCPAvgJitterTS is the mean jitter across all sampled reception report blocks (timestamp units).
 	RTCPAvgJitterTS float64 `json:"rtcp_avg_jitter_ts,omitempty"`
+	// CallsWithRTPReceived counts finished calls that saw at least one inbound RTP packet.
+	CallsWithRTPReceived int `json:"media_calls_with_rtp_received,omitempty"`
+	// PerCallMinRTPPacketsReceived is the minimum rtp_packets_received among calls with inbound RTP.
+	PerCallMinRTPPacketsReceived uint32 `json:"per_call_min_rtp_packets_received,omitempty"`
 
 	rtcpJitterSum     float64 `json:"-"`
 	rtcpJitterSamples uint64  `json:"-"`
@@ -164,8 +174,22 @@ func (c *Collector) AddMediaStats(value media.Stats) {
 	if value.RTCPMaxJitter > c.media.RTCPMaxJitterTS {
 		c.media.RTCPMaxJitterTS = value.RTCPMaxJitter
 	}
+	if value.RTCPMinJitter > 0 {
+		if c.media.RTCPMinJitterTS == 0 || value.RTCPMinJitter < c.media.RTCPMinJitterTS {
+			c.media.RTCPMinJitterTS = value.RTCPMinJitter
+		}
+	}
 	c.media.rtcpJitterSum += value.RTCPJitterSum
 	c.media.rtcpJitterSamples += value.RTCPJitterSamples
+	if value.RTPPacketsReceived > 0 {
+		c.mediaCallsWithRTPReceived++
+		if !c.perCallRtpMinValid {
+			c.perCallRtpMin = value.RTPPacketsReceived
+			c.perCallRtpMinValid = true
+		} else if value.RTPPacketsReceived < c.perCallRtpMin {
+			c.perCallRtpMin = value.RTPPacketsReceived
+		}
+	}
 }
 
 func (c *Collector) AddRTD(name string, value time.Duration) {
@@ -275,6 +299,12 @@ func (c *Collector) Snapshot() Summary {
 	callLength, callLengthOK := c.callLatency.snapshot()
 	inviteRTT, inviteRTTOK := c.inviteLatency.snapshot()
 
+	ms := finalizeMediaSummary(c.media)
+	ms.CallsWithRTPReceived = c.mediaCallsWithRTPReceived
+	if c.perCallRtpMinValid {
+		ms.PerCallMinRTPPacketsReceived = c.perCallRtpMin
+	}
+
 	return Summary{
 		StartedAt:          c.startedAt,
 		FinishedAt:         now,
@@ -291,7 +321,7 @@ func (c *Collector) Snapshot() Summary {
 		AverageInviteRTT:   avgInvite,
 		CallLength:         latencySummaryOrNil(callLength, callLengthOK),
 		InviteRTT:          latencySummaryOrNil(inviteRTT, inviteRTTOK),
-		Media:              finalizeMediaSummary(c.media),
+		Media:              ms,
 		RTD:                rtdSummary,
 		Counters:           counters,
 		Displays:           displays,

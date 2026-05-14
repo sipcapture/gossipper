@@ -252,6 +252,28 @@ func TestParseScenarioRTPCheckAction(t *testing.T) {
 	}
 }
 
+func TestParseScenarioRTPRecordAction(t *testing.T) {
+	t.Parallel()
+	sc, err := ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="rec">
+  <nop>
+    <action>
+      <exec rtp_record="start,./out/call.wav,duplex"/>
+    </action>
+  </nop>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString() error = %v", err)
+	}
+	if len(sc.Commands) != 1 || len(sc.Commands[0].Actions) != 1 {
+		t.Fatalf("unexpected parsed scenario: %+v", sc.Commands)
+	}
+	a := sc.Commands[0].Actions[0]
+	if a.Type != ActionExec || a.RTPRecord != "start,./out/call.wav,duplex" {
+		t.Fatalf("unexpected rtp_record action: %+v", a)
+	}
+}
+
 func TestParseScenarioWarningAction(t *testing.T) {
 	t.Parallel()
 

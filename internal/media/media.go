@@ -42,6 +42,8 @@ type StreamConfig struct {
 	// Channels is the number of audio channels (1 = mono, 2 = stereo).
 	// Zero is treated as 1.
 	Channels uint8
+	// MicInput is used only for rtp_stream mic: ALSA device (-D), ffmpeg:… args, or non-Linux ffmpeg -i value.
+	MicInput string
 }
 
 type Session struct {
@@ -63,6 +65,20 @@ type Session struct {
 	localPort     int
 	callID        string
 	pcapLinkLayer string
+
+	// WAV recording (optional). Guarded by mu.
+	recordOn         bool
+	recordDuplex     bool
+	recordRecv       []int16
+	recordSent       []int16
+	recordPath       string
+	autoRecordDir    string
+	autoRecordDuplex bool
+
+	// WAV recording reorder (jitter) buffer: small window by RTP sequence.
+	recordSeqBuf   []recordSeqSample
+	recordNextSeq  uint16
+	recordHaveNext bool
 
 	// Incoming RTP stats for RTCP Receiver Reports (RFC 3550 §6.4.2).
 	// All fields are guarded by mu.
@@ -97,8 +113,10 @@ type Stats struct {
 	RTCPReportBlocks    uint32
 	RTCPMaxFractionLost uint8
 	RTCPMaxJitter       uint32
-	RTCPJitterSum       float64
-	RTCPJitterSamples   uint64
+	// RTCPMinJitter is the minimum non-zero jitter from inbound RR blocks (RFC 3550), in timestamp units.
+	RTCPMinJitter     uint32
+	RTCPJitterSum     float64
+	RTCPJitterSamples uint64
 }
 
 type RTPCheckDirection string
@@ -241,6 +259,14 @@ func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, err
 	if first == "" {
 		return "", StreamConfig{}, errors.New("rtp_stream requires a path or 'synthetic'")
 	}
+	switch strings.ToLower(first) {
+	case "mic", "microphone":
+		cfg := DefaultConfig("")
+		if len(parts) > 1 {
+			cfg.MicInput = strings.TrimSpace(strings.Join(parts[1:], ","))
+		}
+		return "mic", cfg, nil
+	}
 
 	if strings.ToLower(first) == "synthetic" {
 		cfg := DefaultConfig("")
@@ -363,6 +389,7 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, cfg, obs, callID)
 		go s.rtcpReceiveLoop(childCtx, rtcpConn)
 	}
+	s.maybeStartAutoRecord()
 	return nil
 }
 
@@ -446,6 +473,7 @@ func (s *Session) Stop() {
 	if rtcpConn != nil {
 		_ = rtcpConn.Close()
 	}
+	s.flushRecording()
 }
 
 func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig, packets [][]byte, obs HEPObserver, callID string) {
@@ -514,6 +542,7 @@ func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net
 			s.lastTimestamp = timestamp
 			s.stats.RTPPacketsSent++
 			s.stats.RTPOctetsSent += uint32(len(payload))
+			s.appendRecordOutbound(cfg.PayloadType, payload)
 			s.mu.Unlock()
 			sequence++
 			timestamp += cfg.SamplesPerPkt
@@ -638,6 +667,11 @@ func (s *Session) rtcpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
 					}
 					if rep.Jitter > s.stats.RTCPMaxJitter {
 						s.stats.RTCPMaxJitter = rep.Jitter
+					}
+					if rep.Jitter > 0 {
+						if s.stats.RTCPMinJitter == 0 || rep.Jitter < s.stats.RTCPMinJitter {
+							s.stats.RTCPMinJitter = rep.Jitter
+						}
 					}
 					s.stats.RTCPJitterSum += float64(rep.Jitter)
 					s.stats.RTCPJitterSamples++
@@ -1030,6 +1064,9 @@ func (s *Session) rtpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
 		s.mu.Lock()
 		s.observeRTPPacket(&pkt, now)
 		s.stats.RTPPacketsReceived++
+		if s.recordOn {
+			s.appendRecordInboundWithJitter(&pkt)
+		}
 		s.mu.Unlock()
 	}
 }

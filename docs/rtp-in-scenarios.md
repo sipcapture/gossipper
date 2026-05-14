@@ -62,7 +62,7 @@ Supported payload descriptors:
 | `G722/8000` | 9 | 8000 Hz | 20 ms |
 | `ILBC/8000` | 97 | 8000 Hz | 30 ms |
 | `H264/90000` | 96 | 90000 Hz | 33 ms |
-|| `OPUS/48000` | 111 | 48000 Hz | 20 ms |
+| `OPUS/48000` | 111 | 48000 Hz | 20 ms |
 
 Examples:
 
@@ -91,7 +91,46 @@ Examples:
 
 <!-- Echo mode: reflects every received RTP packet back to the sender -->
 <exec rtp_stream="echo"/>
+
+<!-- Live microphone → PCMU/8000 RTP: default builds — Linux: arecord; macOS/Windows: ffmpeg. Build with -tags audio (+ CGO + libportaudio): PortAudio capture; device = index or name substring. Optional device after a comma (commas inside the device string are preserved). -->
+<exec rtp_stream="mic"/>
+<exec rtp_stream="mic,plughw:1,0"/>
+<exec rtp_stream="mic,ffmpeg:-f pulse -i default"/>
+<!-- PortAudio (-tags audio) examples -->
+<exec rtp_stream="mic,2"/>
+<exec rtp_stream="mic,USB Audio"/>
 ```
+
+---
+
+## exec rtp_record
+
+Writes decoded **incoming** audio to a **16-bit PCM mono 8 kHz** WAV file.
+G.711 **PCMU/PCMA** (PT **0** / **8**) is decoded to PCM. Other payload types
+and **RFC 2833** telephone-event frames advance the timeline as **silence**
+(one 20 ms frame for unknown codecs; RFC 2833 uses the event duration field).
+A small **RTP sequence reorder buffer** reduces gaps when packets arrive out of order.
+
+```xml
+<nop>
+  <action>
+    <exec rtp_record="start,./captures/call.wav"/>
+  </action>
+</nop>
+```
+
+Forms:
+
+| Value | Meaning |
+| --- | --- |
+| `start,<path>` | Begin recording to `path` (mono remote leg). |
+| `start,<path>,duplex` | Stereo WAV: **L** = sent (local) samples, **R** = received; lengths padded with silence to match. |
+| `stop` | Stop and flush the WAV file. |
+
+Paths are resolved like other media files (relative to the scenario directory).
+Start recording **after** `rtp_stream` (or `mic` / `play_pcap_*`) has started the
+media session, or use CLI **`-record_wav_dir`** for automatic per-call files named
+from Call-ID.
 
 ---
 

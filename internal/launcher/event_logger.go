@@ -53,8 +53,8 @@ func BuildEventLogger(cfg cli.Config, sc scenario.Scenario) (eventlog.Logger, fu
 
 func buildResourceAttrs(cfg cli.Config, sc scenario.Scenario) map[string]any {
 	attrs := map[string]any{
-		"service.name":    "gossipper",
-		"gossipper.role":  string(sc.Mode),
+		"service.name":   "gossipper",
+		"gossipper.role": string(sc.Mode),
 	}
 	for k, v := range cfg.LogAttrs {
 		attrs[k] = v

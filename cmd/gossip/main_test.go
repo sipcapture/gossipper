@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipcapture/gossipper/internal/sip"
 	"github.com/pion/rtp"
+	"github.com/sipcapture/gossipper/internal/sip"
 )
 
 func TestRunSupports3PCCMasterSlaveAliases(t *testing.T) {
