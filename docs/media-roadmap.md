@@ -39,7 +39,7 @@
 
 ## Known limits
 
-- No SRTP
+- No SRTP **media path** (no SDES/DTLS-SRTP encrypt/decrypt or SRTP RTP stack yet). SDP is still parsed for cleartext `RTP/AVP` endpoints; **`-media_reject_srtp`** optionally fails `rtp_stream` / `mic` when the peer offers SRTP in SDP—see `docs/srtp.md`.
 - No full SIPp `rtpcheck` parity (only pragmatic RTP activity checks)
 - No dedicated video media pipeline
 - No advanced RTCP analytics in the summary yet
@@ -52,7 +52,7 @@ overall media surface.
 ## Planned milestones
 
 1. Richer RTCP reporting surfaced into engine summary output
-2. Optional SRTP support through a dedicated package
+2. Full SRTP media support (keys from SDP, SRTP send/receive) via a dedicated integration path
 3. Expand pragmatic video/image replay into a dedicated media pipeline only if real scenarios require codec-specific handling
 4. Expand media reporting if real scenarios need jitter/loss-style visibility
 

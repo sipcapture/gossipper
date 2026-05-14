@@ -37,33 +37,41 @@ func TestRunSupports3PCCMasterSlaveAliases(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg := sip.GetMessage()
-			defer sip.PutMessage(msg)
-			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
-				return
-			}
-			callID, _ := sip.Header(msg.Headers, "Call-ID")
-			from, _ := sip.Header(msg.Headers, "From")
-			to, _ := sip.Header(msg.Headers, "To")
-			via, _ := sip.Header(msg.Headers, "Via")
-			cseq, _ := sip.Header(msg.Headers, "CSeq")
-
-			switch strings.ToUpper(msg.Method) {
-			case "INVITE":
-				if header, ok := sip.Header(msg.Headers, "X-3PCC"); ok {
-					seenHeader <- header
+			stopServer := false
+			fatal := false
+			func() {
+				msg := sip.GetMessage()
+				defer sip.PutMessage(msg)
+				if err := sip.ParseInto(msg, buffer[:n]); err != nil {
+					fatal = true
+					return
 				}
-				response := fmt.Sprintf(
-					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
-					via, from, to, callID, cseq,
-				)
-				_, _ = serverConn.WriteToUDP([]byte(response), addr)
-			case "BYE":
-				response := fmt.Sprintf(
-					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
-					via, from, to, callID, cseq,
-				)
-				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				callID, _ := sip.Header(msg.Headers, "Call-ID")
+				from, _ := sip.Header(msg.Headers, "From")
+				to, _ := sip.Header(msg.Headers, "To")
+				via, _ := sip.Header(msg.Headers, "Via")
+				cseq, _ := sip.Header(msg.Headers, "CSeq")
+
+				switch strings.ToUpper(msg.Method) {
+				case "INVITE":
+					if header, ok := sip.Header(msg.Headers, "X-3PCC"); ok {
+						seenHeader <- header
+					}
+					response := fmt.Sprintf(
+						"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+						via, from, to, callID, cseq,
+					)
+					_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				case "BYE":
+					response := fmt.Sprintf(
+						"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+						via, from, to, callID, cseq,
+					)
+					_, _ = serverConn.WriteToUDP([]byte(response), addr)
+					stopServer = true
+				}
+			}()
+			if fatal || stopServer {
 				return
 			}
 		}
@@ -341,30 +349,38 @@ func TestRunWritesMessageAndShortTraceFiles(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg := sip.GetMessage()
-			defer sip.PutMessage(msg)
-			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
-				return
-			}
-			callID, _ := sip.Header(msg.Headers, "Call-ID")
-			from, _ := sip.Header(msg.Headers, "From")
-			to, _ := sip.Header(msg.Headers, "To")
-			via, _ := sip.Header(msg.Headers, "Via")
-			cseq, _ := sip.Header(msg.Headers, "CSeq")
+			stopServer := false
+			fatal := false
+			func() {
+				msg := sip.GetMessage()
+				defer sip.PutMessage(msg)
+				if err := sip.ParseInto(msg, buffer[:n]); err != nil {
+					fatal = true
+					return
+				}
+				callID, _ := sip.Header(msg.Headers, "Call-ID")
+				from, _ := sip.Header(msg.Headers, "From")
+				to, _ := sip.Header(msg.Headers, "To")
+				via, _ := sip.Header(msg.Headers, "Via")
+				cseq, _ := sip.Header(msg.Headers, "CSeq")
 
-			switch strings.ToUpper(msg.Method) {
-			case "INVITE":
-				response := fmt.Sprintf(
-					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
-					via, from, to, callID, cseq,
-				)
-				_, _ = serverConn.WriteToUDP([]byte(response), addr)
-			case "BYE":
-				response := fmt.Sprintf(
-					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
-					via, from, to, callID, cseq,
-				)
-				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				switch strings.ToUpper(msg.Method) {
+				case "INVITE":
+					response := fmt.Sprintf(
+						"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+						via, from, to, callID, cseq,
+					)
+					_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				case "BYE":
+					response := fmt.Sprintf(
+						"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+						via, from, to, callID, cseq,
+					)
+					_, _ = serverConn.WriteToUDP([]byte(response), addr)
+					stopServer = true
+				}
+			}()
+			if fatal || stopServer {
 				return
 			}
 		}
@@ -682,47 +698,57 @@ func TestRunSupportsDigestAuthenticationKeyword(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg := sip.GetMessage()
-			defer sip.PutMessage(msg)
-			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
-				return
-			}
-			callID, _ := sip.Header(msg.Headers, "Call-ID")
-			from, _ := sip.Header(msg.Headers, "From")
-			to, _ := sip.Header(msg.Headers, "To")
-			via, _ := sip.Header(msg.Headers, "Via")
-			cseq, _ := sip.Header(msg.Headers, "CSeq")
+			stopServer := false
+			fatal := false
+			func() {
+				msg := sip.GetMessage()
+				defer sip.PutMessage(msg)
+				if err := sip.ParseInto(msg, buffer[:n]); err != nil {
+					fatal = true
+					return
+				}
+				callID, _ := sip.Header(msg.Headers, "Call-ID")
+				from, _ := sip.Header(msg.Headers, "From")
+				to, _ := sip.Header(msg.Headers, "To")
+				via, _ := sip.Header(msg.Headers, "Via")
+				cseq, _ := sip.Header(msg.Headers, "CSeq")
 
-			switch strings.ToUpper(msg.Method) {
-			case "INVITE":
-				if !challenged {
-					challenged = true
+				switch strings.ToUpper(msg.Method) {
+				case "INVITE":
+					if !challenged {
+						challenged = true
+						response := fmt.Sprintf(
+							"SIP/2.0 401 Unauthorized\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=authpeer\r\nCall-ID: %s\r\nCSeq: %s\r\nWWW-Authenticate: Digest realm=%q, nonce=%q, algorithm=MD5, qop=%q\r\nContent-Length: 0\r\n\r\n",
+							via, from, to, callID, cseq, realm, nonce, "auth",
+						)
+						_, _ = serverConn.WriteToUDP([]byte(response), addr)
+						return
+					}
+					authHeader, ok := sip.Header(msg.Headers, "Authorization")
+					if !ok {
+						fatal = true
+						return
+					}
+					authSeen <- authHeader
+					if !authorizationMatches(authHeader, realm, nonce, "alice", "secret", msg.Method, msg.RequestURI) {
+						fatal = true
+						return
+					}
 					response := fmt.Sprintf(
-						"SIP/2.0 401 Unauthorized\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=authpeer\r\nCall-ID: %s\r\nCSeq: %s\r\nWWW-Authenticate: Digest realm=%q, nonce=%q, algorithm=MD5, qop=%q\r\nContent-Length: 0\r\n\r\n",
-						via, from, to, callID, cseq, realm, nonce, "auth",
+						"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=authpeer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+						via, from, to, callID, cseq,
 					)
 					_, _ = serverConn.WriteToUDP([]byte(response), addr)
-					continue
+				case "BYE":
+					response := fmt.Sprintf(
+						"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+						via, from, to, callID, cseq,
+					)
+					_, _ = serverConn.WriteToUDP([]byte(response), addr)
+					stopServer = true
 				}
-				authHeader, ok := sip.Header(msg.Headers, "Authorization")
-				if !ok {
-					return
-				}
-				authSeen <- authHeader
-				if !authorizationMatches(authHeader, realm, nonce, "alice", "secret", msg.Method, msg.RequestURI) {
-					return
-				}
-				response := fmt.Sprintf(
-					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=authpeer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
-					via, from, to, callID, cseq,
-				)
-				_, _ = serverConn.WriteToUDP([]byte(response), addr)
-			case "BYE":
-				response := fmt.Sprintf(
-					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
-					via, from, to, callID, cseq,
-				)
-				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			}()
+			if fatal || stopServer {
 				return
 			}
 		}
@@ -835,40 +861,48 @@ func TestRunBundledPCAPScenarios(t *testing.T) {
 					if err != nil {
 						return
 					}
-					msg := sip.GetMessage()
-					defer sip.PutMessage(msg)
-					if err := sip.ParseInto(msg, buffer[:n]); err != nil {
-						return
-					}
-					callID, _ := sip.Header(msg.Headers, "Call-ID")
-					from, _ := sip.Header(msg.Headers, "From")
-					to, _ := sip.Header(msg.Headers, "To")
-					via, _ := sip.Header(msg.Headers, "Via")
-					cseq, _ := sip.Header(msg.Headers, "CSeq")
-
-					switch strings.ToUpper(msg.Method) {
-					case "INVITE":
-						body := fmt.Sprintf(
-							"v=0\r\no=test 1 1 IN IP4 127.0.0.1\r\ns=-\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio %d RTP/AVP %s\r\n",
-							rtpConn.LocalAddr().(*net.UDPAddr).Port,
-							tc.expectedBodyPT,
-						)
-						if tc.expectedPT == 101 {
-							body += "a=rtpmap:101 telephone-event/8000\r\na=fmtp:101 0-16\r\n"
-						} else {
-							body += "a=rtpmap:0 PCMU/8000\r\n"
+					stopServer := false
+					fatal := false
+					func() {
+						msg := sip.GetMessage()
+						defer sip.PutMessage(msg)
+						if err := sip.ParseInto(msg, buffer[:n]); err != nil {
+							fatal = true
+							return
 						}
-						response := fmt.Sprintf(
-							"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Type: application/sdp\r\nContent-Length: %d\r\n\r\n%s",
-							via, from, to, callID, cseq, len(body), body,
-						)
-						_, _ = serverConn.WriteToUDP([]byte(response), addr)
-					case "BYE":
-						response := fmt.Sprintf(
-							"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
-							via, from, to, callID, cseq,
-						)
-						_, _ = serverConn.WriteToUDP([]byte(response), addr)
+						callID, _ := sip.Header(msg.Headers, "Call-ID")
+						from, _ := sip.Header(msg.Headers, "From")
+						to, _ := sip.Header(msg.Headers, "To")
+						via, _ := sip.Header(msg.Headers, "Via")
+						cseq, _ := sip.Header(msg.Headers, "CSeq")
+
+						switch strings.ToUpper(msg.Method) {
+						case "INVITE":
+							body := fmt.Sprintf(
+								"v=0\r\no=test 1 1 IN IP4 127.0.0.1\r\ns=-\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio %d RTP/AVP %s\r\n",
+								rtpConn.LocalAddr().(*net.UDPAddr).Port,
+								tc.expectedBodyPT,
+							)
+							if tc.expectedPT == 101 {
+								body += "a=rtpmap:101 telephone-event/8000\r\na=fmtp:101 0-16\r\n"
+							} else {
+								body += "a=rtpmap:0 PCMU/8000\r\n"
+							}
+							response := fmt.Sprintf(
+								"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Type: application/sdp\r\nContent-Length: %d\r\n\r\n%s",
+								via, from, to, callID, cseq, len(body), body,
+							)
+							_, _ = serverConn.WriteToUDP([]byte(response), addr)
+						case "BYE":
+							response := fmt.Sprintf(
+								"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+								via, from, to, callID, cseq,
+							)
+							_, _ = serverConn.WriteToUDP([]byte(response), addr)
+							stopServer = true
+						}
+					}()
+					if stopServer || fatal {
 						return
 					}
 				}
