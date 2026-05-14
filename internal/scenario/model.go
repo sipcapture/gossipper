@@ -1,6 +1,10 @@
 package scenario
 
-import "time"
+import (
+	"time"
+
+	"github.com/sipcapture/gossipper/internal/distribution"
+)
 
 type CommandType string
 
@@ -116,7 +120,7 @@ type Command struct {
 	CmdSrc   string
 	Optional bool
 	Timeout  time.Duration
-	Pause    time.Duration
+	Pause    distribution.Sampler
 	LabelID  string
 	TimeWait bool
 	Actions  []Action

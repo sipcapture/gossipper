@@ -28,6 +28,7 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/pion/rtcp"
+	"github.com/sipcapture/gossipper/internal/distribution"
 	"github.com/sipcapture/gossipper/internal/hep"
 	"github.com/sipcapture/gossipper/internal/media"
 
@@ -1830,6 +1831,133 @@ Content-Length: 0
 	}
 	if len(got) != 1 || got[0] != "bob" {
 		t.Fatalf("expected lookup header to be bob, got %v", got)
+	}
+}
+
+func TestEngineUACPauseDistribution(t *testing.T) {
+	t.Parallel()
+
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP() error = %v", err)
+	}
+	defer serverConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 65535)
+		for {
+			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				return
+			}
+			msg := sip.GetMessage()
+			defer sip.PutMessage(msg)
+			if err := sip.ParseInto(msg, buffer[:n]); err != nil {
+				return
+			}
+			callID, _ := sip.Header(msg.Headers, "Call-ID")
+			from, _ := sip.Header(msg.Headers, "From")
+			to, _ := sip.Header(msg.Headers, "To")
+			via, _ := sip.Header(msg.Headers, "Via")
+			cseq, _ := sip.Header(msg.Headers, "CSeq")
+
+			switch strings.ToUpper(msg.Method) {
+			case "INVITE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s;tag=peer\r\nCall-ID: %s\r\nCSeq: %s\r\nContact: <sip:127.0.0.1:%d>\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq, serverConn.LocalAddr().(*net.UDPAddr).Port,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+			case "ACK":
+				// OK
+			case "BYE":
+				response := fmt.Sprintf(
+					"SIP/2.0 200 OK\r\nVia: %s\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: %s\r\nContent-Length: 0\r\n\r\n",
+					via, from, to, callID, cseq,
+				)
+				_, _ = serverConn.WriteToUDP([]byte(response), addr)
+				return
+			}
+		}
+	}()
+
+	sc, err := scenario.ParseFile("../../testdata/scenarios/uac_pause_distribution.xml")
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+
+	// Verify that the pause commands were parsed with the correct sampler types
+	var uniformPauseFound, normalPauseFound bool
+	for _, cmd := range sc.Commands {
+		if cmd.Type == scenario.CommandPause && cmd.Pause != nil {
+			switch cmd.Pause.(type) {
+			case *distribution.Uniform:
+				uniformPauseFound = true
+				u := cmd.Pause.(*distribution.Uniform)
+				if u.Min != 50*time.Millisecond || u.Max != 150*time.Millisecond {
+					t.Fatalf("uniform pause has wrong bounds: min=%v max=%v", u.Min, u.Max)
+				}
+			case *distribution.Normal:
+				normalPauseFound = true
+				n := cmd.Pause.(*distribution.Normal)
+				if n.Mean != 100*time.Millisecond || n.Stdev != 10*time.Millisecond {
+					t.Fatalf("normal pause has wrong parameters: mean=%v stdev=%v", n.Mean, n.Stdev)
+				}
+			}
+		}
+	}
+	if !uniformPauseFound {
+		t.Fatal("uniform distribution pause not found in parsed scenario")
+	}
+	if !normalPauseFound {
+		t.Fatal("normal distribution pause not found in parsed scenario")
+	}
+
+	startTime := time.Now()
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    serverConn.LocalAddr().(*net.UDPAddr).Port,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: time.Second,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	<-done
+	elapsed := time.Since(startTime)
+
+	summary := app.Stats().Snapshot()
+	if summary.SuccessCalls != 1 {
+		t.Fatalf("expected one successful call, got %+v", summary)
+	}
+	if summary.FailedCalls != 0 {
+		t.Fatalf("expected zero failed calls, got %+v", summary)
+	}
+
+	// Verify that the pauses were actually sampled (not falling back to DefaultPause).
+	// The scenario has two pauses:
+	// 1. uniform(50-150ms) after receiving 200 OK
+	// 2. normal(mean=100ms, stdev=10ms) after ACK
+	// Total expected pause time: ~150-250ms (50+100 to 150+100, roughly)
+	// If samplers were bypassed and DefaultPause (10ms) was used, total would be ~20ms.
+	// We check that elapsed time is at least 100ms to confirm samplers were used.
+	minExpectedDuration := 100 * time.Millisecond
+	if elapsed < minExpectedDuration {
+		t.Fatalf("call completed too quickly (%v), suggesting pauses were not sampled (expected at least %v)", elapsed, minExpectedDuration)
 	}
 }
 

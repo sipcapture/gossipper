@@ -11,11 +11,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sipcapture/gossipper/internal/distribution"
 	"golang.org/x/text/encoding/charmap"
 )
 
 func ErrUnknownScenario(name string) error {
 	return fmt.Errorf("unknown built-in scenario %q", name)
+}
+
+// rawDistributionAttrs holds XML attributes for pause distribution configuration.
+type rawDistributionAttrs struct {
+	Distribution string `xml:"distribution,attr"`
+	Mean         string `xml:"mean,attr"`
+	Stdev        string `xml:"stdev,attr"`
+	Min          string `xml:"min,attr"`
+	Max          string `xml:"max,attr"`
 }
 
 type rawScenario struct {
@@ -49,6 +59,7 @@ type rawScenarioItem struct {
 	Variables       string       `xml:"variables,attr"`
 	Actions         []rawAction  `xml:"action"`
 	Elements        []rawElement `xml:",any"`
+	rawDistributionAttrs
 }
 
 type rawElement struct {
@@ -74,6 +85,7 @@ type rawElement struct {
 	Dest            string      `xml:"dest,attr"`
 	Src             string      `xml:"src,attr"`
 	Actions         []rawAction `xml:"action"`
+	rawDistributionAttrs
 }
 
 type rawAction struct {
@@ -207,28 +219,29 @@ func ParseString(data string) (Scenario, error) {
 
 func rawScenarioItemToCommand(elem rawScenarioItem, index int) (Command, error) {
 	return rawElementToCommand(rawElement{
-		XMLName:         elem.XMLName,
-		Text:            elem.Text,
-		Next:            elem.Next,
-		Test:            elem.Test,
-		Chance:          elem.Chance,
-		CondExec:        elem.CondExec,
-		CondExecInverse: elem.CondExecInverse,
-		Counter:         elem.Counter,
-		Display:         elem.Display,
-		StartRTD:        elem.StartRTD,
-		RTD:             elem.RTD,
-		Retrans:         elem.Retrans,
-		Request:         elem.Request,
-		Response:        elem.Response,
-		RRS:             elem.RRS,
-		Optional:        elem.Optional,
-		Timeout:         elem.Timeout,
-		Milliseconds:    elem.Milliseconds,
-		ID:              elem.ID,
-		Dest:            elem.Dest,
-		Src:             elem.Src,
-		Actions:         elem.Actions,
+		XMLName:              elem.XMLName,
+		Text:                 elem.Text,
+		Next:                 elem.Next,
+		Test:                 elem.Test,
+		Chance:               elem.Chance,
+		CondExec:             elem.CondExec,
+		CondExecInverse:      elem.CondExecInverse,
+		Counter:              elem.Counter,
+		Display:              elem.Display,
+		StartRTD:             elem.StartRTD,
+		RTD:                  elem.RTD,
+		Retrans:              elem.Retrans,
+		Request:              elem.Request,
+		Response:             elem.Response,
+		RRS:                  elem.RRS,
+		Optional:             elem.Optional,
+		Timeout:              elem.Timeout,
+		Milliseconds:         elem.Milliseconds,
+		ID:                   elem.ID,
+		Dest:                 elem.Dest,
+		Src:                  elem.Src,
+		Actions:              elem.Actions,
+		rawDistributionAttrs: elem.rawDistributionAttrs,
 	}, index)
 }
 
@@ -262,7 +275,18 @@ func rawElementToCommand(elem rawElement, index int) (Command, error) {
 		cmd.Timeout = parseDurationMilliseconds(elem.Timeout)
 	case "pause":
 		cmd.Type = CommandPause
-		cmd.Pause = parseDurationMilliseconds(elem.Milliseconds)
+		sampler, err := distribution.NewFromXML(
+			elem.Distribution,
+			elem.Milliseconds,
+			elem.Mean,
+			elem.Stdev,
+			elem.Min,
+			elem.Max,
+		)
+		if err != nil {
+			return Command{}, fmt.Errorf("pause at index %d: %w", index, err)
+		}
+		cmd.Pause = sampler
 	case "nop":
 		cmd.Type = CommandNop
 	case "label":
@@ -271,7 +295,15 @@ func rawElementToCommand(elem rawElement, index int) (Command, error) {
 	case "timewait":
 		cmd.Type = CommandTimeWait
 		cmd.TimeWait = true
-		cmd.Pause = parseDurationMilliseconds(elem.Milliseconds)
+		sampler, err := distribution.NewFromXML(
+			"fixed",
+			elem.Milliseconds,
+			"", "", "", "",
+		)
+		if err != nil {
+			return Command{}, fmt.Errorf("timewait at index %d: %w", index, err)
+		}
+		cmd.Pause = sampler
 	default:
 		return Command{}, nil
 	}
