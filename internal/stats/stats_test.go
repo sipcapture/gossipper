@@ -76,6 +76,7 @@ func TestCollectorAggregatesRTCPReceptionQoS(t *testing.T) {
 		RTCPReportBlocks:    2,
 		RTCPMaxFractionLost: 10,
 		RTCPMaxJitter:       100,
+		RTCPMinJitter:       80,
 		RTCPJitterSum:       30,
 		RTCPJitterSamples:   2,
 	})
@@ -83,6 +84,7 @@ func TestCollectorAggregatesRTCPReceptionQoS(t *testing.T) {
 		RTCPReportBlocks:    1,
 		RTCPMaxFractionLost: 20,
 		RTCPMaxJitter:       50,
+		RTCPMinJitter:       30,
 		RTCPJitterSum:       40,
 		RTCPJitterSamples:   1,
 	})
@@ -96,6 +98,9 @@ func TestCollectorAggregatesRTCPReceptionQoS(t *testing.T) {
 	}
 	if summary.Media.RTCPMaxJitterTS != 100 {
 		t.Fatalf("max jitter: %d", summary.Media.RTCPMaxJitterTS)
+	}
+	if summary.Media.RTCPMinJitterTS != 30 {
+		t.Fatalf("min jitter: %d", summary.Media.RTCPMinJitterTS)
 	}
 	if summary.Media.RTCPAvgJitterTS < 23.32 || summary.Media.RTCPAvgJitterTS > 23.34 {
 		t.Fatalf("avg jitter: %v", summary.Media.RTCPAvgJitterTS)
@@ -260,5 +265,33 @@ func TestCollectorLatencyRepartitionSummary(t *testing.T) {
 	}
 	if invite.StdDev != 3*time.Millisecond {
 		t.Fatalf("expected RTD stddev 3ms, got %+v", invite)
+	}
+}
+
+func TestHealthMinRTPPacketsRecvPerCall(t *testing.T) {
+	t.Parallel()
+	cfg := HealthConfig{HealthMinRTPPacketsRecvPerCall: 100}
+	if !cfg.Active() {
+		t.Fatal("expected active")
+	}
+	s := Summary{Media: MediaSummary{CallsWithRTPReceived: 2, PerCallMinRTPPacketsReceived: 50}}
+	h, _ := EvaluateHealth(cfg, s)
+	if h == nil || h.Pass {
+		t.Fatalf("expected fail, got %+v", h)
+	}
+}
+
+func TestCollectorPerCallMinRTPRecv(t *testing.T) {
+	t.Parallel()
+	collector := New()
+	collector.AddMediaStats(media.Stats{RTPPacketsReceived: 200})
+	collector.AddMediaStats(media.Stats{RTPPacketsReceived: 50})
+	collector.AddMediaStats(media.Stats{RTPPacketsReceived: 0})
+	s := collector.Snapshot()
+	if s.Media.CallsWithRTPReceived != 2 {
+		t.Fatalf("calls with recv: %d", s.Media.CallsWithRTPReceived)
+	}
+	if s.Media.PerCallMinRTPPacketsReceived != 50 {
+		t.Fatalf("per-call min: %d", s.Media.PerCallMinRTPPacketsReceived)
 	}
 }

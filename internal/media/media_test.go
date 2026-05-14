@@ -154,6 +154,24 @@ func TestParseRTPStreamSpecPayloadParams(t *testing.T) {
 	}
 }
 
+func TestParseRTPStreamMicInput(t *testing.T) {
+	t.Parallel()
+	cmd, cfg, err := ParseRTPStreamSpec("mic", "")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec(mic): %v", err)
+	}
+	if cmd != "mic" || cfg.MicInput != "" {
+		t.Fatalf("mic: got cmd=%q cfg=%+v", cmd, cfg)
+	}
+	cmd, cfg, err = ParseRTPStreamSpec("mic, plughw:1,0 ", "")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec(mic,dev): %v", err)
+	}
+	if cmd != "mic" || cfg.MicInput != "plughw:1,0" {
+		t.Fatalf("mic device: got cmd=%q cfg=%+v", cmd, cfg)
+	}
+}
+
 func TestSessionEchoAndRTCPStats(t *testing.T) {
 	t.Parallel()
 

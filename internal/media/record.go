@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
-
-	"github.com/pion/rtp"
 )
 
 // ParseRTPRecordSpec parses exec rtp_record="..." values.
@@ -94,6 +92,7 @@ func (s *Session) StartRecording(path string, duplex bool, basePath string) erro
 	s.recordDuplex = duplex
 	s.recordRecv = nil
 	s.recordSent = nil
+	s.resetRecordReorder()
 	s.recordOn = true
 	return nil
 }
@@ -117,6 +116,7 @@ func (s *Session) stopRecordingLocked() error {
 	s.recordPath = ""
 	s.recordRecv = nil
 	s.recordSent = nil
+	s.resetRecordReorder()
 	if path == "" {
 		return nil
 	}
@@ -168,24 +168,13 @@ func (s *Session) maybeStartAutoRecord() {
 	_ = s.StartRecording(base, dup, "")
 }
 
-func (s *Session) appendRecordInbound(pkt *rtp.Packet) {
-	if !s.recordOn {
-		return
-	}
-	samples, err := decodeG711PayloadToPCM16(pkt.PayloadType, pkt.Payload)
-	if err != nil || samples == nil {
-		return
-	}
-	s.recordRecv = append(s.recordRecv, samples...)
-}
-
 func (s *Session) appendRecordOutbound(pt uint8, payload []byte) {
 	if !s.recordOn || !s.recordDuplex {
 		return
 	}
-	samples, err := decodeG711PayloadToPCM16(pt, payload)
-	if err != nil || samples == nil {
+	pcm := pcmFromOutboundPayload(pt, payload)
+	if len(pcm) == 0 {
 		return
 	}
-	s.recordSent = append(s.recordSent, samples...)
+	s.recordSent = append(s.recordSent, pcm...)
 }

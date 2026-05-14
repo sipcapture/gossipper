@@ -121,6 +121,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		RecordWAVDir:     cfg.RecordWAVDir,
 		RecordWAVDuplex:  cfg.RecordWAVDuplex,
 		CallRecordsJSONL: cfg.CallRecordsJSONL,
+		MediaRejectSRTP:  cfg.MediaRejectSRTP,
 	}
 
 	return Prepared{

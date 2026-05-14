@@ -42,6 +42,8 @@ type StreamConfig struct {
 	// Channels is the number of audio channels (1 = mono, 2 = stereo).
 	// Zero is treated as 1.
 	Channels uint8
+	// MicInput is used only for rtp_stream mic: ALSA device (-D), ffmpeg:… args, or non-Linux ffmpeg -i value.
+	MicInput string
 }
 
 type Session struct {
@@ -72,6 +74,11 @@ type Session struct {
 	recordPath       string
 	autoRecordDir    string
 	autoRecordDuplex bool
+
+	// WAV recording reorder (jitter) buffer: small window by RTP sequence.
+	recordSeqBuf   []recordSeqSample
+	recordNextSeq  uint16
+	recordHaveNext bool
 
 	// Incoming RTP stats for RTCP Receiver Reports (RFC 3550 §6.4.2).
 	// All fields are guarded by mu.
@@ -106,8 +113,10 @@ type Stats struct {
 	RTCPReportBlocks    uint32
 	RTCPMaxFractionLost uint8
 	RTCPMaxJitter       uint32
-	RTCPJitterSum       float64
-	RTCPJitterSamples   uint64
+	// RTCPMinJitter is the minimum non-zero jitter from inbound RR blocks (RFC 3550), in timestamp units.
+	RTCPMinJitter     uint32
+	RTCPJitterSum     float64
+	RTCPJitterSamples uint64
 }
 
 type RTPCheckDirection string
@@ -252,7 +261,11 @@ func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, err
 	}
 	switch strings.ToLower(first) {
 	case "mic", "microphone":
-		return "mic", StreamConfig{}, nil
+		cfg := DefaultConfig("")
+		if len(parts) > 1 {
+			cfg.MicInput = strings.TrimSpace(strings.Join(parts[1:], ","))
+		}
+		return "mic", cfg, nil
 	}
 
 	if strings.ToLower(first) == "synthetic" {
@@ -655,6 +668,11 @@ func (s *Session) rtcpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
 					if rep.Jitter > s.stats.RTCPMaxJitter {
 						s.stats.RTCPMaxJitter = rep.Jitter
 					}
+					if rep.Jitter > 0 {
+						if s.stats.RTCPMinJitter == 0 || rep.Jitter < s.stats.RTCPMinJitter {
+							s.stats.RTCPMinJitter = rep.Jitter
+						}
+					}
 					s.stats.RTCPJitterSum += float64(rep.Jitter)
 					s.stats.RTCPJitterSamples++
 				}
@@ -1047,7 +1065,7 @@ func (s *Session) rtpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
 		s.observeRTPPacket(&pkt, now)
 		s.stats.RTPPacketsReceived++
 		if s.recordOn {
-			s.appendRecordInbound(&pkt)
+			s.appendRecordInboundWithJitter(&pkt)
 		}
 		s.mu.Unlock()
 	}

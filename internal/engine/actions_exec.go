@@ -66,20 +66,28 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 				return err
 			}
 		case "mic":
-			endpoint, err := media.ParseAudioEndpoint(mustParseLastMessage(renderCtx), renderCtx.RemoteIP)
+			last := mustParseLastMessage(renderCtx)
+			endpoint, err := media.ParseAudioEndpoint(last, renderCtx.RemoteIP)
 			if err != nil {
 				return err
+			}
+			if e.cfg.MediaRejectSRTP && media.SDPHintsSRTP(last.Body) {
+				return fmt.Errorf("rtp_stream mic: remote SDP suggests SRTP (drop -media_reject_srtp to allow)")
 			}
 			if e.cfg.TraceMessages {
 				fmt.Fprintf(os.Stdout, "rtp_stream mic -> %s:%d\n", endpoint.IP, endpoint.Port)
 			}
-			if err := mediaSession.StartMicrophone(ctx, endpoint, renderCtx.LocalIP, renderCtx.MediaPort); err != nil {
+			if err := mediaSession.StartMicrophone(ctx, endpoint, renderCtx.LocalIP, renderCtx.MediaPort, cfg.MicInput); err != nil {
 				return err
 			}
 		case "start":
-			endpoint, err := media.ParseAudioEndpoint(mustParseLastMessage(renderCtx), renderCtx.RemoteIP)
+			last := mustParseLastMessage(renderCtx)
+			endpoint, err := media.ParseAudioEndpoint(last, renderCtx.RemoteIP)
 			if err != nil {
 				return err
+			}
+			if e.cfg.MediaRejectSRTP && media.SDPHintsSRTP(last.Body) {
+				return fmt.Errorf("rtp_stream start: remote SDP suggests SRTP (drop -media_reject_srtp to allow)")
 			}
 			if e.cfg.TraceMessages {
 				fmt.Fprintf(os.Stdout, "rtp_stream start %s -> %s:%d\n", cfg.Path, endpoint.IP, endpoint.Port)

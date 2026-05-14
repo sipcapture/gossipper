@@ -20,6 +20,7 @@ import (
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/launcher"
 	"github.com/sipcapture/gossipper/internal/pcap2scenario"
+	"github.com/sipcapture/gossipper/internal/pdf"
 	"github.com/sipcapture/gossipper/internal/reporthtml"
 	"github.com/sipcapture/gossipper/internal/shell"
 	"github.com/sipcapture/gossipper/internal/stats"
@@ -250,7 +251,7 @@ func runSummaryToPDF(args []string) error {
 	outPath := fs.String("out", "", "output PDF path")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "usage: gossipper summary-to-pdf -in report.html -out report.pdf\n")
-		fmt.Fprintf(fs.Output(), "Requires chromium or google-chrome in PATH (headless print-to-pdf).\n")
+		fmt.Fprintf(fs.Output(), "Tries embedded chromedp when built with -tags pdf; otherwise uses Chromium/Chrome in PATH (--print-to-pdf).\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -259,6 +260,20 @@ func runSummaryToPDF(args []string) error {
 	if strings.TrimSpace(*inPath) == "" || strings.TrimSpace(*outPath) == "" {
 		fs.Usage()
 		return fmt.Errorf("summary-to-pdf: -in and -out are required")
+	}
+	absIn, err := filepath.Abs(strings.TrimSpace(*inPath))
+	if err != nil {
+		return fmt.Errorf("summary-to-pdf: -in path: %w", err)
+	}
+	absOut, err := filepath.Abs(strings.TrimSpace(*outPath))
+	if err != nil {
+		return fmt.Errorf("summary-to-pdf: -out path: %w", err)
+	}
+	if err := pdf.TryRenderHTMLFileToPDF(absIn, absOut); err == nil {
+		return nil
+	}
+	if !errors.Is(err, pdf.ErrBuiltWithoutPDFTag) {
+		fmt.Fprintf(os.Stderr, "summary-to-pdf: embedded renderer: %v (trying external Chromium)\n", err)
 	}
 	candidates := []string{"chromium", "chromium-browser", "google-chrome", "google-chrome-stable"}
 	var chrome string
@@ -271,14 +286,6 @@ func runSummaryToPDF(args []string) error {
 	}
 	if chrome == "" {
 		return fmt.Errorf("summary-to-pdf: no chromium/google-chrome found in PATH")
-	}
-	absIn, err := filepath.Abs(strings.TrimSpace(*inPath))
-	if err != nil {
-		return fmt.Errorf("summary-to-pdf: -in path: %w", err)
-	}
-	absOut, err := filepath.Abs(strings.TrimSpace(*outPath))
-	if err != nil {
-		return fmt.Errorf("summary-to-pdf: -out path: %w", err)
 	}
 	tmpDir, err := os.MkdirTemp("", "gossipper-pdf-*")
 	if err != nil {
