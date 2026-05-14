@@ -9,7 +9,8 @@ description: |
   Gossipper is a Go-based SIP traffic generator and SIPp-compatible
   scenario runner with incremental XML parity, 3PCC helpers, and RTP tooling.
   (AGPL-3.0)
-  Install layout under /usr/local/gossipper: bin, etc (doc + local config), logs, dist (Control UI static files).
+  Install layout under /usr/local/gossipper: bin, etc (sample JSON + doc), logs, dist (Control UI static files).
+  Ships systemd units gossipper-server.service and gossipper-client.service plus sample JSON under /usr/local/gossipper/etc/.
 vendor: "QXIP"
 homepage: "https://github.com/sipcapture/gossipper"
 # license omitted: nfpm writes "License:" into deb control; Packagecloud may 500.
@@ -46,3 +47,26 @@ contents:
     type: dir
     file_info:
       mode: 0755
+
+  - src: ./examples/gossipper-server.service
+    dst: /lib/systemd/system/gossipper-server.service
+    file_info:
+      mode: 0644
+
+  - src: ./examples/gossipper-client.service
+    dst: /lib/systemd/system/gossipper-client.service
+    file_info:
+      mode: 0644
+
+  - src: ./examples/gossipper-server.json
+    dst: /usr/local/gossipper/etc/gossipper-server.json
+    file_info:
+      mode: 0644
+
+  - src: ./examples/gossipper-client.json
+    dst: /usr/local/gossipper/etc/gossipper-client.json
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: scripts/nfpm-postinstall.sh

@@ -78,6 +78,10 @@ func run(args []string) error {
 	}
 	cfg.ToolVersion = GetShortVersionString()
 
+	if interactive && cfg.ServerMode {
+		return fmt.Errorf("-server cannot be combined with -interactive")
+	}
+
 	if interactive {
 		prepared, err := launcher.Prepare(cfg)
 		if err != nil {

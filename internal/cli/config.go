@@ -100,8 +100,10 @@ type Config struct {
 	PprofAddr               string
 	ApiAddr                 string // e.g. :8080 — HTTP API for stats / scenario / control
 	ApiToken                string // optional Bearer token for /api/v1
-	CPUProfile              string
-	MemProfile              string
+	// ServerMode runs a minimal SIP UAS plus the management HTTP API for systemd / Control UI.
+	ServerMode bool
+	CPUProfile string
+	MemProfile string
 
 	// Standalone RTP sender mode — bypasses SIP scenario engine entirely.
 	RTPSend     bool   // -rtp_send
@@ -190,6 +192,12 @@ func Parse(args []string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if (meta.ServerConfigPath != "" || meta.ClientConfigPath != "") && (meta.ConfigPath != "" || meta.RunAlias != "" || meta.ListAliases) {
+		return Config{}, errors.New("-config-server and -config-client cannot be combined with -config, -run-alias, or -list-aliases")
+	}
+	if meta.ServerConfigPath != "" && meta.ClientConfigPath != "" {
+		return Config{}, errors.New("-config-server cannot be combined with -config-client")
+	}
 	if meta.ListAliases {
 		if meta.ConfigPath == "" {
 			return Config{}, errors.New("-list-aliases requires -config <path>")
@@ -213,7 +221,26 @@ func Parse(args []string) (Config, error) {
 
 	cfg := DefaultConfig()
 	var profileTotalCallsExplicit bool
-	if meta.ConfigPath != "" {
+	if meta.ServerConfigPath != "" {
+		extra, err := LoadAndApplyServerConfig(&cfg, meta.ServerConfigPath)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.ServerMode = true
+		profileTotalCallsExplicit = cfg.TotalCallsSetExplicitly
+		if len(extra) > 0 {
+			normalizedArgs = append(append([]string(nil), extra...), normalizedArgs...)
+		}
+	} else if meta.ClientConfigPath != "" {
+		extra, err := LoadAndApplyClientConfig(&cfg, meta.ClientConfigPath)
+		if err != nil {
+			return Config{}, err
+		}
+		profileTotalCallsExplicit = cfg.TotalCallsSetExplicitly
+		if len(extra) > 0 {
+			normalizedArgs = append(append([]string(nil), extra...), normalizedArgs...)
+		}
+	} else if meta.ConfigPath != "" {
 		extra, err := LoadAndApplyRunProfile(&cfg, meta.ConfigPath, meta.RunAlias)
 		if err != nil {
 			return Config{}, err
@@ -233,7 +260,7 @@ func Parse(args []string) (Config, error) {
 		fs.PrintDefaults()
 	}
 	fs.StringVar(&cfg.ScenarioFile, "sf", cfg.ScenarioFile, "path to XML scenario file")
-	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas, invite_media, invite_media_early, invite_media_early_180)")
+	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas, management, invite_media, invite_media_early, invite_media_early_180)")
 	fs.StringVar(&cfg.Service, "s", cfg.Service, "service name used in templates")
 	fs.StringVar(&cfg.Transport, "t", cfg.Transport, "transport: u1/un/ui, t1/tn, l1/ln; client TLS aliases cl/cln; server UDP s1/sn; server TLS sl")
 	fs.StringVar(&cfg.LocalIP, "i", cfg.LocalIP, "local IP address")
@@ -315,7 +342,7 @@ func Parse(args []string) (Config, error) {
 	var masterName string
 	var slaveName string
 	var slaveCfgFile string
-	fs.StringVar(&remoteAddr, "rsa", "", "remote SIP address host:port")
+	fs.StringVar(&remoteAddr, "rsa", "", "remote SIP address host:port (UAC / templates); UAS binds -i/-p (not -rsa)")
 	fs.StringVar(&commandPeersFile, "cmd_peers", "", "path to peer map file in name;host:port format")
 	fs.StringVar(&masterName, "master", "", "3pcc extended mode: local master instance name")
 	fs.StringVar(&slaveName, "slave", "", "3pcc extended mode: local slave instance name")
@@ -329,6 +356,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.PprofAddr, "pprof", "", "pprof HTTP address (e.g. :6060) for live CPU/memory/goroutine profiling")
 	fs.StringVar(&cfg.ApiAddr, "api_addr", "", "HTTP listen address for management API (e.g. :8080); GET / serves embedded Control UI when built with `make frontend`, API under /api/v1/")
 	fs.StringVar(&cfg.ApiToken, "api_token", "", "optional Bearer token required for all /api/v1 requests when set")
+	fs.BoolVar(&cfg.ServerMode, "server", cfg.ServerMode, "systemd/long-run: OPTIONS UAS + API (default -api_addr :8080; default -p 5060 when -p omitted; SIP bind is -i/-p or JSON local_ip/local_port; -sn management unless -sf/-sn)")
 	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "write CPU profile to file at exit")
 	fs.StringVar(&cfg.MemProfile, "memprofile", "", "write memory profile to file at exit")
 
@@ -380,6 +408,10 @@ func Parse(args []string) (Config, error) {
 		}
 		cfg.RemoteHost = host
 		cfg.RemotePort = port
+	}
+
+	if err := applyServerModeIfEnabled(&cfg, providedFlags); err != nil {
+		return Config{}, err
 	}
 
 	if cfg.Rate <= 0 {
@@ -788,6 +820,33 @@ func extractInfIndexArgs(args []string) ([]string, string, int, error) {
 	return normalized, fileName, field, nil
 }
 
+func applyServerModeIfEnabled(cfg *Config, flagProvided map[string]struct{}) error {
+	if !cfg.ServerMode {
+		return nil
+	}
+	if cfg.RTPSend {
+		return errors.New("-server is incompatible with -rtp_send")
+	}
+	if strings.TrimSpace(cfg.ApiAddr) == "" {
+		cfg.ApiAddr = ":8080"
+	}
+	if cfg.ScenarioFile == "" && (cfg.ScenarioName == "" || cfg.ScenarioName == "uac") {
+		cfg.ScenarioName = "management"
+	}
+	if !cfg.TotalCallsSetExplicitly {
+		cfg.TotalCallsSetExplicitly = true
+		cfg.TotalCalls = 0
+	}
+	// UAS binds LocalIP:LocalPort (-i/-p). When -p is omitted, default to standard SIP (5060);
+	// explicit -p 0 keeps ephemeral bind. (-rsa does not set the listen port.)
+	if cfg.LocalPort == 0 {
+		if _, ok := flagProvided["p"]; !ok {
+			cfg.LocalPort = 5060
+		}
+	}
+	return nil
+}
+
 func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "Gossipper — SIP load generator (https://github.com/sipcapture/gossipper)")
 	fmt.Fprintln(w)
@@ -796,15 +855,18 @@ func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "  gossipper cli                alias for shell")
 	fmt.Fprintln(w, "  gossipper tui                full-screen launcher / runtime UI")
 	fmt.Fprintln(w, "  gossipper -interactive       same as tui")
+	fmt.Fprintln(w, "  gossipper -server            management HTTP API + minimal OPTIONS UAS (systemd); SIP bind -i/-p (default -p 5060 if omitted); see examples/gossipper-server.service, examples/gossipper-server.json")
 	fmt.Fprintln(w, "  gossipper pcap2scenario ...  PCAP → XML scenarios")
 	fmt.Fprintln(w, "  gossipper report-html ...  summary JSON → standalone HTML report")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "See also: docs/interactive-shell.md, docs/tui.md")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Run profile (optional JSON presets):")
-	fmt.Fprintln(w, "  -config <path>     JSON file with \"aliases\" map (use with -run-alias or -list-aliases)")
-	fmt.Fprintln(w, "  -run-alias <name>  apply alias entry from -config before other flags (CLI overrides)")
-	fmt.Fprintln(w, "  -list-aliases       print alias names from -config and exit")
+	fmt.Fprintln(w, "  -config <path>      JSON file with \"aliases\" map (use with -run-alias or -list-aliases)")
+	fmt.Fprintln(w, "  -run-alias <name>   apply alias entry from -config before other flags (CLI overrides)")
+	fmt.Fprintln(w, "  -list-aliases        print alias names from -config and exit")
+	fmt.Fprintln(w, "  -config-server <path>  flat JSON (same keys as one alias, no \"aliases\"); implies -server; mutually exclusive with -config/-run-alias/-list-aliases/-config-client")
+	fmt.Fprintln(w, "  -config-client <path>  flat JSON for UAC/load-gen preset; forces non-server after load; mutually exclusive with -config/-run-alias/-list-aliases/-config-server")
 	fmt.Fprintln(w, "  See docs/run-profile.md")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Flags:")

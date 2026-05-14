@@ -1514,3 +1514,77 @@ func TestParseAllowsSendMediaReportShortJSONWhenExtensionRegistered(t *testing.T
 		t.Fatalf("Parse: %v", err)
 	}
 }
+
+func TestParseConfigServerMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+	_, err := Parse([]string{"-config-server", "/tmp/a.json", "-config", "/tmp/b.json", "-run-alias", "x"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestParseConfigServerAndClientMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+	_, err := Parse([]string{"-config-server", "/tmp/a.json", "-config-client", "/tmp/b.json"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestParseConfigClientMutuallyExclusiveWithConfig(t *testing.T) {
+	t.Parallel()
+	_, err := Parse([]string{"-config-client", "/tmp/a.json", "-config", "/tmp/b.json", "-run-alias", "x"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestParseServerModeDefaults(t *testing.T) {
+	t.Parallel()
+	cfg, err := Parse([]string{"-server"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !cfg.ServerMode {
+		t.Fatal("expected ServerMode")
+	}
+	if cfg.ApiAddr != ":8080" {
+		t.Fatalf("ApiAddr = %q, want :8080", cfg.ApiAddr)
+	}
+	if cfg.LocalPort != 5060 {
+		t.Fatalf("LocalPort = %d, want 5060 (default when -p omitted in -server)", cfg.LocalPort)
+	}
+	if cfg.ScenarioName != "management" {
+		t.Fatalf("ScenarioName = %q, want management", cfg.ScenarioName)
+	}
+	if !cfg.TotalCallsSetExplicitly || cfg.TotalCalls != 0 {
+		t.Fatalf("expected unlimited total calls, got explicit=%v m=%d", cfg.TotalCallsSetExplicitly, cfg.TotalCalls)
+	}
+}
+
+func TestParseServerModeExplicitP0KeepsEphemeral(t *testing.T) {
+	t.Parallel()
+	cfg, err := Parse([]string{"-server", "-p", "0"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.LocalPort != 0 {
+		t.Fatalf("LocalPort = %d, want 0 when -p 0 explicit", cfg.LocalPort)
+	}
+}
+
+func TestParseServerModeRejectsRTPSend(t *testing.T) {
+	t.Parallel()
+	if _, err := Parse([]string{"-server", "-rtp_send"}); err == nil {
+		t.Fatal("expected error for -server with -rtp_send")
+	}
+}

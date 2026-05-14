@@ -406,6 +406,22 @@ Content-Length: 0
   <recv response="200"/>
 </scenario>`
 
+const defaultManagement = `<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="management">
+  <recv request="OPTIONS"/>
+  <send><![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]OptionsTag[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Allow: OPTIONS
+Content-Length: 0
+
+]]></send>
+</scenario>`
+
 func LoadNamed(name string) (Scenario, error) {
 	switch name {
 	case "", "uac":
@@ -430,6 +446,10 @@ func LoadNamed(name string) (Scenario, error) {
 		return sc, err
 	case "invite_media_early_180":
 		sc, err := ParseString(defaultInviteMediaEarly180)
+		sc.BasePath = "."
+		return sc, err
+	case "management":
+		sc, err := ParseString(defaultManagement)
 		sc.BasePath = "."
 		return sc, err
 	default:

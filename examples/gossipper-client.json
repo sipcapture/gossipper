@@ -1,0 +1,8 @@
+{
+  "scenario_name": "uac",
+  "transport": "u1",
+  "remote_addr": "127.0.0.1:5060",
+  "total_calls": 1,
+  "rate": 1,
+  "max_concurrent": 1
+}

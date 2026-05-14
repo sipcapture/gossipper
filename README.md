@@ -44,7 +44,7 @@ The current MVP implements:
 - Pragmatic RTP activity checks via `exec rtpcheck="..."` with configurable `min_packets`, `timeout_ms`, and `direction=any|send|recv|both` (legacy `bidirectional` alias is also supported)
 - RTP echo helper mode via `exec rtp_stream="echo"`
 - Periodic RTCP sender reports plus basic incoming RTCP counters via `pion/rtcp`
-- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a static copy under **`/usr/local/gossipper/dist/`** for optional hosting (e.g. nginx `root`).
+- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a static copy under **`/usr/local/gossipper/dist/`** for optional hosting (e.g. nginx `root`). For **systemd**, use **`examples/gossipper-server.service`** (or **`-server`** / **`-config-server`** with **`examples/gossipper-server.json`** — SIP **`local_ip` / `local_port`**, default **`-p` `5060`** when omitted with **`-server`**, default **`api_addr` `:8080`**); UAC preset: **`examples/gossipper-client.json`** + **`examples/gossipper-client.service`**.
 
 ## Project layout
 
@@ -74,7 +74,7 @@ The current MVP implements:
 - `docs/trace-schema-contract.md`: stable CSV header/order contract for `-trace_stat`, `-trace_rtt`, and `-trace_screen`
 - `docs/tui.md`: interactive TUI usage guide with launcher and runtime screen examples
 - `docs/interactive-shell.md`: line shell (`gossipper shell` / `cli`) with `set`, `wizard`, `hint`, and `run`
-- `docs/run-profile.md`: JSON run profiles (`-config`, `-run-alias`, `-list-aliases`); bundled `testdata/run-profiles/*.json` including HEP script presets
+- `docs/run-profile.md`: JSON run profiles (`-config`, `-run-alias`, `-list-aliases`), flat **`-config-server`** / **`-config-client`**; bundled `testdata/run-profiles/*.json` including HEP script presets
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
 - `milestone.md`: prioritized roadmap for SIPp features that are still missing in `Gossipper`
 
@@ -383,11 +383,15 @@ Package artifacts are written to `dist/` (build tree). The installed layout is u
 | Path | Contents |
 |------|----------|
 | `bin/gossipper` | main binary |
+| `etc/gossipper-server.json` | sample flat config for **`-config-server`** (management / Control UI) |
+| `etc/gossipper-client.json` | sample flat config for **`-config-client`** (UAC preset) |
 | `etc/doc/` | `README.md`, `LICENSE`, and `docs/` from this repository |
 | `logs/` | empty directory for runtime logs (operator-owned) |
 | `dist/` | Control UI static files (same as embedded webdist) |
 
 A symlink **`/usr/local/bin/gossipper`** → `/usr/local/gossipper/bin/gossipper` is created for `PATH`.
+
+**`.deb` / `.rpm`** also install **`/lib/systemd/system/gossipper-server.service`** and **`gossipper-client.service`** (see `examples/*.service` in the repo) and run **`systemctl daemon-reload`** on package install via `scripts/nfpm-postinstall.sh`. Enable one or both, e.g. `sudo systemctl enable --now gossipper-server` and/or `gossipper-client`.
 
 ## Notes
 

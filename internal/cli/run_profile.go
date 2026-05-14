@@ -15,11 +15,13 @@ import (
 // The caller should exit with code 0 without treating it as a failure.
 var ErrListAliases = errors.New("cli: -list-aliases complete")
 
-// runProfileMeta holds parsed -config / -run-alias / -list-aliases from argv.
+// runProfileMeta holds parsed -config / -run-alias / -list-aliases / -config-server / -config-client from argv.
 type runProfileMeta struct {
-	ConfigPath  string
-	RunAlias    string
-	ListAliases bool
+	ConfigPath       string
+	RunAlias         string
+	ListAliases      bool
+	ServerConfigPath string
+	ClientConfigPath string
 }
 
 // runSpec is one alias entry in a gossipper run profile JSON file.
@@ -66,6 +68,7 @@ type runSpec struct {
 	LogOTELInsecure                *bool    `json:"log_otel_insecure,omitempty"`
 	ApiAddr                        *string  `json:"api_addr,omitempty"`
 	ApiToken                       *string  `json:"api_token,omitempty"`
+	Server                         *bool    `json:"server,omitempty"`
 	ExtraArgs                      []string `json:"extra_args,omitempty"`
 	PCAPLink                       *string  `json:"pcap_link,omitempty"`
 }
@@ -120,6 +123,57 @@ func LoadAndApplyRunProfile(cfg *Config, configPath, alias string) ([]string, er
 	return append([]string(nil), spec.ExtraArgs...), nil
 }
 
+// LoadAndApplyServerConfig loads a single JSON object (same keys as a run-profile alias, no "aliases" wrapper)
+// and applies it to cfg. Parse sets ServerMode to true after a successful load.
+func LoadAndApplyServerConfig(cfg *Config, configPath string) ([]string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("config-server: read file: %w", err)
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return nil, fmt.Errorf("config-server: %w", err)
+	}
+	if _, has := top["aliases"]; has {
+		return nil, errors.New("config-server: file contains \"aliases\" (run profile layout); use -config <path> -run-alias <name> for aliases, or a flat object here")
+	}
+	var spec runSpec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		return nil, fmt.Errorf("config-server: %w", err)
+	}
+	configDir := filepath.Dir(configPath)
+	if err := applyRunSpec(cfg, &spec, configDir); err != nil {
+		return nil, err
+	}
+	return append([]string(nil), spec.ExtraArgs...), nil
+}
+
+// LoadAndApplyClientConfig loads a single JSON object (same keys as a run-profile alias, no "aliases" wrapper)
+// and applies it to cfg. Parse sets ServerMode to false after a successful load (UAC / load-gen preset; clears JSON "server": true).
+func LoadAndApplyClientConfig(cfg *Config, configPath string) ([]string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("config-client: read file: %w", err)
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return nil, fmt.Errorf("config-client: %w", err)
+	}
+	if _, has := top["aliases"]; has {
+		return nil, errors.New("config-client: file contains \"aliases\" (run profile layout); use -config <path> -run-alias <name> for aliases, or a flat object here")
+	}
+	var spec runSpec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		return nil, fmt.Errorf("config-client: %w", err)
+	}
+	configDir := filepath.Dir(configPath)
+	if err := applyRunSpec(cfg, &spec, configDir); err != nil {
+		return nil, err
+	}
+	cfg.ServerMode = false
+	return append([]string(nil), spec.ExtraArgs...), nil
+}
+
 func parseRunProfileMeta(args []string) ([]string, runProfileMeta, error) {
 	var m runProfileMeta
 	out := make([]string, 0, len(args))
@@ -148,6 +202,26 @@ func parseRunProfileMeta(args []string) ([]string, runProfileMeta, error) {
 			m.RunAlias = strings.TrimPrefix(a, "-run-alias=")
 		case strings.HasPrefix(a, "--run-alias="):
 			m.RunAlias = strings.TrimPrefix(a, "--run-alias=")
+		case a == "-config-server" || a == "--config-server":
+			if i+1 >= len(args) {
+				return nil, m, errors.New("-config-server requires a path")
+			}
+			i++
+			m.ServerConfigPath = args[i]
+		case strings.HasPrefix(a, "-config-server="):
+			m.ServerConfigPath = strings.TrimPrefix(a, "-config-server=")
+		case strings.HasPrefix(a, "--config-server="):
+			m.ServerConfigPath = strings.TrimPrefix(a, "--config-server=")
+		case a == "-config-client" || a == "--config-client":
+			if i+1 >= len(args) {
+				return nil, m, errors.New("-config-client requires a path")
+			}
+			i++
+			m.ClientConfigPath = args[i]
+		case strings.HasPrefix(a, "-config-client="):
+			m.ClientConfigPath = strings.TrimPrefix(a, "-config-client=")
+		case strings.HasPrefix(a, "--config-client="):
+			m.ClientConfigPath = strings.TrimPrefix(a, "--config-client=")
 		default:
 			out = append(out, a)
 		}
@@ -307,6 +381,9 @@ func applyRunSpec(cfg *Config, spec *runSpec, configDir string) error {
 	}
 	if spec.ApiToken != nil {
 		cfg.ApiToken = *spec.ApiToken
+	}
+	if spec.Server != nil {
+		cfg.ServerMode = *spec.Server
 	}
 	if spec.PCAPLink != nil {
 		cfg.PCAPLinkLayer = strings.TrimSpace(*spec.PCAPLink)

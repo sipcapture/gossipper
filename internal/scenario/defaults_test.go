@@ -45,3 +45,17 @@ func TestLoadNamedInviteMediaSavpf(t *testing.T) {
 		t.Fatalf("scenario name: got %q", sc.Name)
 	}
 }
+
+func TestLoadNamedManagement(t *testing.T) {
+	t.Parallel()
+	sc, err := LoadNamed("management")
+	if err != nil {
+		t.Fatalf("LoadNamed(management): %v", err)
+	}
+	if sc.Name != "management" {
+		t.Fatalf("scenario name: got %q", sc.Name)
+	}
+	if sc.Mode != ModeServer {
+		t.Fatalf("mode: got %q want server", sc.Mode)
+	}
+}

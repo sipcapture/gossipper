@@ -1,0 +1,24 @@
+# Gossipper management server: SIP UAS (e.g. OPTIONS) + HTTP Control UI /api/v1 (-config-server).
+# Edit /usr/local/gossipper/etc/gossipper-server.json (local_ip, local_port, api_addr, …).
+#
+# From source tree:
+#   sudo install -m0644 examples/gossipper-server.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now gossipper-server
+#
+# From .deb / .rpm:
+#   sudo systemctl enable --now gossipper-server
+
+[Unit]
+Description=Gossipper server (SIP UAS + Control UI / HTTP API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gossipper -config-server /usr/local/gossipper/etc/gossipper-server.json
+Restart=on-failure
+RestartSec=5
+# Optional: append -api_token <secret> when using -api_token in JSON or on the binary.
+
+[Install]
+WantedBy=multi-user.target

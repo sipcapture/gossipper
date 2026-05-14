@@ -1,0 +1,8 @@
+{
+  "transport": "u1",
+  "local_ip": "0.0.0.0",
+  "local_port": 5060,
+  "api_addr": ":8080",
+  "rate": 1,
+  "max_concurrent": 2048
+}

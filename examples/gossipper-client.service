@@ -1,0 +1,23 @@
+# Gossipper SIP client / load generator preset (-config-client).
+# Edit /usr/local/gossipper/etc/gossipper-client.json (remote_addr, scenario_name, rates, …).
+#
+# From source tree:
+#   sudo install -m0644 examples/gossipper-client.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now gossipper-client
+#
+# From .deb / .rpm:
+#   sudo systemctl enable --now gossipper-client
+
+[Unit]
+Description=Gossipper client (UAC / load generator)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gossipper -config-client /usr/local/gossipper/etc/gossipper-client.json
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
