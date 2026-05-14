@@ -1,20 +1,20 @@
-# SRTP и gossipper
+# SRTP and Gossipper
 
-Gossipper сегодня работает с **классическим RTP/RTCP** (UDP, без шифрования). Парсинг SDP для `rtp_stream` и `ParseAudioEndpoint` ориентирован на `m=audio … RTP/AVP`.
+Gossipper today targets **plain RTP/RTCP** (UDP, unencrypted). SDP parsing for `rtp_stream` and `ParseAudioEndpoint` assumes `m=audio … RTP/AVP`.
 
-## Явный отказ при SRTP в SDP
+## Failing fast on SRTP in SDP
 
-Флаг **`-media_reject_srtp`** заставляет действия `rtp_stream start` и `rtp_stream mic` завершаться ошибкой, если тело последнего SIP-сообщения содержит признаки SRTP:
+The **`-media_reject_srtp`** flag makes `rtp_stream start` and `rtp_stream mic` fail when the last SIP message body indicates SRTP:
 
-- строка `m=` с профилем **RTP/SAVP** или **RTP/SAVPF**;
-- атрибуты **`a=crypto:`** или **`a=fingerprint:`** (DTLS-SRTP).
+- an `m=` line with **RTP/SAVP** or **RTP/SAVPF**;
+- **`a=crypto:`** or **`a=fingerprint:`** attributes (DTLS-SRTP).
 
-Это защищает сценарии, где ожидается только «голый» RTP, от тихого сбоя или бессмысленного трафика на зашифрованный поток.
+This protects scenarios that expect cleartext RTP from silent failures or useless traffic toward an encrypted media path.
 
-## Дорожная карта
+## Roadmap
 
-1. Интеграция **`github.com/pion/srtp/v3`**: согласование ключей из SDP (SDES или DTLS), отдельный receive/send path.
-2. Симметричная поддержка **SAVPF** в генерации SDP для UAC-сценариев (сейчас не требуется).
-3. Расширение **HEP / QoS** для зашифрованных потоков (метаданные без payload).
+1. Integrate **`github.com/pion/srtp/v3`**: key negotiation from SDP (SDES or DTLS), dedicated receive/send paths.
+2. Symmetric **SAVPF** support in SDP generation for UAC scenarios (not required today).
+3. Extend **HEP / QoS** for encrypted streams (metadata without raw payload).
 
-Полноценный **video pipeline** и расширенная **RTCP-аналитика** остаются вне текущего объёма; см. `docs/media-roadmap.md`.
+A full **video pipeline** and richer **RTCP analytics** stay out of this scope; see `docs/media-roadmap.md`.
