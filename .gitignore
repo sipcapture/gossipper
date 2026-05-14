@@ -1,6 +1,7 @@
 dist/
 build/
 *.prof
+/nfpm
 
 # Vite build output for embedded Control UI (tracked placeholder: internal/api/webdist/.gitkeep)
 internal/api/webdist/*
