@@ -373,7 +373,7 @@ VERSION=0.1.0 ARCH=amd64 OS=linux scripts/build_package.sh rpm
 VERSION=0.1.0 ARCH=amd64 OS=linux scripts/build_package.sh all
 ```
 
-The script mirrors CI: checks Node for the Control UI, runs `npm ci` / `npm run build` in `web/control-ui`, compiles a static `gossipper` into `dist/`, downloads `nfpm` v2.41.1 into the repo root if missing, then runs `nfpm package`. The legacy name `scripts/build-package.sh` is a thin wrapper around `scripts/build_package.sh`.
+The script mirrors CI: checks Node for the Control UI, runs `npm ci` / `npm run build` in `web/control-ui`, compiles a static `gossipper` into `dist/`, downloads `nfpm` v2.41.1 into the repo root if missing, then runs `nfpm package`.
 
 By default, package versions are taken from `cmd/gossip/version.go`. You can
 override them by exporting `VERSION=...` for ad-hoc builds.
