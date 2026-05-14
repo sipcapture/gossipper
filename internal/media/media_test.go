@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipcapture/gossipper/internal/sip"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcapgo"
 	"github.com/pion/rtcp"
+	"github.com/sipcapture/gossipper/internal/sip"
 )
 
 func TestTestdataRawFile(t *testing.T) {

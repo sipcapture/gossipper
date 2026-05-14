@@ -131,6 +131,17 @@ type Config struct {
 	SipPAI          string
 	SipProvider     string
 	SipExtraHeaders []string
+
+	// RecordWAVDir enables automatic per-call WAV capture (decoded remote G.711); see docs/media-roadmap.md.
+	RecordWAVDir    string
+	RecordWAVDuplex bool
+	// CallRecordsJSONL appends one JSON object per finished call (schema gossipper_call_record_v1).
+	CallRecordsJSONL string
+
+	// HealthMaxRTCPFractionLost, when > 0, fails if media.rtcp_max_fraction_lost exceeds this (0..1).
+	HealthMaxRTCPFractionLost float64
+	HealthMaxRTCPJitterTS     int
+	HealthMinRTPPacketsRecv   int
 }
 
 func DefaultConfig() Config {
@@ -211,7 +222,7 @@ func Parse(args []string) (Config, error) {
 		fs.PrintDefaults()
 	}
 	fs.StringVar(&cfg.ScenarioFile, "sf", cfg.ScenarioFile, "path to XML scenario file")
-	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas, invite_media)")
+	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas, invite_media, invite_media_early)")
 	fs.StringVar(&cfg.Service, "s", cfg.Service, "service name used in templates")
 	fs.StringVar(&cfg.Transport, "t", cfg.Transport, "transport: u1/un/ui, t1/tn, l1/ln; client TLS aliases cl/cln; server UDP s1/sn; server TLS sl")
 	fs.StringVar(&cfg.LocalIP, "i", cfg.LocalIP, "local IP address")
@@ -247,6 +258,12 @@ func Parse(args []string) (Config, error) {
 	fs.Float64Var(&cfg.HealthMinSuccessRatio, "health_min_success_ratio", 0, "when >0 with -summary_json or -summary_html, fail run if success_ratio is lower (e.g. 0.95); exit code 2")
 	fs.IntVar(&cfg.HealthMaxFailedCalls, "health_max_failed_calls", -1, "when >=0 with -summary_json or -summary_html, fail if failed_calls exceed this (0 means any failure fails); exit code 2")
 	fs.IntVar(&cfg.HealthMaxTimeouts, "health_max_timeouts", -1, "when >=0 with -summary_json or -summary_html, fail if timeouts exceed this; exit code 2")
+	fs.Float64Var(&cfg.HealthMaxRTCPFractionLost, "health_max_rtcp_fraction_lost", 0, "when >0 with summary/health output, fail if media rtcp_max_fraction_lost exceeds this (0..1); exit code 2")
+	fs.IntVar(&cfg.HealthMaxRTCPJitterTS, "health_max_rtcp_jitter_ts", 0, "when >0 with summary/health output, fail if media rtcp_max_jitter_ts exceeds this; exit code 2")
+	fs.IntVar(&cfg.HealthMinRTPPacketsRecv, "health_min_rtp_packets_recv", 0, "when >0 with summary/health output, fail if aggregated rtp_packets_received is below this; exit code 2")
+	fs.StringVar(&cfg.RecordWAVDir, "record_wav_dir", "", "auto-record incoming RTP (G.711) to WAV per call in this directory (requires active media)")
+	fs.BoolVar(&cfg.RecordWAVDuplex, "record_wav_duplex", false, "with -record_wav_dir, write stereo WAV (L=sent R=received)")
+	fs.StringVar(&cfg.CallRecordsJSONL, "call_records_jsonl", "", "append one JSON call record per finished call to this path")
 	fs.BoolVar(&cfg.TraceMessages, "trace_msg", cfg.TraceMessages, "trace sent and received SIP messages")
 	fs.BoolVar(&cfg.TraceShortMsg, "trace_shortmsg", false, "trace sent and received messages as compact CSV")
 	fs.BoolVar(&cfg.TraceCounts, "trace_counts", false, "write periodic SIP message counters as CSV")

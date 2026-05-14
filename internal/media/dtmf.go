@@ -21,9 +21,9 @@ var digitToEvent = map[rune]uint8{
 }
 
 const (
-	defaultDTMFPayloadType   = 101
-	defaultDTMFClockRate    = 8000
-	defaultInterDigitPause  = 100 * time.Millisecond
+	defaultDTMFPayloadType = 101
+	defaultDTMFClockRate   = 8000
+	defaultInterDigitPause = 100 * time.Millisecond
 )
 
 // BuildDTMFPackets generates RFC 2833 telephone-event RTP packets for a digit.
@@ -56,7 +56,7 @@ func BuildDTMFPackets(digit rune, payloadType uint8, ssrc uint32, sequence *uint
 		}
 		payload := []byte{
 			eventByte,
-			0,    // volume
+			0, // volume
 			byte(duration >> 8),
 			byte(duration & 0xff),
 		}

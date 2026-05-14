@@ -17,10 +17,17 @@ type HealthConfig struct {
 	MaxFailedCalls int
 	// MaxTimeouts: when >= 0, fails if Timeouts > MaxTimeouts.
 	MaxTimeouts int
+	// HealthMaxRTCPFractionLost, when > 0, fails if media.rtcp_max_fraction_lost exceeds this (0..1).
+	HealthMaxRTCPFractionLost float64
+	// HealthMaxRTCPJitterTS, when > 0, fails if media.rtcp_max_jitter_ts exceeds this value.
+	HealthMaxRTCPJitterTS int
+	// HealthMinRTPPacketsRecv, when > 0, fails if aggregated media.rtp_packets_received is below this.
+	HealthMinRTPPacketsRecv int
 }
 
 func (h HealthConfig) Active() bool {
-	return h.MinSuccessRatio > 0 || h.MaxFailedCalls >= 0 || h.MaxTimeouts >= 0
+	return h.MinSuccessRatio > 0 || h.MaxFailedCalls >= 0 || h.MaxTimeouts >= 0 ||
+		h.HealthMaxRTCPFractionLost > 0 || h.HealthMaxRTCPJitterTS > 0 || h.HealthMinRTPPacketsRecv > 0
 }
 
 // HealthSummary is included in -summary_json when health checks are enabled.
@@ -53,6 +60,24 @@ func EvaluateHealth(cfg HealthConfig, s Summary) (*HealthSummary, []string) {
 	if cfg.MaxTimeouts >= 0 && s.Timeouts > cfg.MaxTimeouts {
 		out.Pass = false
 		msg := fmt.Sprintf("timeouts %d exceeds maximum %d", s.Timeouts, cfg.MaxTimeouts)
+		out.Reasons = append(out.Reasons, msg)
+		reasons = append(reasons, msg)
+	}
+	if cfg.HealthMaxRTCPFractionLost > 0 && s.Media.RTCPMaxFractionLost+1e-9 > cfg.HealthMaxRTCPFractionLost {
+		out.Pass = false
+		msg := fmt.Sprintf("rtcp_max_fraction_lost %.4f exceeds maximum %.4f", s.Media.RTCPMaxFractionLost, cfg.HealthMaxRTCPFractionLost)
+		out.Reasons = append(out.Reasons, msg)
+		reasons = append(reasons, msg)
+	}
+	if cfg.HealthMaxRTCPJitterTS > 0 && s.Media.RTCPMaxJitterTS > uint32(cfg.HealthMaxRTCPJitterTS) {
+		out.Pass = false
+		msg := fmt.Sprintf("rtcp_max_jitter_ts %d exceeds maximum %d", s.Media.RTCPMaxJitterTS, cfg.HealthMaxRTCPJitterTS)
+		out.Reasons = append(out.Reasons, msg)
+		reasons = append(reasons, msg)
+	}
+	if cfg.HealthMinRTPPacketsRecv > 0 && s.Media.RTPPacketsReceived < uint32(cfg.HealthMinRTPPacketsRecv) {
+		out.Pass = false
+		msg := fmt.Sprintf("rtp_packets_received %d below minimum %d", s.Media.RTPPacketsReceived, cfg.HealthMinRTPPacketsRecv)
 		out.Reasons = append(out.Reasons, msg)
 		reasons = append(reasons, msg)
 	}

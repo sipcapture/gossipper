@@ -65,6 +65,17 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			if err := mediaSession.StartEcho(ctx, renderCtx.LocalIP, renderCtx.MediaPort); err != nil {
 				return err
 			}
+		case "mic":
+			endpoint, err := media.ParseAudioEndpoint(mustParseLastMessage(renderCtx), renderCtx.RemoteIP)
+			if err != nil {
+				return err
+			}
+			if e.cfg.TraceMessages {
+				fmt.Fprintf(os.Stdout, "rtp_stream mic -> %s:%d\n", endpoint.IP, endpoint.Port)
+			}
+			if err := mediaSession.StartMicrophone(ctx, endpoint, renderCtx.LocalIP, renderCtx.MediaPort); err != nil {
+				return err
+			}
 		case "start":
 			endpoint, err := media.ParseAudioEndpoint(mustParseLastMessage(renderCtx), renderCtx.RemoteIP)
 			if err != nil {
@@ -74,6 +85,33 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 				fmt.Fprintf(os.Stdout, "rtp_stream start %s -> %s:%d\n", cfg.Path, endpoint.IP, endpoint.Port)
 			}
 			if err := mediaSession.Start(ctx, endpoint, cfg, renderCtx.LocalIP, renderCtx.MediaPort); err != nil {
+				return err
+			}
+		}
+	}
+
+	if action.RTPRecord != "" {
+		if mediaSession == nil {
+			return fmt.Errorf("rtp_record is not available in this context")
+		}
+		spec, err := templ.RenderMessageStrict(action.RTPRecord, renderCtx)
+		if err != nil {
+			return err
+		}
+		cmd, path, duplex, err := media.ParseRTPRecordSpec(spec)
+		if err != nil {
+			return err
+		}
+		switch cmd {
+		case "stop":
+			if err := mediaSession.StopRecording(); err != nil {
+				return err
+			}
+		case "start":
+			if e.cfg.TraceMessages {
+				fmt.Fprintf(os.Stdout, "rtp_record start duplex=%v -> %s\n", duplex, path)
+			}
+			if err := mediaSession.StartRecording(path, duplex, renderCtx.BasePath); err != nil {
 				return err
 			}
 		}

@@ -87,6 +87,7 @@ type Action struct {
 	Command        string
 	IntCmd         string
 	RTPStream      string
+	RTPRecord      string
 	RTPCheck       string
 	PlayPCAPAudio  string
 	PlayPCAPVideo  string

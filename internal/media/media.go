@@ -64,6 +64,15 @@ type Session struct {
 	callID        string
 	pcapLinkLayer string
 
+	// WAV recording (optional). Guarded by mu.
+	recordOn         bool
+	recordDuplex     bool
+	recordRecv       []int16
+	recordSent       []int16
+	recordPath       string
+	autoRecordDir    string
+	autoRecordDuplex bool
+
 	// Incoming RTP stats for RTCP Receiver Reports (RFC 3550 §6.4.2).
 	// All fields are guarded by mu.
 	rrSSRC        uint32
@@ -241,6 +250,10 @@ func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, err
 	if first == "" {
 		return "", StreamConfig{}, errors.New("rtp_stream requires a path or 'synthetic'")
 	}
+	switch strings.ToLower(first) {
+	case "mic", "microphone":
+		return "mic", StreamConfig{}, nil
+	}
 
 	if strings.ToLower(first) == "synthetic" {
 		cfg := DefaultConfig("")
@@ -363,6 +376,7 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 		go s.rtcpLoop(childCtx, rtcpConn, &net.UDPAddr{IP: remoteAddr.IP, Port: remoteAddr.Port + 1}, cfg, obs, callID)
 		go s.rtcpReceiveLoop(childCtx, rtcpConn)
 	}
+	s.maybeStartAutoRecord()
 	return nil
 }
 
@@ -446,6 +460,7 @@ func (s *Session) Stop() {
 	if rtcpConn != nil {
 		_ = rtcpConn.Close()
 	}
+	s.flushRecording()
 }
 
 func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net.UDPAddr, cfg StreamConfig, packets [][]byte, obs HEPObserver, callID string) {
@@ -514,6 +529,7 @@ func (s *Session) streamLoop(ctx context.Context, conn *net.UDPConn, remote *net
 			s.lastTimestamp = timestamp
 			s.stats.RTPPacketsSent++
 			s.stats.RTPOctetsSent += uint32(len(payload))
+			s.appendRecordOutbound(cfg.PayloadType, payload)
 			s.mu.Unlock()
 			sequence++
 			timestamp += cfg.SamplesPerPkt
@@ -1030,6 +1046,9 @@ func (s *Session) rtpReceiveLoop(ctx context.Context, conn *net.UDPConn) {
 		s.mu.Lock()
 		s.observeRTPPacket(&pkt, now)
 		s.stats.RTPPacketsReceived++
+		if s.recordOn {
+			s.appendRecordInbound(&pkt)
+		}
 		s.mu.Unlock()
 	}
 }

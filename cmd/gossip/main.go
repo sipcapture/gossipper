@@ -9,7 +9,9 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"strings"
@@ -49,6 +51,9 @@ func run(args []string) error {
 	}
 	if len(args) > 0 && args[0] == "report-html" {
 		return runReportHTML(args[1:])
+	}
+	if len(args) > 0 && args[0] == "summary-to-pdf" {
+		return runSummaryToPDF(args[1:])
 	}
 	if len(args) > 0 && (args[0] == "shell" || args[0] == "cli") {
 		return shell.Run(os.Stdin, os.Stdout, os.Stderr)
@@ -235,6 +240,63 @@ func runReportHTML(args []string) error {
 	}
 	if err := reporthtml.WriteFile(strings.TrimSpace(*outPath), s); err != nil {
 		return fmt.Errorf("report-html: write -out: %w", err)
+	}
+	return nil
+}
+
+func runSummaryToPDF(args []string) error {
+	fs := flag.NewFlagSet("summary-to-pdf", flag.ContinueOnError)
+	inPath := fs.String("in", "", "input HTML file (e.g. from gossipper -summary_html)")
+	outPath := fs.String("out", "", "output PDF path")
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "usage: gossipper summary-to-pdf -in report.html -out report.pdf\n")
+		fmt.Fprintf(fs.Output(), "Requires chromium or google-chrome in PATH (headless print-to-pdf).\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*inPath) == "" || strings.TrimSpace(*outPath) == "" {
+		fs.Usage()
+		return fmt.Errorf("summary-to-pdf: -in and -out are required")
+	}
+	candidates := []string{"chromium", "chromium-browser", "google-chrome", "google-chrome-stable"}
+	var chrome string
+	for _, name := range candidates {
+		p, err := exec.LookPath(name)
+		if err == nil {
+			chrome = p
+			break
+		}
+	}
+	if chrome == "" {
+		return fmt.Errorf("summary-to-pdf: no chromium/google-chrome found in PATH")
+	}
+	absIn, err := filepath.Abs(strings.TrimSpace(*inPath))
+	if err != nil {
+		return fmt.Errorf("summary-to-pdf: -in path: %w", err)
+	}
+	absOut, err := filepath.Abs(strings.TrimSpace(*outPath))
+	if err != nil {
+		return fmt.Errorf("summary-to-pdf: -out path: %w", err)
+	}
+	tmpDir, err := os.MkdirTemp("", "gossipper-pdf-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+	fileURL := "file://" + filepath.ToSlash(absIn)
+	cmd := exec.Command(chrome,
+		"--headless=new",
+		"--disable-gpu",
+		"--no-sandbox",
+		"--user-data-dir="+tmpDir,
+		"--print-to-pdf="+absOut,
+		fileURL,
+	)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("summary-to-pdf: %w", err)
 	}
 	return nil
 }

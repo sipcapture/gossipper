@@ -91,7 +91,38 @@ Examples:
 
 <!-- Echo mode: reflects every received RTP packet back to the sender -->
 <exec rtp_stream="echo"/>
+
+<!-- Linux: live microphone via arecord → PCMU/8000 RTP (requires arecord in PATH) -->
+<exec rtp_stream="mic"/>
 ```
+
+---
+
+## exec rtp_record
+
+Writes decoded **incoming** G.711 RTP (payload types **0** and **8** only) to a
+**16-bit PCM mono 8 kHz** WAV file.
+
+```xml
+<nop>
+  <action>
+    <exec rtp_record="start,./captures/call.wav"/>
+  </action>
+</nop>
+```
+
+Forms:
+
+| Value | Meaning |
+| --- | --- |
+| `start,<path>` | Begin recording to `path` (mono remote leg). |
+| `start,<path>,duplex` | Stereo WAV: **L** = sent (local) samples, **R** = received; lengths padded with silence to match. |
+| `stop` | Stop and flush the WAV file. |
+
+Paths are resolved like other media files (relative to the scenario directory).
+Start recording **after** `rtp_stream` (or `mic` / `play_pcap_*`) has started the
+media session, or use CLI **`-record_wav_dir`** for automatic per-call files named
+from Call-ID.
 
 ---
 

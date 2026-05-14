@@ -1448,12 +1448,14 @@ func TestParseRejectsOSSIncompatibleMediaReport(t *testing.T) {
 
 type parseTestStubExporter struct{}
 
-func (parseTestStubExporter) SendRTP(time.Time, string, int, string, int, string, []byte) error { return nil }
+func (parseTestStubExporter) SendRTP(time.Time, string, int, string, int, string, []byte) error {
+	return nil
+}
 func (parseTestStubExporter) SendRTCP(time.Time, string, uint32, string, int, string, int, uint32, []byte) error {
 	return nil
 }
 func (parseTestStubExporter) SendFinalReports(string) {}
-func (parseTestStubExporter) Close() error { return nil }
+func (parseTestStubExporter) Close() error            { return nil }
 
 func TestParseAllowsSendMediaReportShortJSONWhenExtensionRegistered(t *testing.T) {
 	mediasink.RegisterMediaExporterExtension(func(conn *net.UDPConn, addr *net.UDPAddr, cfg mediasink.MediaConfig) (mediasink.MediaExporter, error) {

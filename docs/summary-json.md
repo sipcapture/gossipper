@@ -24,11 +24,23 @@ Optional flags (evaluated when **`-summary_json`**, **`-summary_html`**, or any 
 - `-health_max_failed_calls` — fail if `failed_calls` exceed this value; `0` means any failure fails the run. Default `-1` disables.
 - `-health_max_timeouts` — fail if `timeouts` exceed this value. Default `-1` disables.
 
-On failure the process exits with code **2** (other errors use **1**). The JSON file still contains `health` and `findings` with failure reasons.
+On failure the process exits with code **2** (other errors use **1**). The JSON file still contains `health` and `findings` with failure reasons when `-summary_json` is set.
+
+### Media thresholds (aggregate summary)
+
+When **`-summary_json`**, **`-summary_html`**, or any health flag is set, these
+optional gates apply to **aggregated** `media` counters across all calls:
+
+- `-health_max_rtcp_fraction_lost` — fail if `media.rtcp_max_fraction_lost` exceeds this value (0..1, e.g. `0.05`).
+- `-health_max_rtcp_jitter_ts` — fail if `media.rtcp_max_jitter_ts` exceeds this integer (RTP timestamp units).
+- `-health_min_rtp_packets_recv` — fail if `media.rtp_packets_received` is **below** this aggregate count.
+
+These media checks use the same exit code **2** on failure when health evaluation runs.
 
 ## HTML report
 
 - **`-summary_html PATH`**: after a SIP run, writes the same finalized summary as a **standalone** UTF-8 HTML file (no CDN, works offline). Can be used **without** `-summary_json`.
 - **`gossipper report-html -in summary.json -out report.html`**: rebuild HTML from an existing summary JSON file.
+- **`gossipper summary-to-pdf -in report.html -out report.pdf`**: render HTML to PDF using Chromium/Chrome headless (`--print-to-pdf`); requires a browser binary in `PATH`.
 
 See implementation in `internal/reporthtml`.

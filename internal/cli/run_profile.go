@@ -25,42 +25,48 @@ type runProfileMeta struct {
 // runSpec is one alias entry in a gossipper run profile JSON file.
 // Field names are stable snake_case; optional pointers mean "leave Config default".
 type runSpec struct {
-	ScenarioFile     *string  `json:"scenario_file,omitempty"`
-	ScenarioName     *string  `json:"scenario_name,omitempty"`
-	Service          *string  `json:"service,omitempty"`
-	Transport        *string  `json:"transport,omitempty"`
-	LocalIP          *string  `json:"local_ip,omitempty"`
-	LocalPort        *int     `json:"local_port,omitempty"`
-	RemoteAddr       *string  `json:"remote_addr,omitempty"`
-	AuthUsername     *string  `json:"auth_username,omitempty"`
-	AuthPassword     *string  `json:"auth_password,omitempty"`
-	Rate             *float64 `json:"rate,omitempty"`
-	MaxConcurrent    *int     `json:"max_concurrent,omitempty"`
-	TotalCalls       *int     `json:"total_calls,omitempty"`
-	Users            *int     `json:"users,omitempty"`
-	HEPAddr          *string  `json:"hep_addr,omitempty"`
-	HEPCaptureID     *uint32  `json:"hep_capture_id,omitempty"`
-	HEPPassword      *string  `json:"hep_password,omitempty"`
-	HEPRawRTCP       *bool    `json:"hep_raw_rtcp,omitempty"`
-	HEPHomerLakeRTCP *bool    `json:"hep_homer_lake_rtcp,omitempty"`
-	SendMediaReport  *bool    `json:"send_media_report,omitempty"`
-	SummaryJSON      *string  `json:"summary_json,omitempty"`
-	SummaryHTML      *string  `json:"summary_html,omitempty"`
-	SipFrom          *string  `json:"sip_from,omitempty"`
-	SipPAI           *string  `json:"sip_pai,omitempty"`
-	SipProvider      *string  `json:"sip_provider,omitempty"`
-	SipExtraHeaders  []string `json:"sip_extra_headers,omitempty"`
-	TraceMessages    *bool    `json:"trace_msg,omitempty"`
-	StatPrintPeriod  *string  `json:"stat_period,omitempty"`
-	InjectionFile    *string  `json:"injection_file,omitempty"`
-	IPField          *int     `json:"ip_field,omitempty"`
-	LogOTELEndpoint  *string  `json:"log_otel_endpoint,omitempty"`
-	LogOTELProto     *string  `json:"log_otel_proto,omitempty"`
-	LogOTELInsecure  *bool    `json:"log_otel_insecure,omitempty"`
-	ApiAddr          *string  `json:"api_addr,omitempty"`
-	ApiToken         *string  `json:"api_token,omitempty"`
-	ExtraArgs        []string `json:"extra_args,omitempty"`
-	PCAPLink         *string  `json:"pcap_link,omitempty"`
+	ScenarioFile              *string  `json:"scenario_file,omitempty"`
+	ScenarioName              *string  `json:"scenario_name,omitempty"`
+	Service                   *string  `json:"service,omitempty"`
+	Transport                 *string  `json:"transport,omitempty"`
+	LocalIP                   *string  `json:"local_ip,omitempty"`
+	LocalPort                 *int     `json:"local_port,omitempty"`
+	RemoteAddr                *string  `json:"remote_addr,omitempty"`
+	AuthUsername              *string  `json:"auth_username,omitempty"`
+	AuthPassword              *string  `json:"auth_password,omitempty"`
+	Rate                      *float64 `json:"rate,omitempty"`
+	MaxConcurrent             *int     `json:"max_concurrent,omitempty"`
+	TotalCalls                *int     `json:"total_calls,omitempty"`
+	Users                     *int     `json:"users,omitempty"`
+	HEPAddr                   *string  `json:"hep_addr,omitempty"`
+	HEPCaptureID              *uint32  `json:"hep_capture_id,omitempty"`
+	HEPPassword               *string  `json:"hep_password,omitempty"`
+	HEPRawRTCP                *bool    `json:"hep_raw_rtcp,omitempty"`
+	HEPHomerLakeRTCP          *bool    `json:"hep_homer_lake_rtcp,omitempty"`
+	SendMediaReport           *bool    `json:"send_media_report,omitempty"`
+	SummaryJSON               *string  `json:"summary_json,omitempty"`
+	SummaryHTML               *string  `json:"summary_html,omitempty"`
+	RecordWAVDir              *string  `json:"record_wav_dir,omitempty"`
+	RecordWAVDuplex           *bool    `json:"record_wav_duplex,omitempty"`
+	CallRecordsJSONL          *string  `json:"call_records_jsonl,omitempty"`
+	SipFrom                   *string  `json:"sip_from,omitempty"`
+	SipPAI                    *string  `json:"sip_pai,omitempty"`
+	SipProvider               *string  `json:"sip_provider,omitempty"`
+	SipExtraHeaders           []string `json:"sip_extra_headers,omitempty"`
+	TraceMessages             *bool    `json:"trace_msg,omitempty"`
+	StatPrintPeriod           *string  `json:"stat_period,omitempty"`
+	InjectionFile             *string  `json:"injection_file,omitempty"`
+	IPField                   *int     `json:"ip_field,omitempty"`
+	HealthMaxRTCPFractionLost *float64 `json:"health_max_rtcp_fraction_lost,omitempty"`
+	HealthMaxRTCPJitterTS     *int     `json:"health_max_rtcp_jitter_ts,omitempty"`
+	HealthMinRTPPacketsRecv   *int     `json:"health_min_rtp_packets_recv,omitempty"`
+	LogOTELEndpoint           *string  `json:"log_otel_endpoint,omitempty"`
+	LogOTELProto              *string  `json:"log_otel_proto,omitempty"`
+	LogOTELInsecure           *bool    `json:"log_otel_insecure,omitempty"`
+	ApiAddr                   *string  `json:"api_addr,omitempty"`
+	ApiToken                  *string  `json:"api_token,omitempty"`
+	ExtraArgs                 []string `json:"extra_args,omitempty"`
+	PCAPLink                  *string  `json:"pcap_link,omitempty"`
 }
 
 type runProfileFile struct {
@@ -225,6 +231,15 @@ func applyRunSpec(cfg *Config, spec *runSpec, configDir string) error {
 	if spec.SummaryHTML != nil {
 		cfg.SummaryHTML = strings.TrimSpace(*spec.SummaryHTML)
 	}
+	if spec.RecordWAVDir != nil {
+		cfg.RecordWAVDir = strings.TrimSpace(*spec.RecordWAVDir)
+	}
+	if spec.RecordWAVDuplex != nil {
+		cfg.RecordWAVDuplex = *spec.RecordWAVDuplex
+	}
+	if spec.CallRecordsJSONL != nil {
+		cfg.CallRecordsJSONL = strings.TrimSpace(*spec.CallRecordsJSONL)
+	}
 	if spec.SipFrom != nil {
 		cfg.SipFrom = strings.TrimSpace(*spec.SipFrom)
 	}
@@ -264,6 +279,15 @@ func applyRunSpec(cfg *Config, spec *runSpec, configDir string) error {
 	}
 	if spec.IPField != nil {
 		cfg.IPField = *spec.IPField
+	}
+	if spec.HealthMaxRTCPFractionLost != nil {
+		cfg.HealthMaxRTCPFractionLost = *spec.HealthMaxRTCPFractionLost
+	}
+	if spec.HealthMaxRTCPJitterTS != nil {
+		cfg.HealthMaxRTCPJitterTS = *spec.HealthMaxRTCPJitterTS
+	}
+	if spec.HealthMinRTPPacketsRecv != nil {
+		cfg.HealthMinRTPPacketsRecv = *spec.HealthMinRTPPacketsRecv
 	}
 	if spec.LogOTELEndpoint != nil {
 		cfg.LogOTELEndpoint = strings.TrimSpace(*spec.LogOTELEndpoint)

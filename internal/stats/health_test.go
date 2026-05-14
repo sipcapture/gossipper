@@ -82,3 +82,29 @@ func TestWriteJSONHealthPass(t *testing.T) {
 		t.Fatalf("health: %+v", s.Health)
 	}
 }
+
+func TestHealthMaxRTCPFractionLost(t *testing.T) {
+	t.Parallel()
+	cfg := HealthConfig{HealthMaxRTCPFractionLost: 0.1}
+	if !cfg.Active() {
+		t.Fatal("expected active")
+	}
+	s := Summary{Media: MediaSummary{RTCPMaxFractionLost: 0.2}}
+	h, _ := EvaluateHealth(cfg, s)
+	if h == nil || h.Pass {
+		t.Fatalf("expected fail, got %+v", h)
+	}
+}
+
+func TestHealthMinRTPPacketsRecv(t *testing.T) {
+	t.Parallel()
+	cfg := HealthConfig{HealthMinRTPPacketsRecv: 100}
+	if !cfg.Active() {
+		t.Fatal("expected active")
+	}
+	s := Summary{Media: MediaSummary{RTPPacketsReceived: 50}}
+	h, _ := EvaluateHealth(cfg, s)
+	if h == nil || h.Pass {
+		t.Fatalf("expected fail, got %+v", h)
+	}
+}
