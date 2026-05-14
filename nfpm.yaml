@@ -9,34 +9,40 @@ description: |
   Gossipper is a Go-based SIP traffic generator and SIPp-compatible
   scenario runner with incremental XML parity, 3PCC helpers, and RTP tooling.
   (AGPL-3.0)
+  Install layout under /usr/local/gossipper: bin, etc (doc + local config), logs, dist (Control UI static files).
 vendor: "QXIP"
 homepage: "https://github.com/sipcapture/gossipper"
 # license omitted: nfpm writes "License:" into deb control; Packagecloud may 500.
 
 contents:
   - src: ./dist/gossipper
-    dst: /usr/bin/gossipper
+    dst: /usr/local/gossipper/bin/gossipper
     file_info:
       mode: 0755
 
+  - src: /usr/local/gossipper/bin/gossipper
+    dst: /usr/local/bin/gossipper
+    type: symlink
+
   - src: ./README.md
-    dst: /usr/share/doc/gossipper/README.md
+    dst: /usr/local/gossipper/etc/doc/README.md
     file_info:
       mode: 0644
 
   - src: ./LICENSE
-    dst: /usr/share/doc/gossipper/LICENSE
+    dst: /usr/local/gossipper/etc/doc/LICENSE
     file_info:
       mode: 0644
 
   - src: ./docs
-    dst: /usr/share/doc/gossipper/docs
-
-  - src: ./internal/api/webdist
-    dst: /usr/share/gossipper/control-ui
+    dst: /usr/local/gossipper/etc/doc/docs
     type: tree
 
-  - dst: /etc/gossipper
+  - src: ./internal/api/webdist
+    dst: /usr/local/gossipper/dist
+    type: tree
+
+  - dst: /usr/local/gossipper/logs
     type: dir
     file_info:
       mode: 0755

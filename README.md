@@ -44,7 +44,7 @@ The current MVP implements:
 - Pragmatic RTP activity checks via `exec rtpcheck="..."` with configurable `min_packets`, `timeout_ms`, and `direction=any|send|recv|both` (legacy `bidirectional` alias is also supported)
 - RTP echo helper mode via `exec rtp_stream="echo"`
 - Periodic RTCP sender reports plus basic incoming RTCP counters via `pion/rtcp`
-- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a copy under **`/usr/share/gossipper/control-ui/`** for optional static hosting.
+- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a static copy under **`/usr/local/gossipper/dist/`** for optional hosting (e.g. nginx `root`).
 
 ## Project layout
 
@@ -378,8 +378,16 @@ The script mirrors CI: checks Node for the Control UI, runs `npm ci` / `npm run 
 By default, package versions are taken from `cmd/gossip/version.go`. You can
 override them by exporting `VERSION=...` for ad-hoc builds.
 
-Package artifacts are written to `dist/` and install the `gossipper` binary
-at `/usr/bin/gossipper`.
+Package artifacts are written to `dist/` (build tree). The installed layout is under **`/usr/local/gossipper`**:
+
+| Path | Contents |
+|------|----------|
+| `bin/gossipper` | main binary |
+| `etc/doc/` | `README.md`, `LICENSE`, and `docs/` from this repository |
+| `logs/` | empty directory for runtime logs (operator-owned) |
+| `dist/` | Control UI static files (same as embedded webdist) |
+
+A symlink **`/usr/local/bin/gossipper`** → `/usr/local/gossipper/bin/gossipper` is created for `PATH`.
 
 ## Notes
 
