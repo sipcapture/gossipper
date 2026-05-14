@@ -57,6 +57,7 @@ The current MVP implements:
 - `internal/sip`: SIP message parsing helpers
 - `internal/transport`: UDP, TCP, and TLS transports
 - `internal/api`: optional HTTP management API (`-api_addr`) for live stats, scenario file read/write, hot apply, and rate/pause control
+- `web/control-ui`: optional Vite/React control panel for that HTTP API (see `web/control-ui/README.md`)
 - `internal/scheduler`: timing abstraction
 - `internal/stats`: counters and summaries
 - `internal/media`: RTP helpers backed by Pion
