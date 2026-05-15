@@ -45,7 +45,7 @@ func run(args []string) error {
 		PrintVersion()
 		return nil
 	}
-	if len(args) > 0 && args[0] == "sipp" {
+	if len(args) > 0 && strings.EqualFold(args[0], "sipp") {
 		return sipp.Run(args[1:], runMain)
 	}
 	return runMain(args)
@@ -66,6 +66,9 @@ func runMain(args []string) error {
 	}
 	if len(args) > 0 && (args[0] == "shell" || args[0] == "cli") {
 		return shell.Run(os.Stdin, os.Stdout, os.Stderr)
+	}
+	if len(args) > 0 && args[0] == "server" {
+		args = cli.ServerSubcommandPrependsFlag(args[1:])
 	}
 
 	interactive := false

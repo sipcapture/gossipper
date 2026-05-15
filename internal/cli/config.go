@@ -36,15 +36,15 @@ const (
 )
 
 type Config struct {
-	ScenarioFile     string
-	ScenarioName     string
-	Service          string
-	Transport        string
-	LocalIP          string
-	LocalPort        int
+	ScenarioFile string
+	ScenarioName string
+	Service      string
+	Transport    string
+	LocalIP      string
+	LocalPort    int
 	// ServerListeners binds several SIP server sockets in --server when non-empty
 	// (UDP u1/un, TCP t1/tn, TLS l1/ln, or mixed; see run profile "listeners").
-	ServerListeners []ServerListener
+	ServerListeners  []ServerListener
 	RemoteHost       string
 	RemotePort       int
 	AuthUsername     string
@@ -861,12 +861,15 @@ func applyServerModeIfEnabled(cfg *Config, flagProvided map[string]struct{}) err
 func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "Gossipper — SIP load generator (https://github.com/sipcapture/gossipper)")
 	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Optional SIPp-style scenario prefix: `gossipper sipp [flags…]` — same flags as scenario mode; not for tui/shell/server (see `gossipper sipp -h`).")
+	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Subcommands (run before any flags):")
 	fmt.Fprintln(w, "  gossipper shell              interactive line shell: set flags, wizard, hint, run")
 	fmt.Fprintln(w, "  gossipper cli                alias for shell")
 	fmt.Fprintln(w, "  gossipper tui                full-screen launcher / runtime UI")
 	fmt.Fprintln(w, "  gossipper -interactive       same as tui")
-	fmt.Fprintln(w, "  gossipper -server            management HTTP API + minimal OPTIONS UAS (systemd); SIP bind -i/-p (default -p 5060 if omitted); see examples/gossipper-server.service, examples/gossipper-server.json")
+	fmt.Fprintln(w, "  gossipper server [flags]     long-run management server (prepends -server; use with -config-server … or same flags as -server)")
+	fmt.Fprintln(w, "  gossipper -server            same as `gossipper server` (systemd); SIP bind -i/-p (default -p 5060 if omitted); see examples/gossipper-server.service")
 	fmt.Fprintln(w, "  gossipper pcap2scenario ...  PCAP → XML scenarios")
 	fmt.Fprintln(w, "  gossipper report-html ...  summary JSON → standalone HTML report")
 	fmt.Fprintln(w)

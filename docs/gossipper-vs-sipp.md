@@ -8,10 +8,18 @@ testing.
 
 ## CLI entry `gossipper sipp`
 
-The **`gossipper sipp`** subcommand is a SIPp-oriented alias for the same binary:
-`gossipper sipp […]` forwards to the normal dispatcher (`tui`, `shell`, scenario
-flags, `-interactive`, helpers, …). Run **`gossipper sipp`** with no arguments for
-a short usage summary.
+**`gossipper sipp`** is only for **SIPp-style command-line scenario** invocation (the
+same flag surface as running a load test from SIPp’s CLI). Helpers such as **`tui`**,
+**`shell`**, **`server`**, **`pcap2scenario`**, **`report-html`**, and **`summary-to-pdf`**
+must be run as **`gossipper <subcommand>`** without the **`sipp`** token. Run
+**`gossipper sipp`** or **`gossipper sipp -h`** for a short SIPp-oriented usage summary.
+
+The root command **`gossipper [flags…]`** runs scenarios the same way; **`sipp`** is an
+optional explicit SIPp-style entry point.
+
+The **`gossipper server`** subcommand is the preferred entry for systemd-style
+management mode: **`gossipper server -config-server /path.json`** or
+**`gossipper server`** (equivalent to **`gossipper -server`**).
 
 ## What `Gossipper` already does well
 

@@ -1548,6 +1548,37 @@ func TestParseConfigClientMutuallyExclusiveWithConfig(t *testing.T) {
 	}
 }
 
+func TestServerSubcommandPrependsFlag(t *testing.T) {
+	t.Parallel()
+	if got := ServerSubcommandPrependsFlag(nil); len(got) != 1 || got[0] != "-server" {
+		t.Fatalf("empty rest: %#v", got)
+	}
+	if got := ServerSubcommandPrependsFlag([]string{"-p", "0"}); len(got) != 3 || got[0] != "-server" || got[1] != "-p" || got[2] != "0" {
+		t.Fatalf("with -p: %#v", got)
+	}
+	if got := ServerSubcommandPrependsFlag([]string{"-config-server", "/tmp/x.json"}); len(got) != 2 || got[0] != "-config-server" {
+		t.Fatalf("config-server should not duplicate -server: %#v", got)
+	}
+	if got := ServerSubcommandPrependsFlag([]string{"-server", "-p", "9"}); len(got) != 3 || got[0] != "-server" {
+		t.Fatalf("explicit -server: %#v", got)
+	}
+}
+
+func TestParseServerSubcommandSameAsDashServer(t *testing.T) {
+	t.Parallel()
+	a, err := Parse(ServerSubcommandPrependsFlag([]string{"-p", "0"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Parse([]string{"-server", "-p", "0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.ServerMode || !b.ServerMode || a.LocalPort != b.LocalPort {
+		t.Fatalf("a=%+v b=%+v", a, b)
+	}
+}
+
 func TestParseServerModeDefaults(t *testing.T) {
 	t.Parallel()
 	cfg, err := Parse([]string{"-server"})

@@ -1,4 +1,5 @@
 # Gossipper management server: SIP UAS (e.g. OPTIONS) + HTTP Control UI /api/v1 (-config-server).
+# ExecStart uses the `server` subcommand (prepends -server when not using -config-server alone).
 # Edit /usr/local/gossipper/etc/gossipper-server.json (local_ip, local_port, api_addr, …).
 #
 # From source tree:
@@ -15,7 +16,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/gossipper -config-server /usr/local/gossipper/etc/gossipper-server.json
+ExecStart=/usr/local/bin/gossipper server -config-server /usr/local/gossipper/etc/gossipper-server.json
 Restart=on-failure
 RestartSec=5
 # Optional: append -api_token <secret> when using -api_token in JSON or on the binary.

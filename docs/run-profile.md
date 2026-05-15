@@ -36,7 +36,7 @@ For **systemd** or any long-lived **Control UI** deployment, you can keep a **si
 Example: [`examples/gossipper-server.json`](../examples/gossipper-server.json). Several binds (UDP `u1` / `un`, TCP `t1`, TLS `l1` / `ln`, or mixed): [`examples/gossipper-server-multi-listener.json`](../examples/gossipper-server-multi-listener.json).
 
 ```bash
-gossipper -config-server /etc/gossipper/server.json
+gossipper server -config-server /etc/gossipper/server.json
 ```
 
 ## Flat client config (`-config-client`)

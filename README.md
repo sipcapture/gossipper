@@ -29,7 +29,8 @@ The current MVP implements:
 - Optional SIP identity for built-in UAC / `invite_media`: `-sip_from` (From before `;tag=`), `-sip_pai`, `-sip_provider`, repeatable `-sip_extra_header` (see `docs/compatibility.md` `[trunk_*]` keywords)
 - Concurrent call generation with rate limiting
 - Interactive terminal UI via `gossipper tui` / `gossipper -interactive` for launch presets and live runtime control
-- **`gossipper sipp`** — same engine and subcommands (`tui`, `shell`, flags, …) behind a SIPp-oriented entry point; see `docs/gossipper-vs-sipp.md`
+- **`gossipper sipp`** — optional **SIPp-style CLI** prefix for scenario flags only (not `tui` / `shell` / `server`); same engine as root `gossipper [flags…]`; see `docs/gossipper-vs-sipp.md`
+- **`gossipper server`** — management / long-run SIP UAS + HTTP API: prepends **`-server`** (or pass **`-config-server`** / **`-server`** in the tail unchanged); recommended in **systemd** alongside **`-config-server`**
 - Basic statistics and JSON summary export (`-summary_json`), optional standalone **HTML** report (`-summary_html` or `gossipper report-html -in … -out …`; see `docs/summary-json.md`)
 - Named per-step RTD timers via `start_rtd` / `rtd`, aggregated into summary JSON
 - XML `counter` / `display` attributes aggregated into summary JSON as execution counts
@@ -45,7 +46,7 @@ The current MVP implements:
 - Pragmatic RTP activity checks via `exec rtpcheck="..."` with configurable `min_packets`, `timeout_ms`, and `direction=any|send|recv|both` (legacy `bidirectional` alias is also supported)
 - RTP echo helper mode via `exec rtp_stream="echo"`
 - Periodic RTCP sender reports plus basic incoming RTCP counters via `pion/rtcp`
-- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a static copy under **`/usr/local/gossipper/dist/`** for optional hosting (e.g. nginx `root`). For **systemd**, use **`examples/gossipper-server.service`** (or **`-server`** / **`-config-server`** with **`examples/gossipper-server.json`** — SIP **`local_ip` / `local_port`**, default **`-p` `5060`** when omitted with **`-server`**, default **`api_addr` `:8080`**); UAC preset: **`examples/gossipper-client.json`** + **`examples/gossipper-client.service`**.
+- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a static copy under **`/usr/local/gossipper/dist/`** for optional hosting (e.g. nginx `root`). For **systemd**, use **`examples/gossipper-server.service`** (or **`gossipper server -config-server …`** / **`gossipper -server`** with **`examples/gossipper-server.json`** — SIP **`local_ip` / `local_port`**, default **`-p` `5060`** when omitted with **`-server`**, default **`api_addr` `:8080`**); UAC preset: **`examples/gossipper-client.json`** + **`examples/gossipper-client.service`**.
 
 ## Project layout
 
