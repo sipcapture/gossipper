@@ -1,22 +1,23 @@
 # Gossipper management server: SIP UAS (e.g. OPTIONS) + HTTP Control UI /api/v1.
-# ExecStart uses the `server` subcommand (internal marker before flags; see internal/cli/server_subcmd.go).
-# Edit /usr/local/gossipper/etc/gossipper-server.json (local_ip, local_port, api_addr, …).
+# Flat JSON is loaded via `gossipper server -config` (see examples/gossipper-management.json in the repo).
+# Edit /usr/local/gossipper/etc/gossipper-server.json after install (.deb / .rpm layout).
 #
 # From source tree:
 #   sudo install -m0644 examples/gossipper-server.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now gossipper-server
 #
-# From .deb / .rpm:
+# From .deb / .rpm (nfpm): binary at /usr/local/gossipper/bin/gossipper, symlink may exist at /usr/local/bin/gossipper
 #   sudo systemctl enable --now gossipper-server
 
 [Unit]
 Description=Gossipper server (SIP UAS + Control UI / HTTP API)
+Documentation=file:/usr/local/gossipper/etc/doc/README.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/gossipper server -config /usr/local/gossipper/etc/gossipper-server.json
+ExecStart=/usr/local/gossipper/bin/gossipper server -config /usr/local/gossipper/etc/gossipper-server.json
 Restart=on-failure
 RestartSec=5
 # Optional: append -api_token <secret> when using -api_token in JSON or on the binary.

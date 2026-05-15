@@ -17,19 +17,36 @@ import (
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/engine"
 	"github.com/sipcapture/gossipper/internal/scenario"
+	"github.com/sipcapture/gossipper/internal/settingsauth"
+	"github.com/sipcapture/gossipper/internal/stats"
 )
 
 const maxScenarioBodyBytes = 16 << 20
+const maxClientsPostBody = 1 << 20
 
 // ServerConfig configures the gossipper management HTTP API.
 type ServerConfig struct {
 	Engine *engine.Engine
-	CLI    cli.Config
-	Token  string // optional; if set, require Authorization: Bearer <Token>
+	// ExtraEngines are additional SIP engines (composite server -config clients). Stats aggregate includes them;
+	// scenario apply / transport toggles still target Engine only.
+	ExtraEngines []*engine.Engine
+	ExtraIDs     []string // same length as ExtraEngines; stable profile ids for stats/control
+	// LiveExtras returns dynamically added load engines (POST /api/v1/clients), appended after ExtraEngines for stats/control.
+	LiveExtras func() ([]*engine.Engine, []string)
+	// AddLoadClient starts a new UAC engine from a JSON snippet; nil disables POST /api/v1/clients.
+	AddLoadClient func(ctx context.Context, wantID string, body []byte) (assignedID string, err error)
+	// RemoveLoadClient stops a dynamic client started via AddLoadClient; nil disables DELETE /api/v1/clients.
+	RemoveLoadClient func(ctx context.Context, id string) error
+	// StatsPrimaryID is the JSON "id" of the server profile (composite mode); empty => "primary" in API responses.
+	StatsPrimaryID string
+	CLI            cli.Config
+	Token          string // optional; if set, require Authorization: Bearer <Token>
 	// ValidateScenario checks a parsed scenario against current CLI flags (transport, 3PCC, etc.).
 	// If nil, PUT/apply skip this check (tests only; production should always set it).
 	ValidateScenario func(scenario.Scenario) error
 	Logger           *slog.Logger
+	// SettingsAuth enables internal SQLite user auth + JWT for the API (when non-nil and Enabled).
+	SettingsAuth *settingsauth.Auth
 }
 
 // Server exposes REST-style endpoints under /api/v1/.
@@ -50,6 +67,8 @@ func New(cfg ServerConfig) *Server {
 // Handler returns the root HTTP handler (mux with routes).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/auth/status", s.handleAuthStatus)
+	mux.HandleFunc("POST /api/v1/auth/login", s.handleAuthLogin)
 	mux.HandleFunc("GET /api/v1/health", s.wrap(s.handleHealth))
 	mux.HandleFunc("GET /api/v1/stats", s.wrap(s.handleStats))
 	mux.HandleFunc("GET /api/v1/scenario", s.wrap(s.handleScenarioGet))
@@ -59,22 +78,87 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/control", s.wrap(s.handleControlPost))
 	mux.HandleFunc("GET /api/v1/transports", s.wrap(s.handleTransportsGet))
 	mux.HandleFunc("POST /api/v1/transports", s.wrap(s.handleTransportsPost))
+	mux.HandleFunc("GET /api/v1/clients", s.wrap(s.handleClientsGet))
+	mux.HandleFunc("POST /api/v1/clients", s.wrap(s.handleClientsPost))
+	mux.HandleFunc("DELETE /api/v1/clients", s.wrap(s.handleClientsDelete))
+	mux.HandleFunc("GET /api/v1/live", s.handleLiveWS)
 	registerEmbeddedControlUI(mux)
 	return mux
 }
 
+func (s *Server) checkLegacyAPIToken(r *http.Request) bool {
+	if s.cfg.Token == "" {
+		return true
+	}
+	want := "Bearer " + s.cfg.Token
+	got := r.Header.Get("Authorization")
+	if len(got) == len(want) && subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1 {
+		return true
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("token"))
+	if q != "" && len(q) == len(s.cfg.Token) && subtle.ConstantTimeCompare([]byte(q), []byte(s.cfg.Token)) == 1 {
+		return true
+	}
+	return false
+}
+
+func (s *Server) authorizeRequest(r *http.Request) bool {
+	if s.cfg.SettingsAuth != nil && s.cfg.SettingsAuth.Enabled() {
+		return s.cfg.SettingsAuth.ValidRequest(r)
+	}
+	return s.checkLegacyAPIToken(r)
+}
+
 func (s *Server) wrap(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.cfg.Token != "" {
-			want := "Bearer " + s.cfg.Token
-			got := r.Header.Get("Authorization")
-			if len(got) != len(want) || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
-				s.jsonErr(w, http.StatusUnauthorized, "unauthorized")
-				return
-			}
+		if !s.authorizeRequest(r) {
+			s.jsonErr(w, http.StatusUnauthorized, "unauthorized")
+			return
 		}
 		next(w, r)
 	}
+}
+
+func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if s.cfg.SettingsAuth != nil && s.cfg.SettingsAuth.Enabled() {
+		_ = json.NewEncoder(w).Encode(map[string]any{"auth": "internal"})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]string{"auth": "none"})
+}
+
+type authLoginBody struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if s.cfg.SettingsAuth == nil || !s.cfg.SettingsAuth.Enabled() {
+		s.jsonErr(w, http.StatusNotFound, "internal auth is not enabled")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	if err != nil {
+		s.jsonErr(w, http.StatusBadRequest, fmt.Sprintf("read body: %v", err))
+		return
+	}
+	var in authLoginBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		s.jsonErr(w, http.StatusBadRequest, fmt.Sprintf("invalid json: %v", err))
+		return
+	}
+	tok, exp, err := s.cfg.SettingsAuth.Login(r.Context(), in.Username, in.Password)
+	if err != nil {
+		s.jsonErr(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"token":      tok,
+		"expires_at": exp,
+		"token_type": "Bearer",
+	})
 }
 
 func (s *Server) validateScenario(sc scenario.Scenario) error {
@@ -90,6 +174,46 @@ func (s *Server) jsonErr(w http.ResponseWriter, code int, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+func (s *Server) mergedExtras() ([]*engine.Engine, []string) {
+	var engines []*engine.Engine
+	var ids []string
+	for i, e := range s.cfg.ExtraEngines {
+		if e == nil {
+			continue
+		}
+		engines = append(engines, e)
+		id := ""
+		if i < len(s.cfg.ExtraIDs) {
+			id = strings.TrimSpace(s.cfg.ExtraIDs[i])
+		}
+		if id == "" {
+			id = fmt.Sprintf("extra-%d", len(ids))
+		}
+		ids = append(ids, id)
+	}
+	if s.cfg.LiveExtras != nil {
+		e2, i2 := s.cfg.LiveExtras()
+		for i, e := range e2 {
+			if e == nil {
+				continue
+			}
+			engines = append(engines, e)
+			id := ""
+			if i < len(i2) {
+				id = strings.TrimSpace(i2[i])
+			}
+			if id == "" {
+				id = fmt.Sprintf("dyn-%d", len(ids))
+			}
+			ids = append(ids, id)
+		}
+	}
+	for len(ids) < len(engines) {
+		ids = append(ids, fmt.Sprintf("extra-%d", len(ids)))
+	}
+	return engines, ids
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -100,8 +224,43 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		s.jsonErr(w, http.StatusServiceUnavailable, "engine unavailable")
 		return
 	}
+	extras, extraIDs := s.mergedExtras()
+	if len(extras) > 0 {
+		type row struct {
+			ID    string        `json:"id"`
+			Stats stats.Summary `json:"stats"`
+		}
+		rows := []row{{ID: "primary", Stats: s.cfg.Engine.Stats().Snapshot()}}
+		if pid := strings.TrimSpace(s.cfg.StatsPrimaryID); pid != "" {
+			rows[0].ID = pid
+		}
+		for i, e := range extras {
+			if e == nil {
+				continue
+			}
+			id := extraIDs[i]
+			rows = append(rows, row{ID: id, Stats: e.Stats().Snapshot()})
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		out := map[string]any{"multi": true, "engines": rows}
+		if s.cfg.LiveExtras != nil {
+			_, dynIDs := s.cfg.LiveExtras()
+			out["dynamic_client_ids"] = dynIDs
+		}
+		_ = json.NewEncoder(w).Encode(out)
+		return
+	}
 	snap := s.cfg.Engine.Stats().Snapshot()
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if s.cfg.LiveExtras != nil {
+		_, dynIDs := s.cfg.LiveExtras()
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"multi":              false,
+			"stats":              snap,
+			"dynamic_client_ids": dynIDs,
+		})
+		return
+	}
 	if err := json.NewEncoder(w).Encode(snap); err != nil {
 		s.logger.Error("api: encode stats", "error", err)
 	}
@@ -247,6 +406,28 @@ func (s *Server) handleControlGet(w http.ResponseWriter, r *http.Request) {
 		s.jsonErr(w, http.StatusServiceUnavailable, "engine unavailable")
 		return
 	}
+	extras, extraIDs := s.mergedExtras()
+	if len(extras) > 0 {
+		type row struct {
+			ID     string  `json:"id"`
+			Rate   float64 `json:"rate"`
+			Paused bool    `json:"paused"`
+		}
+		rows := []row{{ID: "primary", Rate: s.cfg.Engine.Rate(), Paused: s.cfg.Engine.Paused()}}
+		if pid := strings.TrimSpace(s.cfg.StatsPrimaryID); pid != "" {
+			rows[0].ID = pid
+		}
+		for i, e := range extras {
+			if e == nil {
+				continue
+			}
+			id := extraIDs[i]
+			rows = append(rows, row{ID: id, Rate: e.Rate(), Paused: e.Paused()})
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(map[string]any{"multi": true, "engines": rows})
+		return
+	}
 	e := s.cfg.Engine
 	st := controlState{
 		Rate:   e.Rate(),
@@ -273,24 +454,93 @@ func (s *Server) handleControlPost(w http.ResponseWriter, r *http.Request) {
 		s.jsonErr(w, http.StatusBadRequest, fmt.Sprintf("invalid json: %v", err))
 		return
 	}
-	e := s.cfg.Engine
-	if body.Rate != nil {
-		e.SetRate(*body.Rate)
-	}
-	if body.Paused != nil {
-		if *body.Paused {
+	apply := func(e *engine.Engine) {
+		if e == nil {
+			return
+		}
+		if body.Rate != nil {
+			e.SetRate(*body.Rate)
+		}
+		if body.Paused != nil {
+			if *body.Paused {
+				e.Pause()
+			} else {
+				e.Resume()
+			}
+		}
+		if body.Pause != nil && *body.Pause {
 			e.Pause()
-		} else {
+		}
+		if body.Resume != nil && *body.Resume {
 			e.Resume()
 		}
 	}
-	if body.Pause != nil && *body.Pause {
-		e.Pause()
-	}
-	if body.Resume != nil && *body.Resume {
-		e.Resume()
+	apply(s.cfg.Engine)
+	extras, _ := s.mergedExtras()
+	for _, e := range extras {
+		apply(e)
 	}
 	s.handleControlGet(w, r)
+}
+
+func (s *Server) handleClientsGet(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.LiveExtras == nil {
+		s.jsonErr(w, http.StatusNotFound, "dynamic client listing is not available for this process")
+		return
+	}
+	_, ids := s.cfg.LiveExtras()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{"dynamic": ids})
+}
+
+func (s *Server) handleClientsDelete(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.RemoveLoadClient == nil {
+		s.jsonErr(w, http.StatusNotFound, "dynamic client removal is not enabled for this process")
+		return
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		s.jsonErr(w, http.StatusBadRequest, "query parameter id is required")
+		return
+	}
+	if err := s.cfg.RemoveLoadClient(r.Context(), id); err != nil {
+		s.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleClientsPost(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.AddLoadClient == nil {
+		s.jsonErr(w, http.StatusNotFound, "dynamic clients are not enabled for this process")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxClientsPostBody+1))
+	if err != nil {
+		s.jsonErr(w, http.StatusBadRequest, fmt.Sprintf("read body: %v", err))
+		return
+	}
+	if len(body) > maxClientsPostBody {
+		s.jsonErr(w, http.StatusRequestEntityTooLarge, "client snippet too large")
+		return
+	}
+	wantID := strings.TrimSpace(r.URL.Query().Get("id"))
+	if wantID == "" {
+		var meta struct {
+			ID *string `json:"id"`
+		}
+		if err := json.Unmarshal(body, &meta); err == nil && meta.ID != nil {
+			wantID = strings.TrimSpace(*meta.ID)
+		}
+	}
+	id, err := s.cfg.AddLoadClient(r.Context(), wantID, body)
+	if err != nil {
+		s.jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "started": true})
 }
 
 type transportsGetResponse struct {

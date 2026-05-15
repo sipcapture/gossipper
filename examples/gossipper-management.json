@@ -1,0 +1,12 @@
+{
+  "api_addr": ":8080",
+  "server": {
+    "role": "management",
+    "scenario_name": "management",
+    "transport": "u1",
+    "local_ip": "0.0.0.0",
+    "local_port": 5060,
+    "rate": 1,
+    "max_concurrent": 2048
+  }
+}

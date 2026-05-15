@@ -12,6 +12,18 @@ function joinUrl(path: string): string {
   return `${base}${p}`
 }
 
+/** WebSocket URL for live stats/control (token via query when set). */
+export function liveWebSocketURL(token?: string): string {
+  const path = `${apiBase()}/live`
+  const u = new URL(path, window.location.origin)
+  u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
+  const t = token?.trim()
+  if (t) {
+    u.searchParams.set('token', t)
+  }
+  return u.toString()
+}
+
 async function readBody(res: Response): Promise<string> {
   try {
     return await res.text()
@@ -86,6 +98,29 @@ export type ControlState = {
   paused: boolean
 }
 
+export type ControlEngineRow = { id: string; rate: number; paused: boolean }
+
+export type ControlGetResponse =
+  | ControlState
+  | { multi: true; engines: ControlEngineRow[] }
+
+export type StatsEngineRow = { id: string; stats: Record<string, unknown> }
+
+export type StatsGetResponse =
+  | StatsSummary
+  | { multi: true; engines: StatsEngineRow[]; dynamic_client_ids?: string[] }
+  | { multi: false; stats: StatsSummary; dynamic_client_ids?: string[] }
+
+export type TransportsResponse = { listeners: unknown[] }
+
+/** Payload pushed over GET /api/v1/live (WebSocket). */
+export type LiveFrame = {
+  ts: number
+  stats?: StatsGetResponse
+  control?: ControlGetResponse
+  transports?: TransportsResponse
+}
+
 export type ControlPatch = {
   rate?: number
   paused?: boolean
@@ -101,7 +136,7 @@ export function getHealth(bearer?: string) {
 }
 
 export function getStats(bearer?: string) {
-  return apiRequest<StatsSummary>('/stats', { method: 'GET', bearer })
+  return apiRequest<StatsGetResponse>('/stats', { method: 'GET', bearer })
 }
 
 export function getScenario(bearer?: string) {
@@ -137,14 +172,67 @@ export function postScenarioApply(xml: string | undefined, bearer?: string) {
 }
 
 export function getControl(bearer?: string) {
-  return apiRequest<ControlState>('/control', { method: 'GET', bearer })
+  return apiRequest<ControlGetResponse>('/control', { method: 'GET', bearer })
 }
 
 export function postControl(patch: ControlPatch, bearer?: string) {
-  return apiRequest<ControlState>('/control', {
+  return apiRequest<ControlGetResponse>('/control', {
     method: 'POST',
     bearer,
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify(patch),
+  })
+}
+
+export async function getDynamicClients(bearer?: string) {
+  return apiRequest<{ dynamic: string[] }>('/clients', { method: 'GET', bearer })
+}
+
+export async function postDynamicClient(
+  jsonBody: string,
+  opts?: { id?: string; bearer?: string },
+) {
+  const id = opts?.id?.trim()
+  const q = id ? `?id=${encodeURIComponent(id)}` : ''
+  return apiRequest<{ id: string; started: boolean }>(`/clients${q}`, {
+    method: 'POST',
+    bearer: opts?.bearer,
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: jsonBody,
+  })
+}
+
+export async function deleteDynamicClient(id: string, bearer?: string) {
+  const path = `/clients?id=${encodeURIComponent(id)}`
+  return apiRequest<void>(path, { method: 'DELETE', bearer })
+}
+
+export type AuthStatusResponse = { auth: 'none' | 'internal' }
+
+export type LoginResponse = {
+  token: string
+  expires_at: number
+  token_type: string
+}
+
+async function fetchJSONPublic<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json')
+  }
+  const res = await fetch(joinUrl(path), { ...init, headers })
+  const text = await readBody(res)
+  return parseJson<T>(res, text)
+}
+
+export function fetchAuthStatus() {
+  return fetchJSONPublic<AuthStatusResponse>('/auth/status', { method: 'GET' })
+}
+
+export function postAuthLogin(username: string, password: string) {
+  return fetchJSONPublic<LoginResponse>('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ username, password }),
   })
 }

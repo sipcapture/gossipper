@@ -32,6 +32,25 @@ Supported forms: `-config /path/file.json`, `-config=/path/file.json`, and the s
 
 For **systemd** or scripted deployments, you can keep a **single flat JSON** next to the binary instead of an `aliases` map:
 
+### Composite `server` + `clients` (one process, multiple SIP engines)
+
+A flat file may contain a top-level **`"server": { ... }`** object (management / listener profile) and optionally **`"clients": [ {...}, ... ]`** or a single **`"client": { ... }`** / **`"client": [ ... ]`** for UAC load profiles. Use **`clients`** OR **`client`**, not both.
+
+Root keys (**`api_addr`**, **`hep_addr`**, …) are **shallow-merged** into the server object and into each client object. Reserved keys **`server`**, **`clients`**, **`client`**, **`workloads`**, **`aliases`** never appear inside merged profiles. Optional **`"id"`** on the server or a client names that engine in logs and in **`GET /api/v1/stats`**.
+
+Rules:
+
+- The **server** profile must infer as **management** (listener + optional Control UI). It becomes the **primary** engine; **`api_addr` / `api_token`** apply only here — client profiles do not start their own HTTP listener.
+- **Client** profiles (typically **`role": "load"`**) run **in parallel goroutines** with their own [`engine.Engine`](https://pkg.go.dev/github.com/sipcapture/gossipper/internal/engine).
+- **`GET /api/v1/stats`** returns **`{"multi":true,"engines":[{"id":"…","stats":{…}},…]}`** when clients exist (single-engine mode keeps the flat stats object).
+- **`POST /api/v1/control`** (rate / pause) applies to **all** engines. Scenario **PUT/apply** and SIP **transport** toggles still target the **primary** management engine only (Control UI should branch on **`multi`**).
+- **Several SIP transports on listen:** put a **`listeners`** array on the **server** object (see the **`server`** section in [`examples/gossipper-hybrid.json`](../examples/gossipper-hybrid.json)). The first listener sets the primary **`transport` / `local_ip` / `local_port`** for API/scenario defaults; every bind must be **unique** (**transport + IP + port**). Gossipper rejects duplicate binds **across profiles** in one file.
+- **Several transports on load:** add **more than one** object under **`clients`** (or several in **`client`** as an array). Each client engine has one outbound stack: **`transport`**, **`remote_addr`**, and a **distinct `local_port`** on **`local_ip`**. Match **`remote_addr`** to the listener under test.
+
+Top-level **`"workloads"`** is **rejected** (removed; migrate to **`server`** / **`clients`**).
+
+See [`examples/gossipper-hybrid.json`](../examples/gossipper-hybrid.json) and **`gossipper-hybrid.service`** (also shipped in `.deb`/`.rpm`).
+
 - Same **snake_case** keys as in [Supported alias fields](#supported-alias-fields) (one object = one former alias body).
 - Do **not** use a top-level **`aliases`** key; if present, gossipper rejects the file and tells you to use `-config` / `-run-alias` instead on the **root** command.
 - **SIP listen address** for the UAS is **`local_ip`** and **`local_port`** in JSON (CLI: **`-i`** / **`-p`**), not **`remote_addr`** / **`-rsa`** (those are for UAC-style remote targets).
@@ -44,6 +63,7 @@ For **systemd** or scripted deployments, you can keep a **single flat JSON** nex
 If `"role"` is omitted, gossipper picks **management** when any of these hold (first match wins):
 
 - non-empty **`listeners`** array
+- top-level **`server`** object (composite hybrid layout; see above)
 - non-empty **`api_addr`**
 - **`scenario_name`** is `management` or `uas` (case-insensitive)
 
@@ -56,13 +76,14 @@ If still ambiguous, **`Parse` / `InferServerFlatManagement`** return an error as
 
 Examples:
 
-- [`examples/gossipper-server.json`](../examples/gossipper-server.json) — management (has `api_addr`).
-- [`examples/gossipper-server-multi-listener.json`](../examples/gossipper-server-multi-listener.json) — management (`listeners` + `uas`).
-- [`examples/gossipper-client.json`](../examples/gossipper-client.json) — load (`uac` + `remote_addr`).
+- [`examples/gossipper-management.json`](../examples/gossipper-management.json) — management only: top-level **`server`** + shared **`api_addr`** (installed as **`gossipper-server.json`** in `.deb`/`.rpm`).
+- [`examples/gossipper-uac.json`](../examples/gossipper-uac.json) — flat **load** preset (`uac` + `remote_addr`; installed as **`gossipper-client.json`** in packages).
+- [`examples/gossipper-hybrid.json`](../examples/gossipper-hybrid.json) — composite **`server`** + **`clients`**: management with **`listeners`** (UDP / TCP / multi-socket UDP) plus several UAC client profiles.
 
 ```bash
-gossipper server -config /etc/gossipper/server.json
-gossipper server -config /etc/gossipper/client.json
+gossipper server -config /path/to/gossipper-management.json
+gossipper server -config /path/to/gossipper-uac.json
+gossipper server -config /path/to/gossipper-hybrid.json
 ```
 
 ## JSON file shape
@@ -152,8 +173,8 @@ Flags **not** in this list must be passed via **`extra_args`** or on the command
 
 The repository includes:
 
-- [`testdata/run-profiles/example.json`](../testdata/run-profiles/example.json) — **`hep-uas-listen`** (UAS + HEP + optional OTLP defaults matching the shell script comments) and **`uac-local`** (one UAC call). For systemd-style **`"server": true`** in a profile, use a dedicated alias in your own JSON or a **flat** [`examples/gossipper-server.json`](../examples/gossipper-server.json) with **`gossipper server -config …`**.
-- [`examples/gossipper-client.json`](../examples/gossipper-client.json) — minimal flat preset for **load** mode (lab UAC toward one peer). **`.deb` / `.rpm`** also ship **`examples/gossipper-server.service`** and **`examples/gossipper-client.service`** as **`/lib/systemd/system/gossipper-server.service`** and **`gossipper-client.service`** (with matching JSON under **`/usr/local/gossipper/etc/`**).
+- [`testdata/run-profiles/example.json`](../testdata/run-profiles/example.json) — **`hep-uas-listen`** (UAS + HEP + optional OTLP defaults matching the shell script comments) and **`uac-local`** (one UAC call). For systemd-style **`"server": true`** in a profile, use a dedicated alias in your own JSON or a composite sample [`examples/gossipper-management.json`](../examples/gossipper-management.json) with **`gossipper server -config …`**.
+- **`examples/`** — [`gossipper-management.json`](../examples/gossipper-management.json) (management composite), [`gossipper-uac.json`](../examples/gossipper-uac.json) (flat UAC load), [`gossipper-hybrid.json`](../examples/gossipper-hybrid.json) (**`server`** + **`clients`**). **`.deb` / `.rpm`** install the first two under **`/usr/local/gossipper/etc/gossipper-server.json`** and **`gossipper-client.json`** and ship **`gossipper-hybrid.json`** plus matching **`systemd`** units from **`examples/*.service`**.
 - [`testdata/run-profiles/hep-scripts.json`](../testdata/run-profiles/hep-scripts.json) — parity with [`scripts/hep-uas-listen.sh`](../scripts/hep-uas-listen.sh) and [`scripts/hep-uac-send.sh`](../scripts/hep-uac-send.sh) (Homer-Lake, raw RTCP, and short-JSON UAC variants); see [`testdata/run-profiles/README.md`](../testdata/run-profiles/README.md).
 
 From the repo root:

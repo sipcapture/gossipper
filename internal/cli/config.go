@@ -113,6 +113,12 @@ type Config struct {
 	ApiToken                string // optional Bearer token for /api/v1
 	// ServerMode runs a minimal SIP UAS plus the management HTTP API for systemd / Control UI.
 	ServerMode bool
+	// JoinedClients runs extra SIP engines in parallel when flat JSON uses top-level "clients" / "client" (gossipper server -config).
+	JoinedClients []JoinedClient `json:"-"`
+	// ServerProfileID is the JSON "id" of the server profile in composite mode (empty otherwise).
+	ServerProfileID string `json:"-"`
+	// Auth configures optional HTTP API / Control UI authentication (see JSON "auth").
+	Auth       AuthConfig
 	CPUProfile string
 	MemProfile string
 
@@ -166,6 +172,25 @@ type Config struct {
 	TURNUser   string
 	TURNPass   string
 	TURNRealm  string
+}
+
+// JoinedClient is one secondary SIP engine (UAC/load) in a composite server -config file.
+type JoinedClient struct {
+	ID     string
+	Config Config
+}
+
+// AuthConfig selects how the management HTTP API is authenticated when api_addr is enabled.
+// JSON (flat management profile): "auth": { "type": "internal", "sqlite_path": "...", "jwt_secret": "..." }.
+type AuthConfig struct {
+	Type       string `json:"type,omitempty"`        // none (default) or internal
+	SQLitePath string `json:"sqlite_path,omitempty"` // users database
+	JWTSecret  string `json:"jwt_secret,omitempty"`  // HMAC signing key (>= 16 chars)
+}
+
+// InternalEnabled reports whether internal SQLite+JWT auth is active.
+func (a AuthConfig) InternalEnabled() bool {
+	return strings.EqualFold(strings.TrimSpace(a.Type), "internal")
 }
 
 func DefaultConfig() Config {
@@ -237,29 +262,15 @@ func Parse(args []string) (Config, error) {
 	cfg := DefaultConfig()
 	var profileTotalCallsExplicit bool
 	if meta.ServerFlatConfigPath != "" {
-		management, err := InferServerFlatManagement(meta.ServerFlatConfigPath)
+		loaded, joined, extra, err := LoadServerFlatOrComposite(meta.ServerFlatConfigPath)
 		if err != nil {
 			return Config{}, err
 		}
-		if management {
-			extra, err := LoadAndApplyServerConfig(&cfg, meta.ServerFlatConfigPath)
-			if err != nil {
-				return Config{}, err
-			}
-			cfg.ServerMode = true
-			profileTotalCallsExplicit = cfg.TotalCallsSetExplicitly
-			if len(extra) > 0 {
-				normalizedArgs = append(append([]string(nil), extra...), normalizedArgs...)
-			}
-		} else {
-			extra, err := LoadAndApplyClientConfig(&cfg, meta.ServerFlatConfigPath)
-			if err != nil {
-				return Config{}, err
-			}
-			profileTotalCallsExplicit = cfg.TotalCallsSetExplicitly
-			if len(extra) > 0 {
-				normalizedArgs = append(append([]string(nil), extra...), normalizedArgs...)
-			}
+		cfg = loaded
+		cfg.JoinedClients = joined
+		profileTotalCallsExplicit = cfg.TotalCallsSetExplicitly
+		if len(extra) > 0 {
+			normalizedArgs = append(append([]string(nil), extra...), normalizedArgs...)
 		}
 	} else if meta.ConfigPath != "" {
 		extra, err := LoadAndApplyRunProfile(&cfg, meta.ConfigPath, meta.RunAlias)
@@ -386,8 +397,8 @@ func Parse(args []string) (Config, error) {
 	timeoutGlobalSec := fs.Int("timeout_global", 0, "exit after N seconds of total runtime (SIPp-compatible)")
 	hepCaptureID := fs.Uint("hep_capture_id", uint(cfg.HEPCaptureID), "HEP3 capture node ID")
 	fs.StringVar(&cfg.PprofAddr, "pprof", "", "pprof HTTP address (e.g. :6060) for live CPU/memory/goroutine profiling")
-	fs.StringVar(&cfg.ApiAddr, "api_addr", "", "HTTP listen address for management API (e.g. :8080); GET / serves embedded Control UI when built with Makefile target frontend; API under /api/v1/")
-	fs.StringVar(&cfg.ApiToken, "api_token", "", "optional Bearer token required for all /api/v1 requests when set")
+	fs.StringVar(&cfg.ApiAddr, "api_addr", cfg.ApiAddr, "HTTP listen address for management API (e.g. :8080); GET / serves embedded Control UI when built with Makefile target frontend; API under /api/v1/")
+	fs.StringVar(&cfg.ApiToken, "api_token", cfg.ApiToken, "optional Bearer token required for all /api/v1 requests when set")
 	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "write CPU profile to file at exit")
 	fs.StringVar(&cfg.MemProfile, "memprofile", "", "write memory profile to file at exit")
 

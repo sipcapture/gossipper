@@ -61,6 +61,8 @@ Example unit file: [`examples/gossipper-server.service`](../examples/gossipper-s
 
 ## Management HTTP API (`-api_addr`): live scenario
 
+For a **single** SIP engine, **`GET /api/v1/stats`** returns the stats object directly. With **composite** flat JSON (**`server`** / **`clients`** in **`gossipper server -config`**, see [`run-profile.md`](run-profile.md)), **`GET /api/v1/stats`** returns **`{"multi":true,"engines":[{"id":"…","stats":{…}},…]}`**, and **`POST /api/v1/control`** applies rate/pause to **every** engine; **`PUT`/`POST` scenario** and **SIP listener toggles** still target the **primary** management engine only.
+
 When **`GET /api/v1/stats`** works, **`PUT /api/v1/scenario?apply=true`** and **`POST /api/v1/scenario/apply`** call **`Engine.TryReplaceLiveScenario`**:
 
 - **In-flight calls** keep the scenario XML they started with (snapshot at call start).

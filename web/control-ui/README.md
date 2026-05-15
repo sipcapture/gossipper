@@ -1,70 +1,70 @@
 # Gossipper Control UI
 
-Локальная веб-панель для HTTP API gossipper (`internal/api`): health, stats, сценарий XML, горячий apply, rate/pause.
+Local web panel for the gossipper HTTP API (`internal/api`): health, stats, XML scenario, hot apply, rate/pause.
 
-## Лицензии и заимствование стиля
+## License and styling
 
-Проект **Gossipper** и этот UI распространяются под **AGPL-3.0-or-later** (см. корневой `LICENSE`).
+**Gossipper** and this UI are distributed under **AGPL-3.0-or-later** (see the root `LICENSE`).
 
-Тема оформления (Tailwind 4 + токены shadcn, `App.css`) **производная от** веб-UI проекта [Homer](https://github.com/sipcapture/homer) (`src/ui`), также AGPL — в начале `src/App.css` указан SPDX и ссылка на источник.
+The theme (Tailwind 4 + shadcn tokens, `App.css`) is **derived from** the [Homer](https://github.com/sipcapture/homer) web UI (`src/ui`), also AGPL — SPDX and a source link are at the top of `src/App.css`.
 
-## Запуск в разработке
+## Development
 
-Требуется Node **20.19+** или **22.12+** (см. `package.json` → `engines`).
+Requires Node **20.19+** or **22.12+** (see `package.json` → `engines`).
 
 ```bash
 cd web/control-ui
 npm install
 ```
 
-По умолчанию Vite слушает порт **5174** и проксирует префикс `/api` на целевой backend (переменная **`VITE_API_TARGET`**, по умолчанию `http://127.0.0.1:8080`). Запросы из UI идут на **`VITE_API_BASE`** (по умолчанию **`/api/v1`**, то есть через прокси полный путь вида `/api/v1/health`).
+By default Vite listens on port **5174** and proxies the `/api` prefix to the backend (**`VITE_API_TARGET`**, default `http://127.0.0.1:8080`). UI requests use **`VITE_API_BASE`** (default **`/api/v1`**, so via the proxy you get paths like `/api/v1/health`).
 
 ```bash
-# пример: API на другом хосте/порту
+# example: API on another host/port
 VITE_API_TARGET=http://10.0.0.5:9090 npm run dev
 ```
 
-Запустите gossipper с включённым API, например:
+Run gossipper with the API enabled, for example:
 
 ```text
 -api_addr :8080
-# при необходимости:
--api_token <секрет>
+# optional:
+-api_token <secret>
 ```
 
-и сценарий из файла, если нужны `PUT` на диск и apply «с диска» без тела:
+Use a scenario file when you need `PUT` to disk and apply “from disk” with an empty body:
 
 ```text
 -sf /path/to/scenario.xml
 ```
 
-## Сборка для статики / встраивание в gossipper
+## Production build / embed in gossipper
 
 ```bash
 npm run build
 ```
 
-Продакшен-сборка Vite пишет файлы в **`internal/api/webdist/`** в корне репозитория (относительный путь из `web/control-ui`: `../../internal/api/webdist/`), откуда их подхватывает **`go:embed`** в `internal/api/embed_ui.go` и отдаёт тот же HTTP-сервер, что и `/api/v1/*`, на **`GET /`** и **`/assets/*`**.
+The Vite production build writes into **`internal/api/webdist/`** at the repo root (relative from `web/control-ui`: `../../internal/api/webdist/`). **`go:embed`** in `internal/api/embed_ui.go` picks that up and the same HTTP server that serves `/api/v1/*` also serves **`GET /`** and **`/assets/*`**.
 
-Для удобства в корне репозитория есть цель **`make frontend`** (и **`make build`** / `scripts/build_package.sh` вызывают её автоматически).
+The repo root **`make frontend`** target runs this (and **`make build`** / `scripts/build_package.sh` call it automatically).
 
-В каталоге лежит отдельный **`go.mod`** (пустой модуль): чтобы **`go list ./...`** / **`go test ./...`** из корня gossipper не заходили в `node_modules` после `npm ci`.
+A separate **`go.mod`** (empty module) lives in this directory so **`go list ./...`** / **`go test ./...`** from the gossipper repo root do not walk `node_modules` after `npm ci`.
 
-Файл **`.env.production`** задаёт `VITE_API_BASE=/api/v1` (тот же origin, что и встроенный UI).
+**`.env.production`** sets `VITE_API_BASE=/api/v1` (same origin as the embedded UI).
 
-## Сборка только в `dist/` (без embed)
+## Build to `dist/` only (no embed)
 
-Если нужен классический каталог **`dist/`** под nginx без встраивания в бинарник, временно поменяйте в `vite.config.ts` поле `build.outDir` на `dist` и соберите как обычно.
+For a classic **`dist/`** tree behind nginx without embedding in the binary, temporarily set `build.outDir` to `dist` in `vite.config.ts` and build as usual.
 
-## Эндпоинты (для справки)
+## Endpoints (reference)
 
-| Метод | Путь | Назначение |
-|--------|------|------------|
+| Method | Path | Purpose |
+|--------|------|---------|
 | GET | `/api/v1/health` | `{ "status": "ok" }` |
-| GET | `/api/v1/stats` | JSON сводки движка |
-| GET | `/api/v1/scenario` | метаданные + XML (или встроенный сценарий) |
-| PUT | `/api/v1/scenario` | запись XML в `-sf`; `?apply=true` — сразу hot-reload |
-| POST | `/api/v1/scenario/apply` | тело `application/xml` или без тела (читает файл `-sf`) |
-| GET / POST | `/api/v1/control` | чтение / изменение `rate`, `paused` |
+| GET | `/api/v1/stats` | Engine stats JSON |
+| GET | `/api/v1/scenario` | Metadata + XML (or built-in scenario) |
+| PUT | `/api/v1/scenario` | Write XML to `-sf`; `?apply=true` hot-reloads |
+| POST | `/api/v1/scenario/apply` | `application/xml` body or empty body (reads `-sf`) |
+| GET / POST | `/api/v1/control` | Read / change `rate`, `paused` |
 
-Ошибки: JSON `{"error":"..."}` и HTTP-код.
+Errors: JSON `{"error":"..."}` and an HTTP status code.

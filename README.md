@@ -46,7 +46,7 @@ The current MVP implements:
 - Pragmatic RTP activity checks via `exec rtpcheck="..."` with configurable `min_packets`, `timeout_ms`, and `direction=any|send|recv|both` (legacy `bidirectional` alias is also supported)
 - RTP echo helper mode via `exec rtp_stream="echo"`
 - Periodic RTCP sender reports plus basic incoming RTCP counters via `pion/rtcp`
-- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a static copy under **`/usr/local/gossipper/dist/`** for optional hosting (e.g. nginx `root`). For **systemd**, use **`examples/gossipper-server.service`** with **`gossipper server -config …`** and **`examples/gossipper-server.json`** — SIP **`local_ip` / `local_port`**, default **`-p` `5060`** when omitted in management mode, default **`api_addr` `:8080`**); UAC preset: **`examples/gossipper-client.json`** + **`examples/gossipper-client.service`** (`gossipper server -config` load preset).
+- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a static copy under **`/usr/local/gossipper/dist/`** for optional hosting (e.g. nginx `root`). For **systemd**, use **`examples/gossipper-server.service`** with **`gossipper server -config …`** and repo sample **`examples/gossipper-management.json`** (packages install it as **`/usr/local/gossipper/etc/gossipper-server.json`**) — SIP **`local_ip` / `local_port`**, default **`-p` `5060`** when omitted in management mode, default **`api_addr` `:8080`**); UAC preset: **`examples/gossipper-uac.json`** (installed as **`gossipper-client.json`**) + **`examples/gossipper-client.service`** (`gossipper server -config` load preset).
 
 ## Project layout
 
@@ -387,8 +387,8 @@ Package artifacts are written to `dist/` (build tree). The installed layout is u
 | Path | Contents |
 |------|----------|
 | `bin/gossipper` | main binary |
-| `etc/gossipper-server.json` | sample flat config for **`gossipper server -config`** (management / Control UI) |
-| `etc/gossipper-client.json` | sample flat config for **`gossipper server -config`** (UAC / load preset) |
+| `etc/gossipper-server.json` | sample **`gossipper server -config`** for management (from repo `examples/gossipper-management.json`) |
+| `etc/gossipper-client.json` | sample load / UAC preset (from repo `examples/gossipper-uac.json`) |
 | `etc/doc/` | `README.md`, `LICENSE`, and `docs/` from this repository |
 | `logs/` | empty directory for runtime logs (operator-owned) |
 | `dist/` | Control UI static files (same as embedded webdist) |

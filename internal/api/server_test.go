@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/engine"
 	"github.com/sipcapture/gossipper/internal/scenario"
+	"github.com/sipcapture/gossipper/internal/settingsauth"
 )
 
 func mustScenario(t *testing.T, xml string) scenario.Scenario {
@@ -300,5 +302,308 @@ func TestEmbeddedControlUIIndex(t *testing.T) {
 	}
 	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		t.Fatalf("Content-Type: %q", ct)
+	}
+}
+
+func TestAPIMultiStatsShape(t *testing.T) {
+	sc := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
+
+]]></send><recv response="200" optional="true"/></scenario>`)
+	eng0 := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 1, RemoteHost: "127.0.0.1", RemotePort: 9})
+	eng1 := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 2, RemoteHost: "127.0.0.1", RemotePort: 9})
+	srv := New(ServerConfig{
+		Engine:           eng0,
+		ExtraEngines:     []*engine.Engine{eng1},
+		ExtraIDs:         []string{"side"},
+		StatsPrimaryID:   "main",
+		CLI:              cli.DefaultConfig(),
+		ValidateScenario: func(scenario.Scenario) error { return nil },
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := ts.Client().Get(ts.URL + "/api/v1/stats")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var out map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if out["multi"] != true {
+		t.Fatalf("stats: %#v", out)
+	}
+	wl, _ := out["engines"].([]any)
+	if len(wl) != 2 {
+		t.Fatalf("engines len=%d", len(wl))
+	}
+}
+
+func TestAPIClientsPostDisabled(t *testing.T) {
+	sc := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
+
+]]></send><recv response="200" optional="true"/></scenario>`)
+	eng := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 1, RemoteHost: "127.0.0.1", RemotePort: 9})
+	srv := New(ServerConfig{Engine: eng, CLI: cli.DefaultConfig(), ValidateScenario: func(scenario.Scenario) error { return nil }})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := ts.Client().Post(ts.URL+"/api/v1/clients", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("want 404 when AddLoadClient nil, got %d", res.StatusCode)
+	}
+}
+
+func TestAPIClientsPostOK(t *testing.T) {
+	sc := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
+
+]]></send><recv response="200" optional="true"/></scenario>`)
+	eng0 := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 1, RemoteHost: "127.0.0.1", RemotePort: 9})
+	engDyn := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 2, RemoteHost: "127.0.0.1", RemotePort: 9})
+	srv := New(ServerConfig{
+		Engine: eng0,
+		LiveExtras: func() ([]*engine.Engine, []string) {
+			return []*engine.Engine{engDyn}, []string{"dyn-test"}
+		},
+		AddLoadClient: func(_ context.Context, wantID string, body []byte) (string, error) {
+			if wantID != "want" {
+				t.Fatalf("wantID: got %q", wantID)
+			}
+			if len(body) == 0 {
+				t.Fatal("empty body")
+			}
+			return "dyn-test", nil
+		},
+		CLI:              cli.DefaultConfig(),
+		ValidateScenario: func(scenario.Scenario) error { return nil },
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := ts.Client().Post(ts.URL+"/api/v1/clients?id=want", "application/json", strings.NewReader(`{"transport":"udp"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("want 201, got %d", res.StatusCode)
+	}
+	var out map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if out["id"] != "dyn-test" || out["started"] != true {
+		t.Fatalf("body: %#v", out)
+	}
+
+	res2, err := ts.Client().Get(ts.URL + "/api/v1/stats")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	var stats map[string]any
+	if err := json.NewDecoder(res2.Body).Decode(&stats); err != nil {
+		t.Fatal(err)
+	}
+	if stats["multi"] != true {
+		t.Fatalf("stats multi: %#v", stats)
+	}
+	engines, _ := stats["engines"].([]any)
+	if len(engines) != 2 {
+		t.Fatalf("engines len=%d", len(engines))
+	}
+}
+
+func TestAPIHealthWithQueryToken(t *testing.T) {
+	sc := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
+
+]]></send><recv response="200" optional="true"/></scenario>`)
+	eng := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 1, RemoteHost: "127.0.0.1", RemotePort: 9})
+	srv := New(ServerConfig{Engine: eng, CLI: cli.DefaultConfig(), Token: "abc", ValidateScenario: func(scenario.Scenario) error { return nil }})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/health?token=abc", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200 with query token, got %d", res.StatusCode)
+	}
+}
+
+func TestAPIClientsGet(t *testing.T) {
+	sc := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
+
+]]></send><recv response="200" optional="true"/></scenario>`)
+	eng0 := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 1, RemoteHost: "127.0.0.1", RemotePort: 9})
+	eng1 := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 2, RemoteHost: "127.0.0.1", RemotePort: 9})
+	srv := New(ServerConfig{
+		Engine:           eng0,
+		LiveExtras:       func() ([]*engine.Engine, []string) { return []*engine.Engine{eng1}, []string{"dyn-a"} },
+		CLI:              cli.DefaultConfig(),
+		ValidateScenario: func(scenario.Scenario) error { return nil },
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := ts.Client().Get(ts.URL + "/api/v1/clients")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("clients get: %s", res.Status)
+	}
+	var out map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	dyn, _ := out["dynamic"].([]any)
+	if len(dyn) != 1 || dyn[0] != "dyn-a" {
+		t.Fatalf("dynamic: %#v", out)
+	}
+}
+
+func TestAPIClientsGet404WithoutLiveExtras(t *testing.T) {
+	sc := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
+
+]]></send><recv response="200" optional="true"/></scenario>`)
+	eng := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 1, RemoteHost: "127.0.0.1", RemotePort: 9})
+	srv := New(ServerConfig{Engine: eng, CLI: cli.DefaultConfig(), ValidateScenario: func(scenario.Scenario) error { return nil }})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := ts.Client().Get(ts.URL + "/api/v1/clients")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", res.StatusCode)
+	}
+}
+
+func TestAPIClientsDelete(t *testing.T) {
+	sc := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
+
+]]></send><recv response="200" optional="true"/></scenario>`)
+	eng := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 1, RemoteHost: "127.0.0.1", RemotePort: 9})
+	var gotID string
+	srv := New(ServerConfig{
+		Engine: eng,
+		RemoveLoadClient: func(_ context.Context, id string) error {
+			gotID = id
+			return nil
+		},
+		CLI:              cli.DefaultConfig(),
+		ValidateScenario: func(scenario.Scenario) error { return nil },
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/v1/clients?id=x1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("want 204, got %d", res.StatusCode)
+	}
+	if gotID != "x1" {
+		t.Fatalf("id: got %q", gotID)
+	}
+}
+
+func TestInternalAuthLoginAndJWT(t *testing.T) {
+	dir := t.TempDir()
+	dbpath := filepath.Join(dir, "settings.sqlite")
+	secret := "0123456789abcdef01"
+	authSvc, err := settingsauth.Open(dbpath, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authSvc.Close()
+	if err := authSvc.CreateUser(context.Background(), "op", "longpass-99"); err != nil {
+		t.Fatal(err)
+	}
+	sc := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
+
+]]></send><recv response="200" optional="true"/></scenario>`)
+	eng := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 1, RemoteHost: "127.0.0.1", RemotePort: 9})
+	srv := New(ServerConfig{
+		Engine:           eng,
+		CLI:              cli.DefaultConfig(),
+		SettingsAuth:     authSvc,
+		ValidateScenario: func(scenario.Scenario) error { return nil },
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res0, err := ts.Client().Get(ts.URL + "/api/v1/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res0.Body.Close()
+	if res0.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("health without token: want 401, got %d", res0.StatusCode)
+	}
+
+	resS, err := ts.Client().Get(ts.URL + "/api/v1/auth/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resS.Body.Close()
+	var st map[string]any
+	if err := json.NewDecoder(resS.Body).Decode(&st); err != nil {
+		t.Fatal(err)
+	}
+	if st["auth"] != "internal" {
+		t.Fatalf("auth status: %#v", st)
+	}
+
+	resL, err := ts.Client().Post(ts.URL+"/api/v1/auth/login", "application/json", strings.NewReader(`{"username":"op","password":"longpass-99"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resL.Body.Close()
+	if resL.StatusCode != http.StatusOK {
+		t.Fatalf("login: %d", resL.StatusCode)
+	}
+	var loginOut map[string]any
+	if err := json.NewDecoder(resL.Body).Decode(&loginOut); err != nil {
+		t.Fatal(err)
+	}
+	jwt, _ := loginOut["token"].(string)
+	if jwt == "" {
+		t.Fatalf("no token: %#v", loginOut)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/health", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	res1, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res1.Body.Close()
+	if res1.StatusCode != http.StatusOK {
+		t.Fatalf("health with jwt: want 200, got %d", res1.StatusCode)
 	}
 }

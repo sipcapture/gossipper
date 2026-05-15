@@ -33,6 +33,12 @@ type listenerRunSpec struct {
 	LocalPort *int    `json:"local_port,omitempty"`
 }
 
+type authRunSpec struct {
+	Type       *string `json:"type,omitempty"`
+	SQLitePath *string `json:"sqlite_path,omitempty"`
+	JWTSecret  *string `json:"jwt_secret,omitempty"`
+}
+
 type runSpec struct {
 	ScenarioFile                   *string           `json:"scenario_file,omitempty"`
 	ScenarioName                   *string           `json:"scenario_name,omitempty"`
@@ -75,6 +81,7 @@ type runSpec struct {
 	LogOTELInsecure                *bool             `json:"log_otel_insecure,omitempty"`
 	ApiAddr                        *string           `json:"api_addr,omitempty"`
 	ApiToken                       *string           `json:"api_token,omitempty"`
+	Auth                           *authRunSpec      `json:"auth,omitempty"`
 	Server                         *bool             `json:"server,omitempty"`
 	ExtraArgs                      []string          `json:"extra_args,omitempty"`
 	PCAPLink                       *string           `json:"pcap_link,omitempty"`
@@ -195,6 +202,9 @@ func inferServerFlatManagementFromJSON(data []byte) (management bool, err error)
 	if _, ok := top["aliases"]; ok {
 		return false, errors.New(`flat config: file contains "aliases" (run profile layout); use gossipper -config <path> -run-alias <name> for aliases`)
 	}
+	if _, ok := top["server"]; ok {
+		return true, nil
+	}
 	if raw, ok := top["role"]; ok {
 		var s string
 		if err := json.Unmarshal(raw, &s); err != nil {
@@ -309,6 +319,42 @@ func parseRunProfileMeta(args []string) ([]string, runProfileMeta, error) {
 	}
 	postNormalizeRunProfileMeta(&m)
 	return out, m, nil
+}
+
+func derefStringPtr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func applyAuthRunSpec(cfg *Config, spec *authRunSpec, configDir string) error {
+	if spec == nil {
+		return nil
+	}
+	t := strings.ToLower(strings.TrimSpace(derefStringPtr(spec.Type)))
+	if t == "" || t == "none" {
+		cfg.Auth = AuthConfig{}
+		return nil
+	}
+	if t != "internal" {
+		return fmt.Errorf("run profile auth.type: unknown %q (supported: none, internal)", t)
+	}
+	path := strings.TrimSpace(derefStringPtr(spec.SQLitePath))
+	if path == "" {
+		return errors.New("run profile auth.internal requires auth.sqlite_path")
+	}
+	if filepath.IsAbs(path) {
+		path = filepath.Clean(path)
+	} else {
+		path = filepath.Clean(filepath.Join(configDir, path))
+	}
+	secret := strings.TrimSpace(derefStringPtr(spec.JWTSecret))
+	if len(secret) < 16 {
+		return errors.New("run profile auth.jwt_secret must be at least 16 characters when auth.type is internal")
+	}
+	cfg.Auth = AuthConfig{Type: "internal", SQLitePath: path, JWTSecret: secret}
+	return nil
 }
 
 func applyRunSpec(cfg *Config, spec *runSpec, configDir string) error {
@@ -463,6 +509,11 @@ func applyRunSpec(cfg *Config, spec *runSpec, configDir string) error {
 	}
 	if spec.ApiToken != nil {
 		cfg.ApiToken = *spec.ApiToken
+	}
+	if spec.Auth != nil {
+		if err := applyAuthRunSpec(cfg, spec.Auth, configDir); err != nil {
+			return err
+		}
 	}
 	if spec.Server != nil {
 		cfg.ServerMode = *spec.Server

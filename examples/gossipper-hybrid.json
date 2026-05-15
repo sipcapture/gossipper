@@ -1,0 +1,53 @@
+{
+  "api_addr": ":8080",
+  "server": {
+    "id": "listen",
+    "role": "management",
+    "scenario_name": "management",
+    "listeners": [
+      { "transport": "u1", "local_ip": "0.0.0.0", "local_port": 5060 },
+      { "transport": "t1", "local_ip": "0.0.0.0", "local_port": 5061 },
+      { "transport": "un", "local_ip": "0.0.0.0", "local_port": 5062 }
+    ],
+    "rate": 1,
+    "max_concurrent": 2048
+  },
+  "clients": [
+    {
+      "id": "load-udp",
+      "role": "load",
+      "scenario_name": "uac",
+      "transport": "u1",
+      "local_ip": "0.0.0.0",
+      "local_port": 15060,
+      "remote_addr": "127.0.0.1:5060",
+      "total_calls": 0,
+      "rate": 1,
+      "max_concurrent": 32
+    },
+    {
+      "id": "load-tcp",
+      "role": "load",
+      "scenario_name": "uac",
+      "transport": "t1",
+      "local_ip": "0.0.0.0",
+      "local_port": 15061,
+      "remote_addr": "127.0.0.1:5061",
+      "total_calls": 0,
+      "rate": 1,
+      "max_concurrent": 32
+    },
+    {
+      "id": "load-udp-un",
+      "role": "load",
+      "scenario_name": "uac",
+      "transport": "un",
+      "local_ip": "0.0.0.0",
+      "local_port": 15062,
+      "remote_addr": "127.0.0.1:5062",
+      "total_calls": 0,
+      "rate": 1,
+      "max_concurrent": 32
+    }
+  ]
+}

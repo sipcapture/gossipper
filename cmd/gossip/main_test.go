@@ -143,7 +143,6 @@ func TestRunSippRejectsGossipperSubcommands(t *testing.T) {
 }
 
 func TestRunProfileSubcommand(t *testing.T) {
-	t.Parallel()
 	oldStdout := os.Stdout
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -463,7 +462,7 @@ func TestShouldRunInteractive(t *testing.T) {
 		{name: "tui subcommand is not interactive", args: []string{"tui"}, want: false},
 		{name: "sipp prefix is not interactive alone", args: []string{"sipp", "-sn", "uac"}, want: false},
 		{name: "server subcommand is not interactive", args: []string{"server"}, want: false},
-		{name: "profile subcommand is not interactive", args: []string{"profile"}, want: false},
+		{name: "auth subcommand is not interactive", args: []string{"auth"}, want: false},
 		{name: "regular cli", args: []string{"-sn", "uac"}, want: false},
 	}
 

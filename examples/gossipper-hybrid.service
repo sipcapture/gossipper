@@ -1,0 +1,20 @@
+# Gossipper hybrid: one process = `server` (SIP management) + optional `clients` UAC profiles (see examples/gossipper-hybrid.json).
+# Top-level keys (api_addr, hep_*, …) shallow-merge into the server object and each clients[] entry.
+#
+#   sudo install -m0644 examples/gossipper-hybrid.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now gossipper-hybrid
+
+[Unit]
+Description=Gossipper hybrid (SIP server profile + optional client profiles in one process)
+Documentation=file:/usr/local/gossipper/etc/doc/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/gossipper/bin/gossipper server -config /usr/local/gossipper/etc/gossipper-hybrid.json
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

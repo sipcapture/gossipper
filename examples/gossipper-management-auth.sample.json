@@ -1,0 +1,18 @@
+{
+  "comment": "Sample management profile with internal API/Control UI auth (SQLite users + JWT). Copy and adjust paths/secrets.",
+  "api_addr": ":8080",
+  "auth": {
+    "type": "internal",
+    "sqlite_path": "./data/gossipper-settings.sqlite",
+    "jwt_secret": "CHANGE_ME__min_16_chars__"
+  },
+  "server": {
+    "role": "management",
+    "scenario_name": "management",
+    "transport": "u1",
+    "local_ip": "0.0.0.0",
+    "local_port": 5060,
+    "rate": 1,
+    "max_concurrent": 2048
+  }
+}

@@ -10,7 +10,7 @@ description: |
   scenario runner with incremental XML parity, 3PCC helpers, and RTP tooling.
   (AGPL-3.0)
   Install layout under /usr/local/gossipper: bin, etc (sample JSON + doc), logs, dist (Control UI static files).
-  Ships systemd units gossipper-server.service and gossipper-client.service plus sample JSON under /usr/local/gossipper/etc/.
+  Ships systemd units gossipper-server.service, gossipper-client.service, gossipper-hybrid.service plus sample JSON under /usr/local/gossipper/etc/ (management composite, flat UAC, hybrid server+clients).
 vendor: "QXIP"
 homepage: "https://github.com/sipcapture/gossipper"
 # license omitted: nfpm writes "License:" into deb control; Packagecloud may 500.
@@ -48,6 +48,16 @@ contents:
     file_info:
       mode: 0755
 
+  - src: ./examples/gossipper-hybrid.service
+    dst: /lib/systemd/system/gossipper-hybrid.service
+    file_info:
+      mode: 0644
+
+  - src: ./examples/gossipper-hybrid.json
+    dst: /usr/local/gossipper/etc/gossipper-hybrid.json
+    file_info:
+      mode: 0644
+
   - src: ./examples/gossipper-server.service
     dst: /lib/systemd/system/gossipper-server.service
     file_info:
@@ -58,12 +68,12 @@ contents:
     file_info:
       mode: 0644
 
-  - src: ./examples/gossipper-server.json
+  - src: ./examples/gossipper-management.json
     dst: /usr/local/gossipper/etc/gossipper-server.json
     file_info:
       mode: 0644
 
-  - src: ./examples/gossipper-client.json
+  - src: ./examples/gossipper-uac.json
     dst: /usr/local/gossipper/etc/gossipper-client.json
     file_info:
       mode: 0644

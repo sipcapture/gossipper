@@ -248,7 +248,7 @@ func TestParseConfigServerExampleJSON(t *testing.T) {
 		t.Fatal("runtime.Caller")
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	path := filepath.Join(repoRoot, "examples", "gossipper-server.json")
+	path := filepath.Join(repoRoot, "examples", "gossipper-management.json")
 	cfg, err := Parse(ServerSubcommandPrependsFlag([]string{"-config", path}))
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +271,7 @@ func TestParseConfigServerMultiListenerExampleJSON(t *testing.T) {
 		t.Fatal("runtime.Caller")
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	path := filepath.Join(repoRoot, "examples", "gossipper-server-multi-listener.json")
+	path := filepath.Join(repoRoot, "examples", "gossipper-hybrid.json")
 	cfg, err := Parse(ServerSubcommandPrependsFlag([]string{"-config", path}))
 	if err != nil {
 		t.Fatal(err)
@@ -285,7 +285,7 @@ func TestParseConfigServerMultiListenerExampleJSON(t *testing.T) {
 	if cfg.ServerListeners[1].Transport != "t1" {
 		t.Fatalf("second transport=%q want t1", cfg.ServerListeners[1].Transport)
 	}
-	if cfg.ScenarioName != "uas" {
+	if cfg.ScenarioName != "management" {
 		t.Fatalf("scenario=%q", cfg.ScenarioName)
 	}
 }
@@ -297,7 +297,7 @@ func TestParseConfigClientExampleJSON(t *testing.T) {
 		t.Fatal("runtime.Caller")
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	path := filepath.Join(repoRoot, "examples", "gossipper-client.json")
+	path := filepath.Join(repoRoot, "examples", "gossipper-uac.json")
 	cfg, err := Parse(ServerSubcommandPrependsFlag([]string{"-config", path}))
 	if err != nil {
 		t.Fatal(err)
@@ -310,6 +310,89 @@ func TestParseConfigClientExampleJSON(t *testing.T) {
 	}
 	if cfg.TotalCalls != 1 || !cfg.TotalCallsSetExplicitly {
 		t.Fatalf("total_calls: m=%d explicit=%v", cfg.TotalCalls, cfg.TotalCallsSetExplicitly)
+	}
+}
+
+func TestParseCompositeHybridFlatJSON(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hybrid.json")
+	raw := []byte(`{
+  "api_addr": ":18080",
+  "server": {"id": "sip", "role": "management", "scenario_name": "management", "transport": "u1", "local_ip": "127.0.0.1", "local_port": 50660},
+  "clients": [
+    {"id": "load", "role": "load", "scenario_name": "uac", "transport": "u1", "local_ip": "127.0.0.1", "local_port": 50661, "remote_addr": "127.0.0.1:50660", "total_calls": 1, "rate": 1, "max_concurrent": 1}
+  ]
+}`)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Parse(ServerSubcommandPrependsFlag([]string{"-config", path}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ServerMode {
+		t.Fatal("expected ServerMode from composite primary")
+	}
+	if cfg.ServerProfileID != "sip" {
+		t.Fatalf("ServerProfileID=%q", cfg.ServerProfileID)
+	}
+	if cfg.ApiAddr != ":18080" {
+		t.Fatalf("ApiAddr=%q", cfg.ApiAddr)
+	}
+	if len(cfg.JoinedClients) != 1 {
+		t.Fatalf("joined=%d", len(cfg.JoinedClients))
+	}
+	if cfg.JoinedClients[0].ID != "load" {
+		t.Fatalf("id=%q", cfg.JoinedClients[0].ID)
+	}
+	if cfg.JoinedClients[0].Config.ServerMode {
+		t.Fatal("joined profile should be load (ServerMode false)")
+	}
+	if cfg.JoinedClients[0].Config.ApiAddr != "" {
+		t.Fatalf("joined should clear ApiAddr, got %q", cfg.JoinedClients[0].Config.ApiAddr)
+	}
+	if cfg.JoinedClients[0].Config.RemotePort != 50660 {
+		t.Fatalf("remote port=%d", cfg.JoinedClients[0].Config.RemotePort)
+	}
+}
+
+func TestParseCompositeHybridMultiListenerMultiLoad(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hybrid-multi.json")
+	raw := []byte(`{
+  "api_addr": ":18080",
+  "server": {"id": "sip", "role": "management", "scenario_name": "management", "listeners": [
+      {"transport": "u1", "local_ip": "127.0.0.1", "local_port": 50660},
+      {"transport": "t1", "local_ip": "127.0.0.1", "local_port": 50661}
+    ], "rate": 1, "max_concurrent": 8},
+  "clients": [
+    {"id": "u", "role": "load", "scenario_name": "uac", "transport": "u1", "local_ip": "127.0.0.1", "local_port": 50700, "remote_addr": "127.0.0.1:50660", "total_calls": 1, "rate": 1, "max_concurrent": 1},
+    {"id": "t", "role": "load", "scenario_name": "uac", "transport": "t1", "local_ip": "127.0.0.1", "local_port": 50701, "remote_addr": "127.0.0.1:50661", "total_calls": 1, "rate": 1, "max_concurrent": 1}
+  ]
+}`)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Parse(ServerSubcommandPrependsFlag([]string{"-config", path}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.ServerListeners) != 2 {
+		t.Fatalf("primary ServerListeners=%d", len(cfg.ServerListeners))
+	}
+	if cfg.ServerListeners[0].Transport != "u1" || cfg.ServerListeners[1].Transport != "t1" {
+		t.Fatalf("listeners transport=%q %q", cfg.ServerListeners[0].Transport, cfg.ServerListeners[1].Transport)
+	}
+	if len(cfg.JoinedClients) != 2 {
+		t.Fatalf("joined=%d", len(cfg.JoinedClients))
+	}
+	if cfg.JoinedClients[0].Config.Transport != "u1" || cfg.JoinedClients[0].Config.LocalPort != 50700 {
+		t.Fatalf("first load t=%q p=%d", cfg.JoinedClients[0].Config.Transport, cfg.JoinedClients[0].Config.LocalPort)
+	}
+	if cfg.JoinedClients[1].Config.Transport != "t1" || cfg.JoinedClients[1].Config.LocalPort != 50701 {
+		t.Fatalf("second load t=%q p=%d", cfg.JoinedClients[1].Config.Transport, cfg.JoinedClients[1].Config.LocalPort)
 	}
 }
 
@@ -355,6 +438,14 @@ func TestInferServerFlatManagementRoleAndHeuristics(t *testing.T) {
 	ok2, err := InferServerFlatManagement(loadRole)
 	if err != nil || ok2 {
 		t.Fatalf("load role: ok=%v err=%v", ok2, err)
+	}
+	serverJSON := filepath.Join(dir, "server-block.json")
+	if err := os.WriteFile(serverJSON, []byte(`{"server":{"scenario_name":"management","transport":"u1","local_ip":"127.0.0.1","local_port":5060}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ok3, err := InferServerFlatManagement(serverJSON)
+	if err != nil || !ok3 {
+		t.Fatalf("top-level server object: ok=%v err=%v", ok3, err)
 	}
 }
 

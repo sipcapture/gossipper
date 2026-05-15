@@ -16,16 +16,27 @@ import (
 	"github.com/sipcapture/gossipper/internal/engine"
 	"github.com/sipcapture/gossipper/internal/reporthtml"
 	"github.com/sipcapture/gossipper/internal/scenario"
+	"github.com/sipcapture/gossipper/internal/settingsauth"
 	"github.com/sipcapture/gossipper/internal/stats"
 )
 
 // RunSIPScenario runs the SIP scenario engine (UAC/UAS or XML) until ctx is cancelled or the scenario completes.
 // It prints the final summary line to stdout. Optional periodic stats (stderr) and SIGUSR1 screen dumps follow cli.Config.
+// When cfg.JoinedClients is non-empty (composite server -config), multiple engines run in parallel in one process.
 func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
+	if len(cfg.JoinedClients) > 0 {
+		return runSIPScenarioMulti(ctx, cfg)
+	}
+	return runSIPScenarioSingle(ctx, cfg)
+}
+
+func runSIPScenarioSingle(ctx context.Context, cfg cli.Config) error {
 	prepared, err := Prepare(cfg)
 	if err != nil {
 		return err
 	}
+
+	var settingsAuth *settingsauth.Auth
 
 	logger, closeLog, err := BuildEventLogger(prepared.CLIConfig, prepared.Scenario)
 	if err != nil {
@@ -41,15 +52,42 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 	defer cancelRun()
 
 	app := engine.New(prepared.EngineConfig)
+	var loadCoord *LoadCoordinator
+	if prepared.CLIConfig.ApiAddr != "" && prepared.CLIConfig.ServerMode {
+		res := []string{}
+		if s := strings.TrimSpace(cfg.ServerProfileID); s != "" {
+			res = append(res, s)
+		}
+		loadCoord = NewLoadCoordinator(ctx, prepared.CLIConfig, nil, res)
+	}
 	if prepared.CLIConfig.ApiAddr != "" {
-		apSrv := api.New(api.ServerConfig{
+		apiCfg := api.ServerConfig{
 			Engine: app,
 			CLI:    prepared.CLIConfig,
 			Token:  prepared.CLIConfig.ApiToken,
 			ValidateScenario: func(sc scenario.Scenario) error {
 				return ValidateScenario(prepared.CLIConfig, sc)
 			},
-		})
+		}
+		if loadCoord != nil {
+			apiCfg.LiveExtras = loadCoord.SnapshotDynamic
+			apiCfg.AddLoadClient = func(_ context.Context, wantID string, body []byte) (string, error) {
+				id, _, err := loadCoord.Add(wantID, body)
+				return id, err
+			}
+			apiCfg.RemoveLoadClient = func(_ context.Context, id string) error {
+				return loadCoord.Remove(id)
+			}
+		}
+		if prepared.CLIConfig.Auth.InternalEnabled() {
+			sa, err := settingsauth.Open(prepared.CLIConfig.Auth.SQLitePath, prepared.CLIConfig.Auth.JWTSecret)
+			if err != nil {
+				return fmt.Errorf("settings auth: %w", err)
+			}
+			settingsAuth = sa
+			apiCfg.SettingsAuth = sa
+		}
+		apSrv := api.New(apiCfg)
 		go func() {
 			if api.HasEmbeddedControlUI() {
 				fmt.Fprintf(os.Stderr, "api: listening on http://%s/ (Control UI) and http://%s/api/v1/health\n", prepared.CLIConfig.ApiAddr, prepared.CLIConfig.ApiAddr)
@@ -73,6 +111,14 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 				return
 			case <-screenDumpSignals:
 				app.DumpScreenSnapshot()
+				if loadCoord != nil {
+					de, _ := loadCoord.SnapshotDynamic()
+					for _, e := range de {
+						if e != nil {
+							e.DumpScreenSnapshot()
+						}
+					}
+				}
 			}
 		}
 	}()
@@ -90,13 +136,32 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 					return
 				case <-ticker.C:
 					fmt.Fprintln(os.Stderr, SummaryLine(app.Stats().Snapshot()))
+					if loadCoord != nil {
+						de, did := loadCoord.SnapshotDynamic()
+						for i, e := range de {
+							if e == nil {
+								continue
+							}
+							id := ""
+							if i < len(did) {
+								id = did[i]
+							}
+							fmt.Fprintf(os.Stderr, "[%s] %s\n", id, SummaryLine(e.Stats().Snapshot()))
+						}
+					}
 				}
 			}
 		}()
 	}
 
 	runErr := app.Run(ctx)
+	if loadCoord != nil {
+		loadCoord.Wait()
+	}
 	cancelRun()
+	if settingsAuth != nil {
+		_ = settingsAuth.Close()
+	}
 	statWG.Wait()
 	<-dumpDone
 
@@ -141,5 +206,18 @@ func RunSIPScenario(ctx context.Context, cfg cli.Config) error {
 
 	summary := app.Stats().Snapshot()
 	fmt.Println(SummaryLine(summary))
+	if loadCoord != nil {
+		de, did := loadCoord.SnapshotDynamic()
+		for i, e := range de {
+			if e == nil {
+				continue
+			}
+			id := ""
+			if i < len(did) {
+				id = did[i]
+			}
+			fmt.Printf("[%s] %s\n", id, SummaryLine(e.Stats().Snapshot()))
+		}
+	}
 	return nil
 }
