@@ -1515,62 +1515,62 @@ func TestParseAllowsSendMediaReportShortJSONWhenExtensionRegistered(t *testing.T
 	}
 }
 
-func TestParseConfigServerMutuallyExclusive(t *testing.T) {
+func TestParseLegacyConfigServerFlagRejected(t *testing.T) {
 	t.Parallel()
 	_, err := Parse([]string{"-config-server", "/tmp/a.json", "-config", "/tmp/b.json", "-run-alias", "x"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "cannot be combined") {
+	if !strings.Contains(err.Error(), "was removed") {
 		t.Fatalf("err=%v", err)
 	}
 }
 
-func TestParseConfigServerAndClientMutuallyExclusive(t *testing.T) {
+func TestParseLegacyConfigServerAndClientFlagsRejected(t *testing.T) {
 	t.Parallel()
 	_, err := Parse([]string{"-config-server", "/tmp/a.json", "-config-client", "/tmp/b.json"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "cannot be combined") {
+	if !strings.Contains(err.Error(), "was removed") {
 		t.Fatalf("err=%v", err)
 	}
 }
 
-func TestParseConfigClientMutuallyExclusiveWithConfig(t *testing.T) {
+func TestParseLegacyConfigClientFlagRejected(t *testing.T) {
 	t.Parallel()
 	_, err := Parse([]string{"-config-client", "/tmp/a.json", "-config", "/tmp/b.json", "-run-alias", "x"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "cannot be combined") {
+	if !strings.Contains(err.Error(), "was removed") {
 		t.Fatalf("err=%v", err)
 	}
 }
 
 func TestServerSubcommandPrependsFlag(t *testing.T) {
 	t.Parallel()
-	if got := ServerSubcommandPrependsFlag(nil); len(got) != 1 || got[0] != "-server" {
+	if got := ServerSubcommandPrependsFlag(nil); len(got) != 1 || got[0] != InternalServerSubcommandArgv {
 		t.Fatalf("empty rest: %#v", got)
 	}
-	if got := ServerSubcommandPrependsFlag([]string{"-p", "0"}); len(got) != 3 || got[0] != "-server" || got[1] != "-p" || got[2] != "0" {
+	if got := ServerSubcommandPrependsFlag([]string{"-p", "0"}); len(got) != 3 || got[0] != InternalServerSubcommandArgv || got[1] != "-p" || got[2] != "0" {
 		t.Fatalf("with -p: %#v", got)
 	}
-	if got := ServerSubcommandPrependsFlag([]string{"-config-server", "/tmp/x.json"}); len(got) != 2 || got[0] != "-config-server" {
-		t.Fatalf("config-server should not duplicate -server: %#v", got)
+	if got := ServerSubcommandPrependsFlag([]string{"-config", "/tmp/x.json"}); len(got) != 3 || got[0] != InternalServerSubcommandArgv || got[1] != "-config" || got[2] != "/tmp/x.json" {
+		t.Fatalf("expected internal marker before -config: %#v", got)
 	}
-	if got := ServerSubcommandPrependsFlag([]string{"-server", "-p", "9"}); len(got) != 3 || got[0] != "-server" {
-		t.Fatalf("explicit -server: %#v", got)
+	if got := ServerSubcommandPrependsFlag([]string{InternalServerSubcommandArgv, "-p", "9"}); len(got) != 3 || got[0] != InternalServerSubcommandArgv {
+		t.Fatalf("already marked server: %#v", got)
 	}
 }
 
-func TestParseServerSubcommandSameAsDashServer(t *testing.T) {
+func TestParseServerSubcommandEnablesServerMode(t *testing.T) {
 	t.Parallel()
 	a, err := Parse(ServerSubcommandPrependsFlag([]string{"-p", "0"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Parse([]string{"-server", "-p", "0"})
+	b, err := Parse([]string{InternalServerSubcommandArgv, "-p", "0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1581,7 +1581,7 @@ func TestParseServerSubcommandSameAsDashServer(t *testing.T) {
 
 func TestParseServerModeDefaults(t *testing.T) {
 	t.Parallel()
-	cfg, err := Parse([]string{"-server"})
+	cfg, err := Parse([]string{InternalServerSubcommandArgv})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -1592,7 +1592,7 @@ func TestParseServerModeDefaults(t *testing.T) {
 		t.Fatalf("ApiAddr = %q, want :8080", cfg.ApiAddr)
 	}
 	if cfg.LocalPort != 5060 {
-		t.Fatalf("LocalPort = %d, want 5060 (default when -p omitted in -server)", cfg.LocalPort)
+		t.Fatalf("LocalPort = %d, want 5060 (default when -p omitted in server mode)", cfg.LocalPort)
 	}
 	if cfg.ScenarioName != "management" {
 		t.Fatalf("ScenarioName = %q, want management", cfg.ScenarioName)
@@ -1604,7 +1604,7 @@ func TestParseServerModeDefaults(t *testing.T) {
 
 func TestParseServerModeExplicitP0KeepsEphemeral(t *testing.T) {
 	t.Parallel()
-	cfg, err := Parse([]string{"-server", "-p", "0"})
+	cfg, err := Parse([]string{InternalServerSubcommandArgv, "-p", "0"})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -1615,7 +1615,18 @@ func TestParseServerModeExplicitP0KeepsEphemeral(t *testing.T) {
 
 func TestParseServerModeRejectsRTPSend(t *testing.T) {
 	t.Parallel()
-	if _, err := Parse([]string{"-server", "-rtp_send"}); err == nil {
-		t.Fatal("expected error for -server with -rtp_send")
+	if _, err := Parse([]string{InternalServerSubcommandArgv, "-rtp_send"}); err == nil {
+		t.Fatal("expected error for server mode with -rtp_send")
+	}
+}
+
+func TestParseServerSubcommandRejectsLegacyConfigClientFlag(t *testing.T) {
+	t.Parallel()
+	_, err := Parse([]string{InternalServerSubcommandArgv, "-config-client", "/tmp/x.json"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "was removed") {
+		t.Fatalf("err=%v", err)
 	}
 }

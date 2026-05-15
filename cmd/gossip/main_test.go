@@ -264,6 +264,12 @@ func TestServerSubcommandHelpIncludesAPIFlags(t *testing.T) {
 	if !strings.Contains(s, "  -api_addr string") || !strings.Contains(s, "Gossipper — server") {
 		t.Fatalf("server -h should include server preamble and -api_addr, head: %.400q…", s)
 	}
+	if !strings.Contains(s, "SIP bind / scenario:") || !strings.Contains(s, "HTTP API (Control UI):") {
+		t.Fatalf("server -h should group flags by server-oriented sections, head: %.500q…", s)
+	}
+	if strings.Contains(s, "base_cseq") {
+		t.Fatalf("server -h should not list -base_cseq (SIPp compat); use gossipper sipp -h")
+	}
 }
 
 func TestTUISubcommandHelp(t *testing.T) {

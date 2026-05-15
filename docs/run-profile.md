@@ -13,44 +13,56 @@ For **subcommands** (`tui`, `shell`, `server`, …), the optional **`gossipper s
 | `-config <path>` | Path to the JSON profile file. |
 | `-run-alias <name>` | Apply the object `aliases.<name>` from that file. Required together with `-config` (unless listing). |
 | `-list-aliases` | Print all alias names (sorted, one per line) and exit with status 0. Requires `-config`. |
-| `-config-server <path>` | **Server-only:** one JSON object (same keys as a single alias, **no** `aliases` wrapper). After load, gossipper behaves as if **`-server`** were set. Mutually exclusive with `-config`, `-run-alias`, `-list-aliases`, and **`-config-client`**. |
-| `-config-client <path>` | **Client preset:** one JSON object (same keys as a single alias, **no** `aliases` wrapper). After load, **`-server` is off** (even if the JSON contained `"server": true`). Mutually exclusive with `-config`, `-run-alias`, `-list-aliases`, and **`-config-server`**. |
 
-Supported forms: `-config /path/file.json`, `-config=/path/file.json`, and the same for `-run-alias`, `-config-server`, `-config-client`. Long forms `--config`, `--run-alias`, `--list-aliases`, `--config-server`, `--config-client` are accepted.
+Run profiles (`-config` / `-run-alias` / `-list-aliases`) are **root-command only**.
+
+**Flat JSON (no `aliases` wrapper)** loads via **`gossipper server -config <path>`**. Gossipper infers **management** (SIP UAS + API) vs **load** (UAC preset) using a JSON `"role"` field (`management` / `server` vs `load` / `client` / `uac`) and simple heuristics (`listeners`, `api_addr`, `scenario_name` + `remote_addr`, …). Ambiguous files must set `"role"` explicitly. The legacy flags **`-config-server`** / **`-config-client`** were removed; they now error with a pointer to **`gossipper server -config <path>`**.
+
+Supported forms: `-config /path/file.json`, `-config=/path/file.json`, and the same for `-run-alias`. Long forms `--config`, `--run-alias`, `--list-aliases` are accepted.
 
 **Rules**
 
-- `-config` without `-run-alias` is an error **unless** you pass `-list-aliases`.
+- On the **root** command, `-config` without `-run-alias` is an error **unless** you pass `-list-aliases`.
 - `-run-alias` without `-config` is an error.
-- **`-config-server`** and **`-config-client`** cannot be combined with **`-config`**, **`-run-alias`**, or **`-list-aliases`**.
-- **`-config-server`** and **`-config-client`** cannot be combined with each other.
-- Run-profile flags are **not** passed to subcommands such as `gossipper shell`, `gossipper tui`, `gossipper server`, `gossipper profile`, or `gossipper pcap2scenario`; they apply only to the main SIP/launcher path after `cli.Parse`.
+- **`gossipper server`** accepts **flat JSON** via **`-config <path>`** (no `-run-alias`). Run-profile aliases stay on the root command: **`gossipper -config <path> -run-alias …`** (or `-list-aliases`).
+- **`gossipper server`** must not be combined with **`-run-alias`** / **`-list-aliases`** (those are profile-only).
+- Run-profile flags are **not** passed to subcommands such as `gossipper shell`, `gossipper tui`, `gossipper profile`, or `gossipper pcap2scenario`; they apply only to the main SIP/launcher path after `cli.Parse` (including the `gossipper server …` argv tail).
 
-## Flat server config (`-config-server`)
+## Flat JSON (`gossipper server -config`)
 
-For **systemd** or any long-lived **Control UI** deployment, you can keep a **single flat JSON** next to the binary instead of an `aliases` map:
+For **systemd** or scripted deployments, you can keep a **single flat JSON** next to the binary instead of an `aliases` map:
 
 - Same **snake_case** keys as in [Supported alias fields](#supported-alias-fields) (one object = one former alias body).
-- Do **not** use a top-level **`aliases`** key; if present, gossipper rejects the file and tells you to use `-config` / `-run-alias` instead.
-- **`"server": true`** in the file is optional: **`-config-server` always enables server mode** after merge (equivalent to passing **`-server`**).
+- Do **not** use a top-level **`aliases`** key; if present, gossipper rejects the file and tells you to use `-config` / `-run-alias` instead on the **root** command.
 - **SIP listen address** for the UAS is **`local_ip`** and **`local_port`** in JSON (CLI: **`-i`** / **`-p`**), not **`remote_addr`** / **`-rsa`** (those are for UAC-style remote targets).
-- With **`-server`** or **`-config-server`**, if **`local_port`** is absent and **`-p`** is not passed on the command line, gossipper sets **`5060`** (pass **`-p 0`** explicitly for an ephemeral SIP port).
+- **Management** flat presets enable **management server mode** after merge; **load** flat presets clear management server mode (even if `"server": true` appeared in the file by mistake).
+- With **management server mode** (from a **management** flat JSON or plain **`gossipper server`** without a flat file), if **`local_port`** is absent and **`-p`** is not passed on the command line, gossipper sets **`5060`** (pass **`-p 0`** explicitly for an ephemeral SIP port).
 - Remaining argv (e.g. **`-api_token`**, **`-p`** to override JSON) still wins per the merge order below.
 
-Example: [`examples/gossipper-server.json`](../examples/gossipper-server.json). Several binds (UDP `u1` / `un`, TCP `t1`, TLS `l1` / `ln`, or mixed): [`examples/gossipper-server-multi-listener.json`](../examples/gossipper-server-multi-listener.json).
+### Inferring management vs load
+
+If `"role"` is omitted, gossipper picks **management** when any of these hold (first match wins):
+
+- non-empty **`listeners`** array
+- non-empty **`api_addr`**
+- **`scenario_name`** is `management` or `uas` (case-insensitive)
+
+Otherwise it picks **load** when:
+
+- **`scenario_name`** is `uac` and **`remote_addr`** is set, or
+- **`scenario_name`** is empty/absent and **`remote_addr`** is set
+
+If still ambiguous, **`Parse` / `InferServerFlatManagement`** return an error asking you to set **`"role"`** to **`management`** / **`server`** or **`load`** / **`client`** / **`uac`**.
+
+Examples:
+
+- [`examples/gossipper-server.json`](../examples/gossipper-server.json) — management (has `api_addr`).
+- [`examples/gossipper-server-multi-listener.json`](../examples/gossipper-server-multi-listener.json) — management (`listeners` + `uas`).
+- [`examples/gossipper-client.json`](../examples/gossipper-client.json) — load (`uac` + `remote_addr`).
 
 ```bash
-gossipper server -config-server /etc/gossipper/server.json
-```
-
-## Flat client config (`-config-client`)
-
-For a **second gossipper** (or any process) running as **UAC / load generator**, use a flat JSON with the same keys as one run-profile alias (no `aliases` wrapper). After load, gossipper **never** stays in management **`-server`** mode (`ServerMode` is cleared even if `"server": true` appeared in the file by mistake).
-
-Example: [`examples/gossipper-client.json`](../examples/gossipper-client.json).
-
-```bash
-gossipper -config-client /etc/gossipper/client.json
+gossipper server -config /etc/gossipper/server.json
+gossipper server -config /etc/gossipper/client.json
 ```
 
 ## JSON file shape
@@ -76,7 +88,7 @@ Invalid JSON or an unknown alias name produces a clear parse error.
 ## Merge order and overrides
 
 1. **`DefaultConfig()`** — baseline.
-2. **`-config-server` file**, **`-config-client` file**, *or* **selected `aliases.<name>` from `-config`** — typed fields from JSON are written into `Config`. Relative **`scenario_file`** and **`injection_file`** paths are resolved against the **directory containing the JSON file**.
+2. **Flat JSON file** (`gossipper server -config …`) *or* **selected `aliases.<name>` from `-config`** — typed fields from JSON are written into `Config`. Relative **`scenario_file`** and **`injection_file`** paths are resolved against the **directory containing the JSON file**.
 3. **`extra_args`** — inserted **before** the remainder of argv so that **later** tokens (your real CLI) win when the same flag is repeated (standard `flag` parsing).
 4. **Remaining command-line arguments** — override profile and `extra_args` for flags you repeat on the command line.
 
@@ -100,12 +112,13 @@ These JSON keys map to `Config` / CLI (snake_case in JSON only):
 |----------|------|-------------|
 | `scenario_file` | string | XML scenario path (`-sf`). Relative paths are relative to the config file directory. |
 | `scenario_name` | string | Built-in scenario name (`-sn`, e.g. `uac`, `uas`). Ignored for file loading when `scenario_file` is set (launcher prefers the file). |
+| `role` | string | **Flat JSON only:** `management` / `server` vs `load` / `client` / `uac` to force preset selection when heuristics are ambiguous (ignored for run-profile aliases). |
 | `service` | string | `-s` |
 | `transport` | string | `-t` (`u1`, `un`, …) |
 | `local_ip` | string | `-i` |
 | `local_port` | int | `-p` |
-| `listeners` | object[] | **`-server` / UAS only:** several SIP binds in parallel. Each element: `transport` (`u1`, `un`, `t1`, `tn`, `l1`, `ln`; optional — inherits top-level `transport`), `local_ip`, `local_port` (optional fields inherit top-level `local_ip` / `local_port`). **TLS** listeners require **`tls_cert`** / **`tls_key`** (CLI or `extra_args`). Global `total_calls` counts accepted calls across all listeners. |
-| `remote_addr` | string | `-rsa` (`host:port`) — UAC remote peer; **not** the UAS SIP listen address (use `local_ip` / `local_port` for `-server` / UAS bind) |
+| `listeners` | object[] | **Management / UAS only:** several SIP binds in parallel. Each element: `transport` (`u1`, `un`, `t1`, `tn`, `l1`, `ln`; optional — inherits top-level `transport`), `local_ip`, `local_port` (optional fields inherit top-level `local_ip` / `local_port`). **TLS** listeners require **`tls_cert`** / **`tls_key`** (CLI or `extra_args`). Global `total_calls` counts accepted calls across all listeners. |
+| `remote_addr` | string | `-rsa` (`host:port`) — UAC remote peer; **not** the UAS SIP listen address (use `local_ip` / `local_port` for UAS / management bind) |
 | `auth_username` | string | `-au` |
 | `auth_password` | string | `-ap` |
 | `rate` | number | `-r` |
@@ -126,9 +139,9 @@ These JSON keys map to `Config` / CLI (snake_case in JSON only):
 | `log_otel_endpoint` | string | `-log_otel_endpoint` (OTLP: HTTP full URL or gRPC `host:port`) |
 | `log_otel_proto` | string | `-log_otel_proto` (`grpc` or `http`) |
 | `log_otel_insecure` | bool | `-log_otel_insecure` |
-| `api_addr` | string | `-api_addr` (Control UI / `/api/v1`; with `-server`, default `:8080` if omitted after profile merge) |
+| `api_addr` | string | `-api_addr` (Control UI / `/api/v1`; in management server mode, default `:8080` if omitted after profile merge) |
 | `api_token` | string | `-api_token` |
-| `server` | bool | `-server` (long-run management: OPTIONS UAS + HTTP API; same built-in defaults as CLI — empty `api_addr` becomes `:8080`, scenario becomes `management` unless `scenario_file` / `scenario_name` override) |
+| `server` | bool | Request management server mode from JSON when using run-profile aliases (flat JSON management vs load is chosen separately via `InferServerFlatManagement`) |
 | `extra_args` | string[] | Additional argv fragments (see merge order). |
 
 These `log_otel_*` keys configure **structured event export** over OTLP (same flags as shell `LOG_OTEL_*` in `scripts/hep-uas-listen.sh`); gossipper does not expose separate Prometheus scrape settings in the run profile.
@@ -139,8 +152,8 @@ Flags **not** in this list must be passed via **`extra_args`** or on the command
 
 The repository includes:
 
-- [`testdata/run-profiles/example.json`](../testdata/run-profiles/example.json) — **`hep-uas-listen`** (UAS + HEP + optional OTLP defaults matching the shell script comments) and **`uac-local`** (one UAC call). For systemd-style **`"server": true`** in a profile, use a dedicated alias in your own JSON or **`-config-server`** with [`examples/gossipper-server.json`](../examples/gossipper-server.json).
-- [`examples/gossipper-client.json`](../examples/gossipper-client.json) — minimal flat preset for **`-config-client`** (lab UAC toward one peer). **`.deb` / `.rpm`** also ship **`examples/gossipper-server.service`** and **`examples/gossipper-client.service`** as **`/lib/systemd/system/gossipper-server.service`** and **`gossipper-client.service`** (with matching JSON under **`/usr/local/gossipper/etc/`**).
+- [`testdata/run-profiles/example.json`](../testdata/run-profiles/example.json) — **`hep-uas-listen`** (UAS + HEP + optional OTLP defaults matching the shell script comments) and **`uac-local`** (one UAC call). For systemd-style **`"server": true`** in a profile, use a dedicated alias in your own JSON or a **flat** [`examples/gossipper-server.json`](../examples/gossipper-server.json) with **`gossipper server -config …`**.
+- [`examples/gossipper-client.json`](../examples/gossipper-client.json) — minimal flat preset for **load** mode (lab UAC toward one peer). **`.deb` / `.rpm`** also ship **`examples/gossipper-server.service`** and **`examples/gossipper-client.service`** as **`/lib/systemd/system/gossipper-server.service`** and **`gossipper-client.service`** (with matching JSON under **`/usr/local/gossipper/etc/`**).
 - [`testdata/run-profiles/hep-scripts.json`](../testdata/run-profiles/hep-scripts.json) — parity with [`scripts/hep-uas-listen.sh`](../scripts/hep-uas-listen.sh) and [`scripts/hep-uac-send.sh`](../scripts/hep-uac-send.sh) (Homer-Lake, raw RTCP, and short-JSON UAC variants); see [`testdata/run-profiles/README.md`](../testdata/run-profiles/README.md).
 
 From the repo root:
@@ -189,7 +202,7 @@ gossipper -config gossipper.json -run-alias=uas-listen -hep_addr "$HEP_ADDR"
 
 ## Implementation notes
 
-- Profile handling lives in [`internal/cli/run_profile.go`](../internal/cli/run_profile.go); [`Parse`](../internal/cli/config.go) strips `-config` / `-run-alias` / `-list-aliases` / `-config-server` / `-config-client`, applies the chosen preset, then builds the `flag.FlagSet` using **current `cfg` values** as defaults for key string flags (`-sf`, `-hep_addr`, …) so profile values are not wiped when the flag set is constructed.
+- Profile handling lives in [`internal/cli/run_profile.go`](../internal/cli/run_profile.go); [`Parse`](../internal/cli/config.go) strips `-config` / `-run-alias` / `-list-aliases`, applies the chosen preset (run-profile alias selection on the root command, or flat JSON via `gossipper server -config`), then builds the `flag.FlagSet` using **current `cfg` values** as defaults for key string flags (`-sf`, `-hep_addr`, …) so profile values are not wiped when the flag set is constructed.
 - `-list-aliases` causes `Parse` to return [`ErrListAliases`](../internal/cli/run_profile.go); the binary exits 0 after printing names.
 
 ## See also

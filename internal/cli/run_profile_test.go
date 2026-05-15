@@ -23,28 +23,35 @@ func TestParseRunProfileMeta(t *testing.T) {
 	}
 }
 
-func TestParseRunProfileMetaConfigServer(t *testing.T) {
-	rest, meta, err := parseRunProfileMeta([]string{"-config-server", "/etc/gossipper/s.json", "-api_addr", ":9000"})
-	if err != nil {
-		t.Fatal(err)
+func TestLegacyConfigServerFlagErrors(t *testing.T) {
+	_, _, err := parseRunProfileMeta([]string{"-config-server", "/etc/gossipper/s.json"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
-	if meta.ServerConfigPath != "/etc/gossipper/s.json" || meta.ConfigPath != "" || meta.RunAlias != "" {
-		t.Fatalf("meta=%+v", meta)
-	}
-	if got := strings.Join(rest, " "); got != "-api_addr :9000" {
-		t.Fatalf("rest=%q", got)
+	if !strings.Contains(err.Error(), "was removed") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
-func TestParseRunProfileMetaConfigClient(t *testing.T) {
-	rest, meta, err := parseRunProfileMeta([]string{"-config-client", "/etc/gossipper/c.json", "-m", "5"})
+func TestLegacyConfigClientFlagErrors(t *testing.T) {
+	_, _, err := parseRunProfileMeta([]string{"-config-client", "/etc/gossipper/c.json"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "was removed") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestPostNormalizeRunProfileMetaMovesImplicitServerConfig(t *testing.T) {
+	rest, meta, err := parseRunProfileMeta([]string{InternalServerSubcommandArgv, "-config", "/flat.json", "-api_addr", ":9000"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.ClientConfigPath != "/etc/gossipper/c.json" || meta.ServerConfigPath != "" || meta.ConfigPath != "" {
+	if !meta.ImplicitServerSubcommand || meta.ConfigPath != "" || meta.ServerFlatConfigPath != "/flat.json" {
 		t.Fatalf("meta=%+v", meta)
 	}
-	if got := strings.Join(rest, " "); got != "-m 5" {
+	if got := strings.Join(rest, " "); got != "-api_addr :9000" {
 		t.Fatalf("rest=%q", got)
 	}
 }
@@ -107,7 +114,7 @@ func TestLoadAndApplyClientConfigClearsServerMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.ServerMode {
-		t.Fatal("expected ServerMode cleared by -config-client load")
+		t.Fatal("expected ServerMode cleared by client flat load")
 	}
 	if cfg.ScenarioName != "uac" || cfg.RemoteHost != "10.0.0.1" || cfg.RemotePort != 5060 {
 		t.Fatalf("cfg=%+v", cfg)
@@ -242,12 +249,12 @@ func TestParseConfigServerExampleJSON(t *testing.T) {
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	path := filepath.Join(repoRoot, "examples", "gossipper-server.json")
-	cfg, err := Parse([]string{"-config-server", path})
+	cfg, err := Parse(ServerSubcommandPrependsFlag([]string{"-config", path}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !cfg.ServerMode {
-		t.Fatal("expected ServerMode from -config-server")
+		t.Fatal("expected ServerMode from flat management JSON")
 	}
 	if cfg.ApiAddr != ":8080" || cfg.LocalPort != 5060 {
 		t.Fatalf("api=%q port=%d", cfg.ApiAddr, cfg.LocalPort)
@@ -265,7 +272,7 @@ func TestParseConfigServerMultiListenerExampleJSON(t *testing.T) {
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	path := filepath.Join(repoRoot, "examples", "gossipper-server-multi-listener.json")
-	cfg, err := Parse([]string{"-config-server", path})
+	cfg, err := Parse(ServerSubcommandPrependsFlag([]string{"-config", path}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,12 +298,12 @@ func TestParseConfigClientExampleJSON(t *testing.T) {
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	path := filepath.Join(repoRoot, "examples", "gossipper-client.json")
-	cfg, err := Parse([]string{"-config-client", path})
+	cfg, err := Parse(ServerSubcommandPrependsFlag([]string{"-config", path}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.ServerMode {
-		t.Fatal("expected non-server from -config-client")
+		t.Fatal("expected non-server from flat client JSON")
 	}
 	if cfg.ScenarioName != "uac" || cfg.RemoteHost != "127.0.0.1" || cfg.RemotePort != 5060 {
 		t.Fatalf("cfg=%+v", cfg)
@@ -331,7 +338,58 @@ func TestApplyRunSpecListenersSyncsPrimaryBind(t *testing.T) {
 	}
 }
 
+func TestInferServerFlatManagementRoleAndHeuristics(t *testing.T) {
+	dir := t.TempDir()
+	mgmtRole := filepath.Join(dir, "mgmt-role.json")
+	if err := os.WriteFile(mgmtRole, []byte(`{"role":"server","remote_addr":"10.0.0.1:5060"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := InferServerFlatManagement(mgmtRole)
+	if err != nil || !ok {
+		t.Fatalf("management role: ok=%v err=%v", ok, err)
+	}
+	loadRole := filepath.Join(dir, "load-role.json")
+	if err := os.WriteFile(loadRole, []byte(`{"role":"load","api_addr":":8080"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ok2, err := InferServerFlatManagement(loadRole)
+	if err != nil || ok2 {
+		t.Fatalf("load role: ok=%v err=%v", ok2, err)
+	}
+}
+
+func TestInferServerFlatManagementAmbiguous(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ambig.json")
+	if err := os.WriteFile(path, []byte(`{"scenario_name":"invite_media","remote_addr":"10.0.0.1:5060"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InferServerFlatManagement(path); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestInferServerFlatManagementRejectsAliases(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(path, []byte(`{"aliases":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InferServerFlatManagement(path); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestParseImplicitServerRejectsRunProfileFlags(t *testing.T) {
+	_, err := Parse([]string{InternalServerSubcommandArgv, "-config", "/tmp/x.json", "-run-alias", "a"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "run profiles must use the root command") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func ptr[T any](v T) *T {
 	return &v
 }
-

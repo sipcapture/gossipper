@@ -15,13 +15,14 @@ import (
 // The caller should exit with code 0 without treating it as a failure.
 var ErrListAliases = errors.New("cli: -list-aliases complete")
 
-// runProfileMeta holds parsed -config / -run-alias / -list-aliases / -config-server / -config-client from argv.
+// runProfileMeta holds parsed -config / -run-alias / -list-aliases / server-flat -config from argv.
 type runProfileMeta struct {
-	ConfigPath       string
-	RunAlias         string
-	ListAliases      bool
-	ServerConfigPath string
-	ClientConfigPath string
+	ConfigPath           string
+	RunAlias             string
+	ListAliases          bool
+	ServerFlatConfigPath string // flat JSON for `gossipper server -config` (management or load preset)
+	// ImplicitServerSubcommand is set when argv contains [InternalServerSubcommandArgv] (from `gossipper server`).
+	ImplicitServerSubcommand bool
 }
 
 // runSpec is one alias entry in a gossipper run profile JSON file.
@@ -33,50 +34,50 @@ type listenerRunSpec struct {
 }
 
 type runSpec struct {
-	ScenarioFile                   *string  `json:"scenario_file,omitempty"`
-	ScenarioName                   *string  `json:"scenario_name,omitempty"`
-	Service                        *string  `json:"service,omitempty"`
-	Transport                      *string  `json:"transport,omitempty"`
-	LocalIP                        *string  `json:"local_ip,omitempty"`
-	LocalPort                      *int     `json:"local_port,omitempty"`
-	RemoteAddr                     *string  `json:"remote_addr,omitempty"`
-	AuthUsername                   *string  `json:"auth_username,omitempty"`
-	AuthPassword                   *string  `json:"auth_password,omitempty"`
-	Rate                           *float64 `json:"rate,omitempty"`
-	MaxConcurrent                  *int     `json:"max_concurrent,omitempty"`
-	TotalCalls                     *int     `json:"total_calls,omitempty"`
-	Users                          *int     `json:"users,omitempty"`
-	HEPAddr                        *string  `json:"hep_addr,omitempty"`
-	HEPCaptureID                   *uint32  `json:"hep_capture_id,omitempty"`
-	HEPPassword                    *string  `json:"hep_password,omitempty"`
-	HEPRawRTCP                     *bool    `json:"hep_raw_rtcp,omitempty"`
-	HEPHomerLakeRTCP               *bool    `json:"hep_homer_lake_rtcp,omitempty"`
-	SendMediaReport                *bool    `json:"send_media_report,omitempty"`
-	SummaryJSON                    *string  `json:"summary_json,omitempty"`
-	SummaryHTML                    *string  `json:"summary_html,omitempty"`
-	RecordWAVDir                   *string  `json:"record_wav_dir,omitempty"`
-	RecordWAVDuplex                *bool    `json:"record_wav_duplex,omitempty"`
-	CallRecordsJSONL               *string  `json:"call_records_jsonl,omitempty"`
-	SipFrom                        *string  `json:"sip_from,omitempty"`
-	SipPAI                         *string  `json:"sip_pai,omitempty"`
-	SipProvider                    *string  `json:"sip_provider,omitempty"`
-	SipExtraHeaders                []string `json:"sip_extra_headers,omitempty"`
-	TraceMessages                  *bool    `json:"trace_msg,omitempty"`
-	StatPrintPeriod                *string  `json:"stat_period,omitempty"`
-	InjectionFile                  *string  `json:"injection_file,omitempty"`
-	IPField                        *int     `json:"ip_field,omitempty"`
-	HealthMaxRTCPFractionLost      *float64 `json:"health_max_rtcp_fraction_lost,omitempty"`
-	HealthMaxRTCPJitterTS          *int     `json:"health_max_rtcp_jitter_ts,omitempty"`
-	HealthMinRTPPacketsRecv        *int     `json:"health_min_rtp_packets_recv,omitempty"`
-	HealthMinRTPPacketsRecvPerCall *int     `json:"health_min_rtp_packets_recv_per_call,omitempty"`
-	LogOTELEndpoint                *string  `json:"log_otel_endpoint,omitempty"`
-	LogOTELProto                   *string  `json:"log_otel_proto,omitempty"`
-	LogOTELInsecure                *bool    `json:"log_otel_insecure,omitempty"`
-	ApiAddr                        *string  `json:"api_addr,omitempty"`
-	ApiToken                       *string  `json:"api_token,omitempty"`
-	Server                         *bool    `json:"server,omitempty"`
-	ExtraArgs                      []string `json:"extra_args,omitempty"`
-	PCAPLink                       *string  `json:"pcap_link,omitempty"`
+	ScenarioFile                   *string           `json:"scenario_file,omitempty"`
+	ScenarioName                   *string           `json:"scenario_name,omitempty"`
+	Service                        *string           `json:"service,omitempty"`
+	Transport                      *string           `json:"transport,omitempty"`
+	LocalIP                        *string           `json:"local_ip,omitempty"`
+	LocalPort                      *int              `json:"local_port,omitempty"`
+	RemoteAddr                     *string           `json:"remote_addr,omitempty"`
+	AuthUsername                   *string           `json:"auth_username,omitempty"`
+	AuthPassword                   *string           `json:"auth_password,omitempty"`
+	Rate                           *float64          `json:"rate,omitempty"`
+	MaxConcurrent                  *int              `json:"max_concurrent,omitempty"`
+	TotalCalls                     *int              `json:"total_calls,omitempty"`
+	Users                          *int              `json:"users,omitempty"`
+	HEPAddr                        *string           `json:"hep_addr,omitempty"`
+	HEPCaptureID                   *uint32           `json:"hep_capture_id,omitempty"`
+	HEPPassword                    *string           `json:"hep_password,omitempty"`
+	HEPRawRTCP                     *bool             `json:"hep_raw_rtcp,omitempty"`
+	HEPHomerLakeRTCP               *bool             `json:"hep_homer_lake_rtcp,omitempty"`
+	SendMediaReport                *bool             `json:"send_media_report,omitempty"`
+	SummaryJSON                    *string           `json:"summary_json,omitempty"`
+	SummaryHTML                    *string           `json:"summary_html,omitempty"`
+	RecordWAVDir                   *string           `json:"record_wav_dir,omitempty"`
+	RecordWAVDuplex                *bool             `json:"record_wav_duplex,omitempty"`
+	CallRecordsJSONL               *string           `json:"call_records_jsonl,omitempty"`
+	SipFrom                        *string           `json:"sip_from,omitempty"`
+	SipPAI                         *string           `json:"sip_pai,omitempty"`
+	SipProvider                    *string           `json:"sip_provider,omitempty"`
+	SipExtraHeaders                []string          `json:"sip_extra_headers,omitempty"`
+	TraceMessages                  *bool             `json:"trace_msg,omitempty"`
+	StatPrintPeriod                *string           `json:"stat_period,omitempty"`
+	InjectionFile                  *string           `json:"injection_file,omitempty"`
+	IPField                        *int              `json:"ip_field,omitempty"`
+	HealthMaxRTCPFractionLost      *float64          `json:"health_max_rtcp_fraction_lost,omitempty"`
+	HealthMaxRTCPJitterTS          *int              `json:"health_max_rtcp_jitter_ts,omitempty"`
+	HealthMinRTPPacketsRecv        *int              `json:"health_min_rtp_packets_recv,omitempty"`
+	HealthMinRTPPacketsRecvPerCall *int              `json:"health_min_rtp_packets_recv_per_call,omitempty"`
+	LogOTELEndpoint                *string           `json:"log_otel_endpoint,omitempty"`
+	LogOTELProto                   *string           `json:"log_otel_proto,omitempty"`
+	LogOTELInsecure                *bool             `json:"log_otel_insecure,omitempty"`
+	ApiAddr                        *string           `json:"api_addr,omitempty"`
+	ApiToken                       *string           `json:"api_token,omitempty"`
+	Server                         *bool             `json:"server,omitempty"`
+	ExtraArgs                      []string          `json:"extra_args,omitempty"`
+	PCAPLink                       *string           `json:"pcap_link,omitempty"`
 	Listeners                      []listenerRunSpec `json:"listeners,omitempty"`
 }
 
@@ -181,12 +182,93 @@ func LoadAndApplyClientConfig(cfg *Config, configPath string) ([]string, error) 
 	return append([]string(nil), spec.ExtraArgs...), nil
 }
 
+// legacyFlatConfigFlagError returns a consistent error for removed -config-server / -config-client flags.
+func legacyFlatConfigFlagError(flag string) error {
+	return fmt.Errorf("%s was removed; use `gossipper server -config <path>` for flat JSON (management or load). Run profiles: `gossipper -config <path> -run-alias <name>` (or `-list-aliases`)", flag)
+}
+
+func inferServerFlatManagementFromJSON(data []byte) (management bool, err error) {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return false, fmt.Errorf("flat config: %w", err)
+	}
+	if _, ok := top["aliases"]; ok {
+		return false, errors.New(`flat config: file contains "aliases" (run profile layout); use gossipper -config <path> -run-alias <name> for aliases`)
+	}
+	if raw, ok := top["role"]; ok {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return false, fmt.Errorf("flat config: invalid role field: %w", err)
+		}
+		switch strings.ToLower(strings.TrimSpace(s)) {
+		case "management", "server":
+			return true, nil
+		case "load", "client", "uac":
+			return false, nil
+		default:
+			return false, fmt.Errorf("flat config: unknown role %q; use management|server or load|client|uac", strings.TrimSpace(s))
+		}
+	}
+	if raw, ok := top["listeners"]; ok {
+		var arr []json.RawMessage
+		if err := json.Unmarshal(raw, &arr); err == nil && len(arr) > 0 {
+			return true, nil
+		}
+	}
+	if raw, ok := top["api_addr"]; ok {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil && strings.TrimSpace(s) != "" {
+			return true, nil
+		}
+	}
+	var scen string
+	if raw, ok := top["scenario_name"]; ok {
+		_ = json.Unmarshal(raw, &scen)
+	}
+	scen = strings.TrimSpace(scen)
+	ls := strings.ToLower(scen)
+	if ls == "management" || ls == "uas" {
+		return true, nil
+	}
+	var rem string
+	if raw, ok := top["remote_addr"]; ok {
+		_ = json.Unmarshal(raw, &rem)
+	}
+	rem = strings.TrimSpace(rem)
+	if ls == "uac" && rem != "" {
+		return false, nil
+	}
+	if scen == "" && rem != "" {
+		return false, nil
+	}
+	return false, errors.New(`flat config: cannot infer management vs load; set JSON field "role" to management|server or load|client|uac (or add listeners, api_addr, scenario_name/remote_addr heuristics); see docs/run-profile.md`)
+}
+
+// InferServerFlatManagement reads a flat JSON preset and reports whether it should run in management server mode
+// (versus a UAC/load preset). See inferServerFlatManagementFromJSON for rules.
+func InferServerFlatManagement(configPath string) (management bool, err error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return false, fmt.Errorf("flat config: read file: %w", err)
+	}
+	return inferServerFlatManagementFromJSON(data)
+}
+
+func postNormalizeRunProfileMeta(m *runProfileMeta) {
+	if m.ImplicitServerSubcommand && m.ConfigPath != "" && m.RunAlias == "" && !m.ListAliases {
+		m.ServerFlatConfigPath = m.ConfigPath
+		m.ConfigPath = ""
+	}
+}
+
 func parseRunProfileMeta(args []string) ([]string, runProfileMeta, error) {
 	var m runProfileMeta
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
+		case a == InternalServerSubcommandArgv:
+			m.ImplicitServerSubcommand = true
 		case a == "-list-aliases" || a == "--list-aliases":
 			m.ListAliases = true
 		case a == "-config" || a == "--config":
@@ -210,29 +292,22 @@ func parseRunProfileMeta(args []string) ([]string, runProfileMeta, error) {
 		case strings.HasPrefix(a, "--run-alias="):
 			m.RunAlias = strings.TrimPrefix(a, "--run-alias=")
 		case a == "-config-server" || a == "--config-server":
-			if i+1 >= len(args) {
-				return nil, m, errors.New("-config-server requires a path")
-			}
-			i++
-			m.ServerConfigPath = args[i]
+			return nil, m, legacyFlatConfigFlagError("-config-server")
 		case strings.HasPrefix(a, "-config-server="):
-			m.ServerConfigPath = strings.TrimPrefix(a, "-config-server=")
+			return nil, m, legacyFlatConfigFlagError("-config-server")
 		case strings.HasPrefix(a, "--config-server="):
-			m.ServerConfigPath = strings.TrimPrefix(a, "--config-server=")
+			return nil, m, legacyFlatConfigFlagError("-config-server")
 		case a == "-config-client" || a == "--config-client":
-			if i+1 >= len(args) {
-				return nil, m, errors.New("-config-client requires a path")
-			}
-			i++
-			m.ClientConfigPath = args[i]
+			return nil, m, legacyFlatConfigFlagError("-config-client")
 		case strings.HasPrefix(a, "-config-client="):
-			m.ClientConfigPath = strings.TrimPrefix(a, "-config-client=")
+			return nil, m, legacyFlatConfigFlagError("-config-client")
 		case strings.HasPrefix(a, "--config-client="):
-			m.ClientConfigPath = strings.TrimPrefix(a, "--config-client=")
+			return nil, m, legacyFlatConfigFlagError("-config-client")
 		default:
 			out = append(out, a)
 		}
 	}
+	postNormalizeRunProfileMeta(&m)
 	return out, m, nil
 }
 

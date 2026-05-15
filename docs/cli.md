@@ -6,7 +6,7 @@ Gossipper is a single binary (`cmd/gossip`) with:
 2. **Default path** — everything else is parsed as **SIP/XML scenario flags** (SIPp-style surface; see [`compatibility.md`](compatibility.md) and [`cli-gap-list.md`](cli-gap-list.md)).
 3. **Optional `gossipper sipp` prefix** — same scenario flags as (2); **not** for subcommands (see below).
 
-Run **`gossipper -h`** for **subcommands** and pointers to detailed help (**`gossipper sipp -h`** for scenario flags, **`gossipper server -h`** for server/API, **`gossipper profile -h`** for run-profile presets — see [`run-profile.md`](run-profile.md)).
+Run **`gossipper -h`** for **subcommands** and pointers to detailed help (**`gossipper sipp -h`** for the full SIPp-compatible scenario flags, **`gossipper server -h`** for server/management-oriented groups + API, **`gossipper profile -h`** for run-profile presets — see [`run-profile.md`](run-profile.md)).
 
 ## Subcommands (first argument)
 
@@ -18,13 +18,13 @@ These tokens must appear **first** (after any optional `sipp` strip — you shou
 | `gossipper cli` | Alias for `shell`. |
 | `gossipper tui` | Full-screen launcher and runtime UI. See [`tui.md`](tui.md). |
 | `gossipper -interactive` / `--interactive` | Same control UI as `tui` (handled as a flag on the root path). |
-| `gossipper server …` | Long-run **management** mode: the dispatcher **prepends `-server`** to the remainder of argv **unless** it already contains **`-server`** or **`-config-server`** (which imply server mode on their own). Prefer **`gossipper server -config-server /path.json`** in systemd. Same SIP/API flags as **`gossipper -server`**. |
+| `gossipper server …` | Long-run **management** mode: **`gossipper server`** runs the SIP UAS + HTTP API path. An internal marker is prepended before flags unless argv already contains it (see `internal/cli/server_subcmd.go`). Prefer **`gossipper server -config /path.json`** for flat JSON (management vs load is inferred). |
 | `gossipper pcap2scenario …` | PCAP → generated XML scenarios. See [`pcap2scenario.md`](pcap2scenario.md). |
 | `gossipper report-html …` | Summary JSON → standalone HTML (separate small flag set). |
 | `gossipper summary-to-pdf …` | HTML → PDF (optional embedded renderer when built with `-tags pdf`, else Chromium in `PATH`). |
-| `gossipper profile` / `gossipper profile -h` | Prints the **run-profile** flag summary (**`-config`**, **`-run-alias`**, **`-list-aliases`**, **`-config-server`**, **`-config-client`**). Full narrative in [`run-profile.md`](run-profile.md). |
+| `gossipper profile` / `gossipper profile -h` | Prints the **run-profile** flag summary (**`-config`**, **`-run-alias`**, **`-list-aliases`**, plus notes on **`gossipper server -config`**). Full narrative in [`run-profile.md`](run-profile.md). |
 
-**`-h` / `--help` per entry:** root **`gossipper -h`** lists **subcommands** only (no scenario flag dump); **`gossipper server -h`** and **`gossipper -server -h`** list **all** flags including API; **`gossipper sipp -h`** uses a **SIPp-oriented** preamble and groups scenario flags as **HEP** → **OTLP** → **PPROF** → **SIPP**, omitting **`-server`**, **`-api_addr`**, **`-api_token`**, and **standalone RTP sender** flags (**`-rtp_send`**, **`-rtp_addr`**, …); **`gossipper tui -h`**, **`gossipper cli -h`**, **`gossipper shell -h`** print only that subcommand’s short help; **`gossipper pcap2scenario -h`**, **`report-html -h`**, **`summary-to-pdf -h`** show only their small flag sets.
+**`-h` / `--help` per entry:** root **`gossipper -h`** lists **subcommands** only (no scenario flag dump); **`gossipper server -h`** lists **server / management–oriented** flags in sections (SIP bind, HTTP API, TLS, HEP, …); the **complete** SIPp-compatible list is **`gossipper sipp -h`**. **`gossipper sipp -h`** uses a **SIPp-oriented** preamble and groups scenario flags as **HEP** → **OTLP** → **PPROF** → **SIPP**, omitting **`-api_addr`**, **`-api_token`**, and **standalone RTP sender** flags (**`-rtp_send`**, **`-rtp_addr`**, …); **`gossipper tui -h`**, **`gossipper cli -h`**, **`gossipper shell -h`** print only that subcommand’s short help; **`gossipper pcap2scenario -h`**, **`report-html -h`**, **`summary-to-pdf -h`** show only their small flag sets.
 
 **Version:** `-version` / `--version` anywhere in argv prints build info and exits (handled before subcommand routing).
 
@@ -35,7 +35,7 @@ gossipper -sn uac -rsa 127.0.0.1:5060 -m 10 -r 5
 gossipper -sf ./scenario.xml -rsa 127.0.0.1:5060 …
 ```
 
-Same parsing as **`gossipper sipp …`** for the flag tail. Run profiles (**`-config`**, **`-run-alias`**, **`-config-server`**, **`-config-client`**) apply on this path only — not after `shell` / `tui` / `pcap2scenario` (the **`gossipper profile`** subcommand only prints that flag summary; it does not load JSON). See [`run-profile.md`](run-profile.md).
+Same parsing as **`gossipper sipp …`** for the flag tail. Run profiles (**`-config`**, **`-run-alias`**) apply on this path only — not after `shell` / `tui` / `pcap2scenario` (the **`gossipper profile`** subcommand only prints that flag summary; it does not load JSON). See [`run-profile.md`](run-profile.md).
 
 ## `gossipper sipp` (SIPp-style entry only)
 
@@ -43,10 +43,10 @@ Same parsing as **`gossipper sipp …`** for the flag tail. Run profiles (**`-co
 
 Rules (enforced in `internal/sipp`):
 
-- **Allowed:** any argv that is valid **scenario / launcher flags** on the root command (e.g. **`-sn`**, **`-sf`**, **`-rsa`**, **`-config-server`**, **`-rtp_send`**, …).
+- **Allowed:** any argv that is valid **scenario / launcher flags** on the root command (e.g. **`-sn`**, **`-sf`**, **`-rsa`**, **`-rtp_send`**, …).
 - **Rejected:** placing **Gossipper-only** subcommands or **`-interactive`** after `sipp` (e.g. `gossipper sipp tui`). Use **`gossipper tui`** without `sipp`. Error: `ErrRootSubcommandAfterSipp`.
 
-Leading **`sipp`** tokens may be repeated and are stripped (e.g. shell aliases); empty argv prints a short SIPp-entry summary; **`-h` / `--help` / `help`** forwards to a **SIPp-oriented** preamble and scenario flags in sections **HEP** → **OTLP** → **PPROF** → **SIPP**, and **hides** **`-server`**, **`-api_addr`**, **`-api_token`**, and **`-rtp_send`** (and related **`-rtp_*`**) so the help matches the SIPp entry. Use **`gossipper server -h`** (or **`gossipper -server -h`**) for the full flag list including management API and **`-server`**.
+Leading **`sipp`** tokens may be repeated and are stripped (e.g. shell aliases); empty argv prints a short SIPp-entry summary; **`-h` / `--help` / `help`** forwards to a **SIPp-oriented** preamble and scenario flags in sections **HEP** → **OTLP** → **PPROF** → **SIPP**, and **hides** **`-api_addr`**, **`-api_token`**, and **`-rtp_send`** (and related **`-rtp_*`**) so the help matches the SIPp entry. Use **`gossipper server -h`** for **management-oriented** groups (API, bind, TLS, …); use **`gossipper sipp -h`** for the **full** SIPp-compatible flag list.
 
 Full narrative vs SIPp: [`gossipper-vs-sipp.md`](gossipper-vs-sipp.md).
 
@@ -54,9 +54,8 @@ Full narrative vs SIPp: [`gossipper-vs-sipp.md`](gossipper-vs-sipp.md).
 
 | Invocation | Notes |
 | --- | --- |
-| `gossipper server` | Prepends **`-server`**; then same defaults as **`gossipper -server`** (e.g. SIP port **5060** when **`-p`** omitted, API **`:8080`** when configured). |
-| `gossipper server -config-server /path.json` | No extra **`-server`** injected (already implied by **`-config-server`**). |
-| `gossipper -server …` | Equivalent server mode without the `server` token. |
+| `gossipper server` | Management mode: SIP port **5060** when **`-p`** omitted, API **`:8080`** when configured, unless overridden by flags or flat **`-config`** JSON. |
+| `gossipper server -config /path.json` | Loads flat JSON (same keys as one run-profile alias). Management vs load is inferred (or set via JSON `"role"`). |
 
 Example unit file: [`examples/gossipper-server.service`](../examples/gossipper-server.service).
 
@@ -72,7 +71,7 @@ When **`GET /api/v1/stats`** works, **`PUT /api/v1/scenario?apply=true`** and **
 
 ## SIP transports (server listeners)
 
-Only in **`-server`** mode. Sockets stay bound; toggling affects **acceptance of new dialogs** only (existing calls are unchanged).
+Only in **management / server** mode. Sockets stay bound; toggling affects **acceptance of new dialogs** only (existing calls are unchanged).
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |

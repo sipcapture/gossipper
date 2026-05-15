@@ -1,4 +1,4 @@
-# Gossipper SIP client / load generator preset (-config-client).
+# Gossipper SIP client / load generator preset (flat JSON via gossipper server -config).
 # Edit /usr/local/gossipper/etc/gossipper-client.json (remote_addr, scenario_name, rates, …).
 #
 # From source tree:
@@ -15,7 +15,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/gossipper -config-client /usr/local/gossipper/etc/gossipper-client.json
+ExecStart=/usr/local/bin/gossipper server -config /usr/local/gossipper/etc/gossipper-client.json
 Restart=on-failure
 RestartSec=5
 

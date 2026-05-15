@@ -12,15 +12,14 @@ testing.
 same flag surface as running a load test from SIPp’s CLI). Helpers such as **`tui`**,
 **`shell`**, **`server`**, **`pcap2scenario`**, **`report-html`**, and **`summary-to-pdf`**
 must be run as **`gossipper <subcommand>`** without the **`sipp`** token. Run
-**`gossipper sipp`** with no further args prints a short SIPp-entry summary; **`gossipper sipp -h`** (or **`--help`**, first-token **`help`**) shows the scenario flag list with a **SIPp-oriented** preamble and **without** **`-server`**, **`-api_addr`**, **`-api_token`**, or **standalone `-rtp_send`** / **`-rtp_*`** knobs (those belong to **`gossipper server -h`** / root long-run modes). Root **`gossipper -h`** lists **subcommands** and where to read flags (**`gossipper sipp -h`**, **`gossipper server -h`**, **`gossipper profile -h`**); it does **not** dump the scenario flag list.
+**`gossipper sipp`** with no further args prints a short SIPp-entry summary; **`gossipper sipp -h`** (or **`--help`**, first-token **`help`**) shows the scenario flag list with a **SIPp-oriented** preamble and **without** **`-api_addr`**, **`-api_token`**, or **standalone `-rtp_send`** / **`-rtp_*`** knobs. **`gossipper server -h`** shows **management-oriented** flag groups (SIP bind, API, TLS, HEP, …); the **full** SIPp-compatible surface (including **`-base_cseq`**, **`-rsa`**, 3pcc, RTP sender, …) is **`gossipper sipp -h`**. Root **`gossipper -h`** lists **subcommands** and where to read flags (**`gossipper sipp -h`**, **`gossipper server -h`**, **`gossipper profile -h`**); it does **not** dump the scenario flag list.
 
 The root command **`gossipper [flags…]`** runs scenarios the same way; **`sipp`** is an
 optional explicit SIPp-style entry point.
 
 The **`gossipper server`** subcommand is the preferred entry for systemd-style
-management mode: **`gossipper server -config-server /path.json`** or
-**`gossipper server`** (prepends **`-server`** when the tail does not already
-include **`-server`** or **`-config-server`**; same end state as **`gossipper -server`**).
+management mode: **`gossipper server -config /path.json`** or
+**`gossipper server`** (prepends an internal server marker before the flag parser when needed; same runtime defaults as before the standalone **`-server`** CLI flag was removed).
 
 Canonical CLI reference (subcommands, `sipp`, run profiles): [`cli.md`](cli.md).
 

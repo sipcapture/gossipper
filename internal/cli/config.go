@@ -15,7 +15,7 @@ import (
 	"github.com/sipcapture/gossipper/mediasink"
 )
 
-// ServerListener is one SIP server bind for --server when using the "listeners" config array.
+// ServerListener is one SIP server bind in management / multi-listener mode when using the "listeners" config array.
 // Transport must be u1, un, t1, tn, l1, or ln (TLS requires tls_cert / tls_key in config).
 type ServerListener struct {
 	Transport string `json:"transport,omitempty"`
@@ -42,7 +42,7 @@ type Config struct {
 	Transport    string
 	LocalIP      string
 	LocalPort    int
-	// ServerListeners binds several SIP server sockets in --server when non-empty
+	// ServerListeners binds several SIP server sockets in management mode when non-empty
 	// (UDP u1/un, TCP t1/tn, TLS l1/ln, or mixed; see run profile "listeners").
 	ServerListeners  []ServerListener
 	RemoteHost       string
@@ -207,11 +207,11 @@ func Parse(args []string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if (meta.ServerConfigPath != "" || meta.ClientConfigPath != "") && (meta.ConfigPath != "" || meta.RunAlias != "" || meta.ListAliases) {
-		return Config{}, errors.New("-config-server and -config-client cannot be combined with -config, -run-alias, or -list-aliases")
+	if meta.ImplicitServerSubcommand && (meta.RunAlias != "" || meta.ListAliases) {
+		return Config{}, errors.New("run profiles must use the root command: gossipper -config <path> -run-alias ... or -list-aliases; gossipper server accepts flat JSON only via -config <path>")
 	}
-	if meta.ServerConfigPath != "" && meta.ClientConfigPath != "" {
-		return Config{}, errors.New("-config-server cannot be combined with -config-client")
+	if meta.ServerFlatConfigPath != "" && (meta.ConfigPath != "" || meta.RunAlias != "" || meta.ListAliases) {
+		return Config{}, errors.New("flat JSON via gossipper server -config cannot be combined with run profile flags (-config/-run-alias/-list-aliases)")
 	}
 	if meta.ListAliases {
 		if meta.ConfigPath == "" {
@@ -236,24 +236,30 @@ func Parse(args []string) (Config, error) {
 
 	cfg := DefaultConfig()
 	var profileTotalCallsExplicit bool
-	if meta.ServerConfigPath != "" {
-		extra, err := LoadAndApplyServerConfig(&cfg, meta.ServerConfigPath)
+	if meta.ServerFlatConfigPath != "" {
+		management, err := InferServerFlatManagement(meta.ServerFlatConfigPath)
 		if err != nil {
 			return Config{}, err
 		}
-		cfg.ServerMode = true
-		profileTotalCallsExplicit = cfg.TotalCallsSetExplicitly
-		if len(extra) > 0 {
-			normalizedArgs = append(append([]string(nil), extra...), normalizedArgs...)
-		}
-	} else if meta.ClientConfigPath != "" {
-		extra, err := LoadAndApplyClientConfig(&cfg, meta.ClientConfigPath)
-		if err != nil {
-			return Config{}, err
-		}
-		profileTotalCallsExplicit = cfg.TotalCallsSetExplicitly
-		if len(extra) > 0 {
-			normalizedArgs = append(append([]string(nil), extra...), normalizedArgs...)
+		if management {
+			extra, err := LoadAndApplyServerConfig(&cfg, meta.ServerFlatConfigPath)
+			if err != nil {
+				return Config{}, err
+			}
+			cfg.ServerMode = true
+			profileTotalCallsExplicit = cfg.TotalCallsSetExplicitly
+			if len(extra) > 0 {
+				normalizedArgs = append(append([]string(nil), extra...), normalizedArgs...)
+			}
+		} else {
+			extra, err := LoadAndApplyClientConfig(&cfg, meta.ServerFlatConfigPath)
+			if err != nil {
+				return Config{}, err
+			}
+			profileTotalCallsExplicit = cfg.TotalCallsSetExplicitly
+			if len(extra) > 0 {
+				normalizedArgs = append(append([]string(nil), extra...), normalizedArgs...)
+			}
 		}
 	} else if meta.ConfigPath != "" {
 		extra, err := LoadAndApplyRunProfile(&cfg, meta.ConfigPath, meta.RunAlias)
@@ -264,6 +270,9 @@ func Parse(args []string) (Config, error) {
 		if len(extra) > 0 {
 			normalizedArgs = append(append([]string(nil), extra...), normalizedArgs...)
 		}
+	}
+	if meta.ImplicitServerSubcommand && meta.ServerFlatConfigPath == "" {
+		cfg.ServerMode = true
 	}
 	cfg.InfIndexFile = infIndexFile
 	cfg.InfIndexField = infIndexField
@@ -379,7 +388,6 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.PprofAddr, "pprof", "", "pprof HTTP address (e.g. :6060) for live CPU/memory/goroutine profiling")
 	fs.StringVar(&cfg.ApiAddr, "api_addr", "", "HTTP listen address for management API (e.g. :8080); GET / serves embedded Control UI when built with Makefile target frontend; API under /api/v1/")
 	fs.StringVar(&cfg.ApiToken, "api_token", "", "optional Bearer token required for all /api/v1 requests when set")
-	fs.BoolVar(&cfg.ServerMode, "server", cfg.ServerMode, "systemd/long-run: OPTIONS UAS + API (default -api_addr :8080; default -p 5060 when -p omitted; SIP bind is -i/-p or JSON local_ip/local_port; -sn management unless -sf/-sn)")
 	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "write CPU profile to file at exit")
 	fs.StringVar(&cfg.MemProfile, "memprofile", "", "write memory profile to file at exit")
 
@@ -846,7 +854,7 @@ func applyServerModeIfEnabled(cfg *Config, flagProvided map[string]struct{}) err
 		return nil
 	}
 	if cfg.RTPSend {
-		return errors.New("-server is incompatible with -rtp_send")
+		return errors.New("server mode is incompatible with -rtp_send")
 	}
 	if strings.TrimSpace(cfg.ApiAddr) == "" {
 		cfg.ApiAddr = ":8080"
@@ -876,8 +884,7 @@ func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "  gossipper cli                interactive line CLI: set flags, wizard, hint, run")
 	fmt.Fprintln(w, "  gossipper shell              same as cli")
 	fmt.Fprintln(w, "  gossipper tui                full-screen launcher / runtime UI")
-	fmt.Fprintln(w, "  gossipper server [flags]     long-run management server (prepends -server; use with -config-server … or same flags as -server)")
-	fmt.Fprintln(w, "  gossipper -server            same as `gossipper server` (systemd); SIP bind -i/-p (default -p 5060 if omitted); see examples/gossipper-server.service")
+	fmt.Fprintln(w, "  gossipper server [flags]     long-run management server (SIP UAS + API); flat JSON via -config <path> or flags below after `server`")
 	fmt.Fprintln(w, "  gossipper pcap2scenario ...  PCAP → XML scenarios")
 	fmt.Fprintln(w, "  gossipper report-html ...  summary JSON → standalone HTML report")
 	fmt.Fprintln(w, "  gossipper summary-to-pdf ...  HTML → PDF (optional -tags pdf or Chromium in PATH)")
@@ -892,18 +899,21 @@ func writeRootScenarioFlagHint(w io.Writer) {
 	fmt.Fprintln(w, "Scenario / load flags (SIPp-style surface, grouped HEP / OTLP / PPROF / SIPP):")
 	fmt.Fprintln(w, "  gossipper sipp -h")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Server mode — full flag list (includes -api_addr, -api_token, -server):")
+	fmt.Fprintln(w, "Server / management — flags grouped for Control UI + SIP bind (not the full SIPp dump):")
 	fmt.Fprintln(w, "  gossipper server -h")
-	fmt.Fprintln(w, "  gossipper -server -h")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Run-profile JSON presets:")
 	fmt.Fprintln(w, "  gossipper profile -h")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Advanced SIPp-compat flags (-base_cseq, -rsa, 3pcc, standalone RTP, …):")
+	fmt.Fprintln(w, "  gossipper sipp -h")
 }
 
 func writeServerHelpPreamble(w io.Writer) {
-	fmt.Fprintln(w, "Gossipper — server / management mode (-server or gossipper server)")
-	fmt.Fprintln(w, "SIP bind: -i / -p or JSON local_ip / local_port with -config-server.")
+	fmt.Fprintln(w, "Gossipper — server / management mode (gossipper server …)")
+	fmt.Fprintln(w, "SIP bind: -i / -p or JSON local_ip / local_port with gossipper server -config <path>.")
 	fmt.Fprintln(w, "HTTP API / Control UI: -api_addr, optional -api_token. See examples/gossipper-server.service")
+	fmt.Fprintln(w, "Below: server-oriented groups; full SIPp-compatible list: gossipper sipp -h")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Flags:")
 }

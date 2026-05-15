@@ -29,8 +29,8 @@ The current MVP implements:
 - Optional SIP identity for built-in UAC / `invite_media`: `-sip_from` (From before `;tag=`), `-sip_pai`, `-sip_provider`, repeatable `-sip_extra_header` (see `docs/compatibility.md` `[trunk_*]` keywords)
 - Concurrent call generation with rate limiting
 - Interactive UI via **`gossipper tui`** (full-screen launcher) or **`gossipper cli`** (line-oriented shell: `set`, `wizard`, `run`, …)
-- **`gossipper sipp`** — optional **SIPp-style CLI** prefix for scenario flags only (not `tui` / `cli` / `server`); same engine as root **`gossipper [flags…]`**; bare **`gossipper sipp`** prints a short entry summary; **`gossipper sipp -h`** lists scenario flags (grouped HEP / OTLP / PPROF / SIPP) and **without** **`-server`**, **`-api_addr`** / **`-api_token`**, or **`-rtp_send`** / **`-rtp_*`** (use **`gossipper server -h`** for the full management surface); **`gossipper -h`** lists **subcommands** and pointers to **`sipp -h`**, **`server -h`**, **`profile -h`** — not the long flag list; see `docs/gossipper-vs-sipp.md`
-- **`gossipper server`** — management / long-run SIP UAS + HTTP API: prepends **`-server`** (or pass **`-config-server`** / **`-server`** in the tail unchanged); recommended in **systemd** alongside **`-config-server`**
+- **`gossipper sipp`** — optional **SIPp-style CLI** prefix for scenario flags only (not `tui` / `cli` / `server`); same engine as root **`gossipper [flags…]`**; bare **`gossipper sipp`** prints a short entry summary; **`gossipper sipp -h`** lists the **full** SIPp-compatible scenario flags (grouped HEP / OTLP / PPROF / SIPP) and **without** **`-api_addr`** / **`-api_token`**, or **`-rtp_send`** / **`-rtp_*`**; **`gossipper server -h`** lists **management-oriented** groups (bind, API, TLS, HEP, …); **`gossipper -h`** lists **subcommands** and pointers to **`sipp -h`**, **`server -h`**, **`profile -h`** — not the long flag list; see `docs/gossipper-vs-sipp.md`
+- **`gossipper server`** — management / long-run SIP UAS + HTTP API: use **`gossipper server -config …`** in systemd for flat JSON, or **`gossipper server`** with CLI flags (see `docs/cli.md` and `internal/cli/server_subcmd.go`)
 - Basic statistics and JSON summary export (`-summary_json`), optional standalone **HTML** report (`-summary_html` or `gossipper report-html -in … -out …`; see `docs/summary-json.md`)
 - Named per-step RTD timers via `start_rtd` / `rtd`, aggregated into summary JSON
 - XML `counter` / `display` attributes aggregated into summary JSON as execution counts
@@ -46,7 +46,7 @@ The current MVP implements:
 - Pragmatic RTP activity checks via `exec rtpcheck="..."` with configurable `min_packets`, `timeout_ms`, and `direction=any|send|recv|both` (legacy `bidirectional` alias is also supported)
 - RTP echo helper mode via `exec rtp_stream="echo"`
 - Periodic RTCP sender reports plus basic incoming RTCP counters via `pion/rtcp`
-- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a static copy under **`/usr/local/gossipper/dist/`** for optional hosting (e.g. nginx `root`). For **systemd**, use **`examples/gossipper-server.service`** (or **`gossipper server -config-server …`** / **`gossipper -server`** with **`examples/gossipper-server.json`** — SIP **`local_ip` / `local_port`**, default **`-p` `5060`** when omitted with **`-server`**, default **`api_addr` `:8080`**); UAC preset: **`examples/gossipper-client.json`** + **`examples/gossipper-client.service`**.
+- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a static copy under **`/usr/local/gossipper/dist/`** for optional hosting (e.g. nginx `root`). For **systemd**, use **`examples/gossipper-server.service`** with **`gossipper server -config …`** and **`examples/gossipper-server.json`** — SIP **`local_ip` / `local_port`**, default **`-p` `5060`** when omitted in management mode, default **`api_addr` `:8080`**); UAC preset: **`examples/gossipper-client.json`** + **`examples/gossipper-client.service`** (`gossipper server -config` load preset).
 
 ## Project layout
 
@@ -77,7 +77,7 @@ The current MVP implements:
 - `docs/trace-schema-contract.md`: stable CSV header/order contract for `-trace_stat`, `-trace_rtt`, and `-trace_screen`
 - `docs/tui.md`: interactive TUI usage guide with launcher and runtime screen examples
 - `docs/interactive-shell.md`: line CLI (`gossipper cli`) with `set`, `wizard`, `hint`, and `run`
-- `docs/run-profile.md`: JSON run profiles (`-config`, `-run-alias`, `-list-aliases`), flat **`-config-server`** / **`-config-client`**; bundled `testdata/run-profiles/*.json` including HEP script presets
+- `docs/run-profile.md`: JSON run profiles (`-config`, `-run-alias`, `-list-aliases`), flat JSON via **`gossipper server -config`**; bundled `testdata/run-profiles/*.json` including HEP script presets
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
 - `milestone.md`: prioritized roadmap for SIPp features that are still missing in `Gossipper`
 
@@ -102,7 +102,7 @@ Run the built-in UAC scenario against a SIP endpoint:
 ./gossipper -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
-Same run via the **SIPp-style** entry (flags identical at runtime; **`gossipper sipp -h`** uses a SIPp-oriented help preamble and omits **`-server`**, **`-api_*`**, and **`-rtp_send`** / **`-rtp_*`** vs the full **`gossipper server -h`** list):
+Same run via the **SIPp-style** entry (flags identical at runtime; **`gossipper sipp -h`** uses a SIPp-oriented help preamble and omits **`-api_*`**, and **`-rtp_send`** / **`-rtp_*`**; **`gossipper server -h`** shows management-oriented sections, not the full SIPp dump):
 
 ```bash
 ./gossipper sipp -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
@@ -387,8 +387,8 @@ Package artifacts are written to `dist/` (build tree). The installed layout is u
 | Path | Contents |
 |------|----------|
 | `bin/gossipper` | main binary |
-| `etc/gossipper-server.json` | sample flat config for **`-config-server`** (management / Control UI) |
-| `etc/gossipper-client.json` | sample flat config for **`-config-client`** (UAC preset) |
+| `etc/gossipper-server.json` | sample flat config for **`gossipper server -config`** (management / Control UI) |
+| `etc/gossipper-client.json` | sample flat config for **`gossipper server -config`** (UAC / load preset) |
 | `etc/doc/` | `README.md`, `LICENSE`, and `docs/` from this repository |
 | `logs/` | empty directory for runtime logs (operator-owned) |
 | `dist/` | Control UI static files (same as embedded webdist) |

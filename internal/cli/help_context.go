@@ -8,7 +8,7 @@ type HelpContext int32
 const (
 	HelpContextUnset  HelpContext = 0
 	HelpContextRoot   HelpContext = 1 // gossipper -h (subcommands + where to read flags; no scenario dump)
-	HelpContextServer HelpContext = 2 // gossipper server … or -server / -config-server
+	HelpContextServer HelpContext = 2 // gossipper server … or internal server marker
 	HelpContextSipp   HelpContext = 3 // gossipper sipp -h (SIPp-style entry)
 )
 
@@ -27,7 +27,7 @@ func resetHelpContext() {
 }
 
 // ArgsImplyServerMode reports whether argv already selects server mode
-// (-server or -config-server), including long forms.
+// ([InternalServerSubcommandArgv] from gossipper server, or server subcommand help context).
 func ArgsImplyServerMode(argv []string) bool {
 	return serverRestImpliesServerMode(argv)
 }

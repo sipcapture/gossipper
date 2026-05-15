@@ -34,12 +34,97 @@ func writeFlagDefaultsForHelp(fs *flag.FlagSet, w io.Writer) {
 	case HelpContextRoot:
 		writeRootScenarioFlagHint(w)
 	case HelpContextServer:
-		printFlagDefaultsOmit(fs, w, nil)
+		printServerCategorizedFlagHelp(fs, w)
 	case HelpContextSipp:
 		printSippCategorizedFlagHelp(fs, w)
 	default:
 		printFlagDefaultsOmit(fs, w, rootHelpOmitFlags)
 	}
+}
+
+// serverHelpSection is one titled block of flag names for gossipper server -h (management / SIP bind / API).
+// Omitted flags remain valid at runtime; see gossipper sipp -h for the full SIPp-compatible surface.
+var serverHelpSections = []struct {
+	title string
+	names []string
+}{
+	{
+		title: "SIP bind / scenario",
+		names: []string{"sn", "sf", "s", "t", "i", "p", "au", "ap", "inf", "ip_field", "ipfield"},
+	},
+	{title: "HTTP API (Control UI)", names: []string{"api_addr", "api_token"}},
+	{title: "TLS (SIP server / mutual TLS)", names: []string{"tls_cert", "tls_key", "tls_ca", "tls_skip_verify"}},
+	{
+		title: "Call rate & limits",
+		names: []string{"r", "rp", "l", "m", "users", "max_socket"},
+	},
+	{
+		title: "Timeouts",
+		names: []string{"pause_ms", "recv_timeout_ms", "recv_bye_timeout_ms", "timeout_global"},
+	},
+	{title: "HEP / Homer", names: sippHEPFlagOrder},
+	{
+		title: "SIP trunk / extra headers",
+		names: []string{"sip_from", "sip_pai", "sip_provider", "sip_extra_header"},
+	},
+	{
+		title: "Media / recordings",
+		names: []string{
+			"record_wav_dir", "record_wav_duplex", "call_records_jsonl",
+			"media_reject_srtp", "media_srtp",
+			"turn_server", "turn_user", "turn_pass", "turn_realm",
+		},
+	},
+	{
+		title: "Summary / health gates",
+		names: []string{
+			"summary_json", "summary_html",
+			"health_min_success_ratio", "health_max_failed_calls", "health_max_timeouts",
+			"health_max_rtcp_fraction_lost", "health_max_rtcp_jitter_ts",
+			"health_min_rtp_packets_recv", "health_min_rtp_packets_recv_per_call",
+		},
+	},
+	{
+		title: "Tracing / stats",
+		names: []string{
+			"trace_msg", "trace_shortmsg", "trace_counts", "message_file",
+			"trace_err", "error_file", "trace_error_codes", "trace_logs", "log_file",
+			"trace_stat", "fd", "stat_period", "trace_rtt", "rtt_freq", "trace_screen", "screen_file",
+		},
+	},
+	{title: "Structured logging (OTLP)", names: sippOTLPFlagOrder},
+	{title: "Profiling", names: sippPPROFFlagOrder},
+}
+
+func printServerCategorizedFlagHelp(fs *flag.FlagSet, w io.Writer) {
+	byName := make(map[string]*flag.Flag)
+	fs.VisitAll(func(fl *flag.Flag) {
+		byName[fl.Name] = fl
+	})
+	var isZeroValueErrs []error
+	for _, sec := range serverHelpSections {
+		var printed bool
+		for _, name := range sec.names {
+			fl, ok := byName[name]
+			if !ok {
+				continue
+			}
+			if !printed {
+				fmt.Fprintf(w, "%s:\n", sec.title)
+				printed = true
+			}
+			isZeroValueErrs = append(isZeroValueErrs, writeSingleFlagDefault(w, fl)...)
+		}
+		if printed {
+			fmt.Fprintln(w)
+		}
+	}
+	if len(isZeroValueErrs) > 0 {
+		for _, err := range isZeroValueErrs {
+			fmt.Fprintln(w, err)
+		}
+	}
+	fmt.Fprintln(w, "Full SIPp-compatible flag list (UAC / load / advanced): gossipper sipp -h")
 }
 
 // sippHEPFlagOrder is the preferred order for HEP / Homer flags in gossipper sipp -h.
