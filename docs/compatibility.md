@@ -2,6 +2,11 @@
 
 This document defines the currently supported SIPp subset in `Gossipper`.
 
+**Gossipper process CLI** (subcommands, optional `gossipper sipp` prefix, management
+`server` entry, run profiles) is documented in [`cli.md`](cli.md). This file
+focuses on **XML**, **keywords**, **transports**, and **scenario-time** CLI flags
+parsed after the main dispatcher.
+
 Unsupported XML actions now fail during scenario parsing, and unsupported
 scenario keywords fail during template rendering instead of silently degrading
 into no-ops or empty strings.

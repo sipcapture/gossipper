@@ -2,6 +2,10 @@
 
 `Gossipper` intentionally separates concerns that are tightly coupled inside SIPp.
 
+## Binary entry (`cmd/gossip`)
+
+The main binary parses **`-version`** early, routes **reserved subcommands** (`tui`, `shell`, `server`, `pcap2scenario`, …) and optional **`gossipper sipp`** (SIPp-style flag tail only), then runs **`internal/cli.Parse`** and **`internal/launcher`**. See **[`cli.md`](cli.md)**.
+
 ## Main components
 
 - `internal/scenario`

@@ -107,6 +107,108 @@ func TestAPIAuthToken(t *testing.T) {
 	}
 }
 
+func TestAPITransportsServerAndClient(t *testing.T) {
+	srvXML := `<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="srv">
+  <recv request="INVITE" optional="true"/>
+</scenario>`
+	scSrv := mustScenario(t, srvXML)
+	engSrv := engine.New(engine.Config{
+		Scenario:      scSrv,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		LocalPort:     5060,
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    9,
+		DefaultRecvTO: 1,
+	})
+	apiSrv := New(ServerConfig{Engine: engSrv, CLI: cli.DefaultConfig(), ValidateScenario: func(scenario.Scenario) error { return nil }})
+	ts := httptest.NewServer(apiSrv.Handler())
+	defer ts.Close()
+
+	res, err := ts.Client().Get(ts.URL + "/api/v1/transports")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET transports: %s", res.Status)
+	}
+	var got transportsGetResponse
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Listeners) != 1 {
+		t.Fatalf("want 1 listener, got %#v", got.Listeners)
+	}
+	if got.Listeners[0].Index != 0 || !got.Listeners[0].Enabled {
+		t.Fatalf("unexpected listener: %+v", got.Listeners[0])
+	}
+
+	reqOff, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/transports", strings.NewReader(`{"index":0,"enabled":false}`))
+	reqOff.Header.Set("Content-Type", "application/json")
+	res2, err := ts.Client().Do(reqOff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	if res2.StatusCode != http.StatusOK {
+		t.Fatalf("POST transports off: %s", res2.Status)
+	}
+	var st2 transportsGetResponse
+	if err := json.NewDecoder(res2.Body).Decode(&st2); err != nil {
+		t.Fatal(err)
+	}
+	if len(st2.Listeners) != 1 || st2.Listeners[0].Enabled {
+		t.Fatalf("expected disabled: %#v", st2)
+	}
+
+	reqOn, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/transports", strings.NewReader(`{"listeners":[{"index":0,"enabled":true}]}`))
+	reqOn.Header.Set("Content-Type", "application/json")
+	res3, err := ts.Client().Do(reqOn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res3.Body.Close()
+	if res3.StatusCode != http.StatusOK {
+		t.Fatalf("POST transports batch: %s", res3.Status)
+	}
+
+	// Client engine: no transport slots
+	scCli := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
+
+]]></send><recv response="200" optional="true"/></scenario>`)
+	engCli := engine.New(engine.Config{Scenario: scCli, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 1, RemoteHost: "127.0.0.1", RemotePort: 9})
+	apiCli := New(ServerConfig{Engine: engCli, CLI: cli.DefaultConfig(), ValidateScenario: func(scenario.Scenario) error { return nil }})
+	ts2 := httptest.NewServer(apiCli.Handler())
+	defer ts2.Close()
+	res4, err := ts2.Client().Get(ts2.URL + "/api/v1/transports")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res4.Body.Close()
+	if res4.StatusCode != http.StatusOK {
+		t.Fatalf("GET transports client: %s", res4.Status)
+	}
+	var empty transportsGetResponse
+	if err := json.NewDecoder(res4.Body).Decode(&empty); err != nil {
+		t.Fatal(err)
+	}
+	if len(empty.Listeners) != 0 {
+		t.Fatalf("client want empty listeners, got %#v", empty.Listeners)
+	}
+	reqBad, _ := http.NewRequest(http.MethodPost, ts2.URL+"/api/v1/transports", strings.NewReader(`{"index":0,"enabled":true}`))
+	reqBad.Header.Set("Content-Type", "application/json")
+	res5, err := ts2.Client().Do(reqBad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res5.Body.Close()
+	if res5.StatusCode != http.StatusBadRequest {
+		t.Fatalf("client POST want 400, got %d", res5.StatusCode)
+	}
+}
+
 func TestAPIScenarioPutApply(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "scen.xml")

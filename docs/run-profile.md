@@ -2,6 +2,8 @@
 
 Gossipper can load a **JSON run profile**: a file with a top-level `aliases` map. Each **alias** is a named preset of structured fields (and optional `extra_args`) that seed the internal [`Config`](../internal/cli/config.go) before the normal `flag` parser runs. Use this to version-control common invocations (HEP UAS, lab UAC, etc.) instead of long shell one-liners.
 
+For **subcommands** (`tui`, `shell`, `server`, …), the optional **`gossipper sipp`** prefix, and **`-version`**, see [`cli.md`](cli.md).
+
 ## Command-line interface
 
 | Flag | Meaning |
@@ -20,7 +22,7 @@ Supported forms: `-config /path/file.json`, `-config=/path/file.json`, and the s
 - `-run-alias` without `-config` is an error.
 - **`-config-server`** and **`-config-client`** cannot be combined with **`-config`**, **`-run-alias`**, or **`-list-aliases`**.
 - **`-config-server`** and **`-config-client`** cannot be combined with each other.
-- Run-profile flags are **not** passed to subcommands such as `gossipper shell`, `gossipper tui`, or `gossipper pcap2scenario`; they apply only to the main SIP/launcher path after `cli.Parse`.
+- Run-profile flags are **not** passed to subcommands such as `gossipper shell`, `gossipper tui`, `gossipper server`, or `gossipper pcap2scenario`; they apply only to the main SIP/launcher path after `cli.Parse`.
 
 ## Flat server config (`-config-server`)
 
@@ -36,7 +38,7 @@ For **systemd** or any long-lived **Control UI** deployment, you can keep a **si
 Example: [`examples/gossipper-server.json`](../examples/gossipper-server.json). Several binds (UDP `u1` / `un`, TCP `t1`, TLS `l1` / `ln`, or mixed): [`examples/gossipper-server-multi-listener.json`](../examples/gossipper-server-multi-listener.json).
 
 ```bash
-gossipper -config-server /etc/gossipper/server.json
+gossipper server -config-server /etc/gossipper/server.json
 ```
 
 ## Flat client config (`-config-client`)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/pion/rtp"
 	"github.com/sipcapture/gossipper/internal/sip"
+	"github.com/sipcapture/gossipper/internal/sipp"
 )
 
 func TestRunSupports3PCCMasterSlaveAliases(t *testing.T) {
@@ -120,6 +122,26 @@ func TestRunSupports3PCCMasterSlaveAliases(t *testing.T) {
 	}
 }
 
+func TestRunSippNoArgs(t *testing.T) {
+	t.Parallel()
+	for _, argv := range [][]string{{"sipp"}, {"sipp", "sipp"}} {
+		if err := run(argv); err != nil {
+			t.Fatalf("run(%v) error = %v", argv, err)
+		}
+	}
+}
+
+func TestRunSippRejectsGossipperSubcommands(t *testing.T) {
+	t.Parallel()
+	err := run([]string{"sipp", "tui"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, sipp.ErrRootSubcommandAfterSipp) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestRunPrintsVersion(t *testing.T) {
 	t.Parallel()
 
@@ -179,6 +201,8 @@ func TestShouldRunInteractive(t *testing.T) {
 		{name: "interactive flag", args: []string{"-interactive"}, want: true},
 		{name: "interactive long flag", args: []string{"--interactive"}, want: true},
 		{name: "tui subcommand is not interactive", args: []string{"tui"}, want: false},
+		{name: "sipp prefix is not interactive alone", args: []string{"sipp", "-sn", "uac"}, want: false},
+		{name: "server subcommand is not interactive", args: []string{"server"}, want: false},
 		{name: "regular cli", args: []string{"-sn", "uac"}, want: false},
 	}
 

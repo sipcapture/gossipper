@@ -9,7 +9,7 @@
 
 ## Launch
 
-Run the TUI with either command:
+Run the TUI with either command (installed binary: **`gossipper tui`** / **`gossipper -interactive`**):
 
 ```bash
 go run ./cmd/gossip tui
@@ -18,6 +18,9 @@ go run ./cmd/gossip tui
 ```bash
 go run ./cmd/gossip -interactive
 ```
+
+Do **not** use **`gossipper sipp tui`** — the **`sipp`** prefix is only for SIPp-style
+scenario flags. Use **`gossipper tui`** (see [`cli.md`](cli.md)).
 
 ## Launch Screen
 
