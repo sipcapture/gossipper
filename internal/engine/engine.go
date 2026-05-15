@@ -36,6 +36,7 @@ var (
 	errStopCall             = errors.New("stop current call")
 	errStopNow              = errors.New("stop execution now")
 	errUnexpectedToMain     = errors.New("unexpected SIP routed to _unexp.main")
+	errUnexpectedFinalAbort = errors.New("unexpected final SIP response with no scenario handler") // triggers immediate abort instead of retransmitting until Timer B
 	errOptionalRecvMismatch = errors.New("optional recv mismatched with incoming SIP")
 	errSIPMailboxClosed     = errors.New("sip mailbox closed (transport ended)")
 	parseHeadersLinesPool   = sync.Pool{New: func() interface{} { return new([]string) }}
@@ -2159,9 +2160,33 @@ func (e *Engine) executeCall(
 			}
 			receiveWithPending := func(waitCtx context.Context) (*sip.Message, bool, error) {
 				if len(pending) > 0 {
-					msg := pending[0]
-					pending = pending[1:]
-					return msg, true, nil
+					if cmd.Optional {
+						// For optional recv, only return pending messages that
+						// match the expected filter. This prevents stale pending
+						// provisionals from short-circuiting the optional recv
+						// before it reads the network (where the real final
+						// response may be waiting).
+						hasFinal := false
+						for i, m := range pending {
+							if sip.MatchRecv(*m, cmd.RecvReq, cmd.RecvResp, lastSent) {
+								pending = append(pending[:i], pending[i+1:]...)
+								return m, true, nil
+							}
+							if m.StatusCode >= 200 {
+								hasFinal = true
+							}
+						}
+						// If pending already holds a final response for this
+						// transaction, the call outcome is decided — no point
+						// waiting on the network for another response.
+						if hasFinal {
+							return nil, false, errOptionalRecvMismatch
+						}
+					} else {
+						msg := pending[0]
+						pending = pending[1:]
+						return msg, true, nil
+					}
 				}
 				msg, err := receive(waitCtx)
 				return msg, false, err
@@ -2171,13 +2196,24 @@ func (e *Engine) executeCall(
 				unexpMainIndex = idx
 			}
 			var unexpectedForMain *sip.Message
-			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, send, retransmit, recvTimeout, func(m *sip.Message, fromPending bool) bool {
+			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, send, retransmit, recvTimeout, func(m *sip.Message, fromPending bool) error {
 				if fromPending {
 					if cmd.Optional {
 						// Re-queue back so subsequent optional recvs can try it.
 						pending = append(pending, m)
+						return nil
 					}
-					return false
+					// For mandatory recv, a stashed final response (>= 200) with
+					// no _unexp.main handler means the transaction already ended;
+					// abort rather than wait for a response that can never arrive.
+					if m.StatusCode >= 200 && unexpMainIndex < 0 {
+						e.traceUnexpectedSIP(callNumber, cmd, *m)
+						e.traceCountUnexpected(cmd.Index)
+						sawUnexpectedSIP = true
+						return fmt.Errorf("received unexpected %d response (expected %s): %w",
+							m.StatusCode, strings.TrimSpace(cmd.RecvResp), errUnexpectedFinalAbort)
+					}
+					return nil
 				}
 				if cmd.RecvResp != "" && sip.ResponseStatusMatches(*m, cmd.RecvResp) && !sip.MatchRecv(*m, cmd.RecvReq, cmd.RecvResp, lastSent) {
 					e.emitRecvCSeqReject(callNumber, renderCtx.CallID, cmd, m, lastSent)
@@ -2192,10 +2228,18 @@ func (e *Engine) executeCall(
 				if unexpMainIndex >= 0 && unexpectedForMain == nil {
 					cpy := m.Copy()
 					unexpectedForMain = &cpy
-					return true
+					return errUnexpectedToMain
+				}
+				// Abort immediately on unexpected final response (>= 200) for
+				// mandatory recv with no _unexp.main handler (RFC 3261: the
+				// transaction is complete, continuing would only retransmit).
+				if !cmd.Optional && m.StatusCode >= 200 {
+					pending = append(pending, m)
+					return fmt.Errorf("received unexpected %d response (expected %s): %w",
+						m.StatusCode, strings.TrimSpace(cmd.RecvResp), errUnexpectedFinalAbort)
 				}
 				pending = append(pending, m)
-				return false
+				return nil
 			})
 			if err != nil {
 				if errors.Is(err, errUnexpectedToMain) && unexpectedForMain != nil && unexpMainIndex >= 0 {
@@ -2217,6 +2261,12 @@ func (e *Engine) executeCall(
 			}
 			defer sip.PutMessage(msg)
 			e.traceCountRecv(cmd.Index)
+
+			// RFC 3261 §17.1.1.2: stop retransmitting once any response
+			// is received for the INVITE client transaction.
+			if cmd.RecvResp != "" && lastRetrans > 0 {
+				lastRetrans = 0
+			}
 
 			renderCtx.LastMessage = msg.Raw
 			renderCtx.LastHeaders = copyHeaders(msg.Headers)
@@ -2422,6 +2472,9 @@ func classifyCallFailure(err error, sawUnexpectedSIP bool) string {
 	if err == nil {
 		return ""
 	}
+	if errors.Is(err, errUnexpectedFinalAbort) {
+		return "unexpected_sip"
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		if sawUnexpectedSIP {
 			return "unexpected_sip"
@@ -2487,9 +2540,10 @@ func (e *Engine) waitForMatch(
 	send func([]byte) error,
 	retrans time.Duration,
 	timeout time.Duration,
-	stash func(*sip.Message, bool) bool,
+	stash func(*sip.Message, bool) error,
 ) (*sip.Message, error) {
 	deadline := time.Now().Add(timeout)
+	finalResponseSeen := false
 	for {
 		waitFor := time.Until(deadline)
 		if waitFor <= 0 {
@@ -2505,10 +2559,14 @@ func (e *Engine) waitForMatch(
 				return msg, nil
 			}
 			if stash != nil {
-				if routeToMain := stash(msg, fromPending); routeToMain {
+				if stashErr := stash(msg, fromPending); stashErr != nil {
 					sip.PutMessage(msg)
-					return nil, errUnexpectedToMain
+					return nil, stashErr
 				}
+			}
+			// Track final responses to stop retransmitting per RFC 3261.
+			if msg.StatusCode >= 200 {
+				finalResponseSeen = true
 			}
 			if cmd.Optional {
 				// Free msg only if stash did NOT take ownership.
@@ -2525,7 +2583,7 @@ func (e *Engine) waitForMatch(
 			continue
 		}
 
-		if errors.Is(err, context.DeadlineExceeded) && retrans > 0 && len(lastSent) > 0 && time.Now().Before(deadline) && ctx.Err() == nil {
+		if errors.Is(err, context.DeadlineExceeded) && retrans > 0 && !finalResponseSeen && len(lastSent) > 0 && time.Now().Before(deadline) && ctx.Err() == nil {
 			if sendErr := send(lastSent); sendErr != nil {
 				return nil, sendErr
 			}
