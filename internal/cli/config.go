@@ -199,6 +199,10 @@ func DefaultConfig() Config {
 }
 
 func Parse(args []string) (Config, error) {
+	defer resetHelpContext()
+	if CurrentHelpContext() == HelpContextUnset {
+		SetHelpContext(HelpContextRoot)
+	}
 	rest, meta, err := parseRunProfileMeta(args)
 	if err != nil {
 		return Config{}, err
@@ -267,8 +271,16 @@ func Parse(args []string) (Config, error) {
 	fs := flag.NewFlagSet("gossipper", flag.ContinueOnError)
 	fs.SetOutput(os.Stdout)
 	fs.Usage = func() {
-		writeHelpPreamble(fs.Output())
-		fs.PrintDefaults()
+		switch CurrentHelpContext() {
+		case HelpContextSipp:
+			PrintSIPPEntrySummary(fs.Output())
+			fmt.Fprintln(fs.Output(), "Flags:")
+		case HelpContextServer:
+			writeServerHelpPreamble(fs.Output())
+		default:
+			writeHelpPreamble(fs.Output())
+		}
+		writeFlagDefaultsForHelp(fs, fs.Output())
 	}
 	fs.StringVar(&cfg.ScenarioFile, "sf", cfg.ScenarioFile, "path to XML scenario file")
 	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas, management, invite_media, invite_media_early, invite_media_early_180)")
@@ -365,7 +377,7 @@ func Parse(args []string) (Config, error) {
 	timeoutGlobalSec := fs.Int("timeout_global", 0, "exit after N seconds of total runtime (SIPp-compatible)")
 	hepCaptureID := fs.Uint("hep_capture_id", uint(cfg.HEPCaptureID), "HEP3 capture node ID")
 	fs.StringVar(&cfg.PprofAddr, "pprof", "", "pprof HTTP address (e.g. :6060) for live CPU/memory/goroutine profiling")
-	fs.StringVar(&cfg.ApiAddr, "api_addr", "", "HTTP listen address for management API (e.g. :8080); GET / serves embedded Control UI when built with `make frontend`, API under /api/v1/")
+	fs.StringVar(&cfg.ApiAddr, "api_addr", "", "HTTP listen address for management API (e.g. :8080); GET / serves embedded Control UI when built with Makefile target frontend; API under /api/v1/")
 	fs.StringVar(&cfg.ApiToken, "api_token", "", "optional Bearer token required for all /api/v1 requests when set")
 	fs.BoolVar(&cfg.ServerMode, "server", cfg.ServerMode, "systemd/long-run: OPTIONS UAS + API (default -api_addr :8080; default -p 5060 when -p omitted; SIP bind is -i/-p or JSON local_ip/local_port; -sn management unless -sf/-sn)")
 	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "write CPU profile to file at exit")
@@ -860,7 +872,7 @@ func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "Gossipper — SIP load generator (https://github.com/sipcapture/gossipper)")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Subcommands (run before any flags):")
-	fmt.Fprintln(w, "  gossipper sipp [flags…]      SIPp-style entry only (same flags as a root scenario run); gossipper sipp -h = full flags like gossipper -h; do not use with tui/cli/server")
+	fmt.Fprintln(w, "  gossipper sipp [flags…]      SIPp-style entry; gossipper sipp -h shows a SIPp-oriented flag subset; do not use with tui/cli/server")
 	fmt.Fprintln(w, "  gossipper cli                interactive line CLI: set flags, wizard, hint, run")
 	fmt.Fprintln(w, "  gossipper tui                full-screen launcher / runtime UI")
 	fmt.Fprintln(w, "  gossipper server [flags]     long-run management server (prepends -server; use with -config-server … or same flags as -server)")
@@ -871,6 +883,14 @@ func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "  gossipper profile            JSON run-profile flags (-config, -run-alias, …); gossipper profile -h")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "See also: docs/cli.md, docs/interactive-shell.md, docs/tui.md")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Flags:")
+}
+
+func writeServerHelpPreamble(w io.Writer) {
+	fmt.Fprintln(w, "Gossipper — server / management mode (-server or gossipper server)")
+	fmt.Fprintln(w, "SIP bind: -i / -p or JSON local_ip / local_port with -config-server.")
+	fmt.Fprintln(w, "HTTP API / Control UI: -api_addr, optional -api_token. See examples/gossipper-server.service")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Flags:")
 }

@@ -53,6 +53,10 @@ func run(args []string) error {
 
 func runMain(args []string) error {
 	if len(args) > 0 && args[0] == "tui" {
+		if wantsSubcommandHelp(args[1:]) {
+			printTUIHelp(os.Stdout)
+			return nil
+		}
 		return tui.Run()
 	}
 	if len(args) > 0 && args[0] == "pcap2scenario" {
@@ -68,10 +72,21 @@ func runMain(args []string) error {
 		return runProfileHelp(args[1:])
 	}
 	if len(args) > 0 && (args[0] == "shell" || args[0] == "cli") {
+		if wantsSubcommandHelp(args[1:]) {
+			printCLIHelp(os.Stdout)
+			return nil
+		}
 		return shell.Run(os.Stdin, os.Stdout, os.Stderr)
 	}
+	serverViaSubcommand := false
 	if len(args) > 0 && args[0] == "server" {
+		serverViaSubcommand = true
 		args = cli.ServerSubcommandPrependsFlag(args[1:])
+	}
+	if cli.CurrentHelpContext() != cli.HelpContextSipp {
+		if serverViaSubcommand || cli.ArgsImplyServerMode(args) {
+			cli.SetHelpContext(cli.HelpContextServer)
+		}
 	}
 
 	interactive := false
@@ -220,14 +235,23 @@ func stripFlag(args []string, flags ...string) []string {
 // runPCAP2Scenario implements the `gossipper pcap2scenario` sub-command.
 func runPCAP2Scenario(args []string) error {
 	fs := flag.NewFlagSet("pcap2scenario", flag.ContinueOnError)
+	fs.SetOutput(os.Stdout)
 	outDir := fs.String("out", ".", "output directory for generated scenario files")
 	sipPort := fs.Int("sip-port", 0, "SIP signalling port (0 = auto-detect)")
 	pcapLink := fs.String("pcap-link", "", "datalink for decode: auto (default), ethernet, linux_sll, linux_sll2, raw, ...")
-
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "gossipper pcap2scenario — PCAP to SIP XML scenarios\n\n")
+		fmt.Fprintf(fs.Output(), "Usage:\n  gossipper pcap2scenario <file.pcap> [options]\n\nOptions:\n")
+		fs.PrintDefaults()
+	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if fs.NArg() < 1 {
+		fs.Usage()
 		return fmt.Errorf("usage: gossipper pcap2scenario <file.pcap> [-out <dir>] [-sip-port <port>] [-pcap-link <layer>]")
 	}
 
@@ -252,6 +276,7 @@ func runProfileHelp(args []string) error {
 
 func runReportHTML(args []string) error {
 	fs := flag.NewFlagSet("report-html", flag.ContinueOnError)
+	fs.SetOutput(os.Stdout)
 	inPath := fs.String("in", "", "input summary JSON (from gossipper -summary_json)")
 	outPath := fs.String("out", "", "output HTML file path")
 	fs.Usage = func() {
@@ -259,6 +284,9 @@ func runReportHTML(args []string) error {
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if strings.TrimSpace(*inPath) == "" || strings.TrimSpace(*outPath) == "" {
@@ -281,6 +309,7 @@ func runReportHTML(args []string) error {
 
 func runSummaryToPDF(args []string) error {
 	fs := flag.NewFlagSet("summary-to-pdf", flag.ContinueOnError)
+	fs.SetOutput(os.Stdout)
 	inPath := fs.String("in", "", "input HTML file (e.g. from gossipper -summary_html)")
 	outPath := fs.String("out", "", "output PDF path")
 	fs.Usage = func() {
@@ -289,6 +318,9 @@ func runSummaryToPDF(args []string) error {
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if strings.TrimSpace(*inPath) == "" || strings.TrimSpace(*outPath) == "" {

@@ -29,7 +29,7 @@ The current MVP implements:
 - Optional SIP identity for built-in UAC / `invite_media`: `-sip_from` (From before `;tag=`), `-sip_pai`, `-sip_provider`, repeatable `-sip_extra_header` (see `docs/compatibility.md` `[trunk_*]` keywords)
 - Concurrent call generation with rate limiting
 - Interactive UI via **`gossipper tui`** (full-screen launcher) or **`gossipper cli`** (line-oriented shell: `set`, `wizard`, `run`, …)
-- **`gossipper sipp`** — optional **SIPp-style CLI** prefix for scenario flags only (not `tui` / `cli` / `server`); same engine as root **`gossipper [flags…]`**; bare **`gossipper sipp`** prints a short entry summary, **`gossipper sipp -h`** the full flag list (same as **`gossipper -h`**); see `docs/gossipper-vs-sipp.md`
+- **`gossipper sipp`** — optional **SIPp-style CLI** prefix for scenario flags only (not `tui` / `cli` / `server`); same engine as root **`gossipper [flags…]`**; bare **`gossipper sipp`** prints a short entry summary; **`gossipper sipp -h`** lists scenario flags with a SIPp-oriented preamble and **without** **`-server`**, **`-api_addr`** / **`-api_token`**, or **`-rtp_send`** / **`-rtp_*`** (use **`gossipper server -h`** for the full management surface); root **`gossipper -h`** still omits **`-api_addr`** / **`-api_token`** only; see `docs/gossipper-vs-sipp.md`
 - **`gossipper server`** — management / long-run SIP UAS + HTTP API: prepends **`-server`** (or pass **`-config-server`** / **`-server`** in the tail unchanged); recommended in **systemd** alongside **`-config-server`**
 - Basic statistics and JSON summary export (`-summary_json`), optional standalone **HTML** report (`-summary_html` or `gossipper report-html -in … -out …`; see `docs/summary-json.md`)
 - Named per-step RTD timers via `start_rtd` / `rtd`, aggregated into summary JSON
@@ -102,7 +102,7 @@ Run the built-in UAC scenario against a SIP endpoint:
 ./gossipper -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
-Same run via the **SIPp-style** entry (flags identical; **`gossipper sipp -h`** prints the same full flag list as **`gossipper -h`**):
+Same run via the **SIPp-style** entry (flags identical at runtime; **`gossipper sipp -h`** uses a SIPp-oriented help preamble and omits **`-server`**, **`-api_*`**, and **`-rtp_send`** / **`-rtp_*`** vs the full **`gossipper server -h`** list):
 
 ```bash
 ./gossipper sipp -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1

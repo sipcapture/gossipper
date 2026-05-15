@@ -170,7 +170,6 @@ func TestRunProfileSubcommand(t *testing.T) {
 }
 
 func TestRunSippDashHIncludesScenarioFlags(t *testing.T) {
-	t.Parallel()
 	oldStdout := os.Stdout
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -193,6 +192,204 @@ func TestRunSippDashHIncludesScenarioFlags(t *testing.T) {
 	s := out.String()
 	if !strings.Contains(s, "-sn string") || !strings.Contains(s, "Flags:") {
 		t.Fatalf("expected full flag help, got head: %.200q…", s)
+	}
+	hep := strings.Index(s, "HEP:\n")
+	otlp := strings.Index(s, "OTLP:\n")
+	pprof := strings.Index(s, "PPROF:\n")
+	sipp := strings.Index(s, "SIPP:\n")
+	if hep < 0 || otlp < 0 || pprof < 0 || sipp < 0 {
+		t.Fatalf("expected HEP/OTLP/PPROF/SIPP sections in sipp -h, got: %.500q…", s)
+	}
+	if !(hep < otlp && otlp < pprof && pprof < sipp) {
+		t.Fatalf("expected section order HEP, OTLP, PPROF, SIPP; indices hep=%d otlp=%d pprof=%d sipp=%d", hep, otlp, pprof, sipp)
+	}
+	if strings.Contains(s, "  -api_addr string") || strings.Contains(s, "  -server\n") || strings.Contains(s, "  -rtp_send\n") {
+		t.Fatalf("sipp -h should omit -api_addr, -server, and -rtp_send flag lines, got: %.400q…", s)
+	}
+}
+
+func TestRootHelpOmitsManagementAPIFlags(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	if err := run([]string{"-h"}); err != nil {
+		_ = w.Close()
+		t.Fatalf("run(-h) error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if strings.Contains(s, "\n  -api_addr") || strings.Contains(s, "\n  -api_token") {
+		t.Fatalf("root -h should omit -api_addr / -api_token; found in output")
+	}
+	if !strings.Contains(s, "-sn string") {
+		t.Fatalf("root -h should still list core flags")
+	}
+}
+
+func TestServerSubcommandHelpIncludesAPIFlags(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	if err := run([]string{"server", "-h"}); err != nil {
+		_ = w.Close()
+		t.Fatalf("run(server -h) error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "  -api_addr string") || !strings.Contains(s, "Gossipper — server") {
+		t.Fatalf("server -h should include server preamble and -api_addr, head: %.400q…", s)
+	}
+}
+
+func TestTUISubcommandHelp(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	if err := run([]string{"tui", "-h"}); err != nil {
+		_ = w.Close()
+		t.Fatalf("run(tui -h) error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "Gossipper TUI") || strings.Contains(s, "-sn string") {
+		t.Fatalf("tui -h should be short subcommand help only, got: %.300q…", s)
+	}
+}
+
+func TestShellSubcommandHelp(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	if err := run([]string{"shell", "-h"}); err != nil {
+		_ = w.Close()
+		t.Fatalf("run(shell -h) error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "Gossipper CLI / shell") || strings.Contains(s, "-sn string") {
+		t.Fatalf("shell -h should be short subcommand help only, got: %.300q…", s)
+	}
+}
+
+func TestPCAP2ScenarioSubcommandHelp(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	if err := run([]string{"pcap2scenario", "-h"}); err != nil {
+		_ = w.Close()
+		t.Fatalf("run(pcap2scenario -h) error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "pcap2scenario") || !strings.Contains(s, "-out string") || strings.Contains(s, "-sn string") {
+		t.Fatalf("pcap2scenario -h should list only pcap2scenario flags, got: %.400q…", s)
+	}
+}
+
+func TestReportHTMLSubcommandHelp(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	if err := run([]string{"report-html", "-h"}); err != nil {
+		_ = w.Close()
+		t.Fatalf("run(report-html -h) error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "report-html") || !strings.Contains(s, "-in string") || strings.Contains(s, "-sn string") {
+		t.Fatalf("report-html -h should list only report-html flags, got: %.400q…", s)
+	}
+}
+
+func TestSummaryToPDFSubcommandHelp(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	if err := run([]string{"summary-to-pdf", "-h"}); err != nil {
+		_ = w.Close()
+		t.Fatalf("run(summary-to-pdf -h) error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "summary-to-pdf") || !strings.Contains(s, "-in string") || strings.Contains(s, "-sn string") {
+		t.Fatalf("summary-to-pdf -h should list only summary-to-pdf flags, got: %.400q…", s)
 	}
 }
 
