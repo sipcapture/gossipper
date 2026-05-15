@@ -23,6 +23,7 @@ import (
 	"github.com/sipcapture/gossipper/internal/pdf"
 	"github.com/sipcapture/gossipper/internal/reporthtml"
 	"github.com/sipcapture/gossipper/internal/shell"
+	"github.com/sipcapture/gossipper/internal/sipp"
 	"github.com/sipcapture/gossipper/internal/stats"
 	templ "github.com/sipcapture/gossipper/internal/template"
 	"github.com/sipcapture/gossipper/internal/tui"
@@ -44,6 +45,13 @@ func run(args []string) error {
 		PrintVersion()
 		return nil
 	}
+	if len(args) > 0 && args[0] == "sipp" {
+		return sipp.Run(args[1:], runMain)
+	}
+	return runMain(args)
+}
+
+func runMain(args []string) error {
 	if len(args) > 0 && args[0] == "tui" {
 		return tui.Run()
 	}

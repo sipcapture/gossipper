@@ -6,6 +6,13 @@ line-by-line port. Instead, it focuses on a practical subset of SIPp features,
 cleaner internals, and incremental compatibility for real-world SIP and media
 testing.
 
+## CLI entry `gossipper sipp`
+
+The **`gossipper sipp`** subcommand is a SIPp-oriented alias for the same binary:
+`gossipper sipp […]` forwards to the normal dispatcher (`tui`, `shell`, scenario
+flags, `-interactive`, helpers, …). Run **`gossipper sipp`** with no arguments for
+a short usage summary.
+
 ## What `Gossipper` already does well
 
 - Runs SIP XML scenarios with `send`, `recv`, `pause`, `nop`, `timewait`,

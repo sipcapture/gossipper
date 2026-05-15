@@ -120,6 +120,13 @@ func TestRunSupports3PCCMasterSlaveAliases(t *testing.T) {
 	}
 }
 
+func TestRunSippNoArgs(t *testing.T) {
+	t.Parallel()
+	if err := run([]string{"sipp"}); err != nil {
+		t.Fatalf("run(sipp) error = %v", err)
+	}
+}
+
 func TestRunPrintsVersion(t *testing.T) {
 	t.Parallel()
 
@@ -179,6 +186,7 @@ func TestShouldRunInteractive(t *testing.T) {
 		{name: "interactive flag", args: []string{"-interactive"}, want: true},
 		{name: "interactive long flag", args: []string{"--interactive"}, want: true},
 		{name: "tui subcommand is not interactive", args: []string{"tui"}, want: false},
+		{name: "sipp prefix is not interactive alone", args: []string{"sipp", "-sn", "uac"}, want: false},
 		{name: "regular cli", args: []string{"-sn", "uac"}, want: false},
 	}
 
