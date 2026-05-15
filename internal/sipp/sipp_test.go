@@ -37,18 +37,30 @@ func TestRunForwardsWhenArgsPresent(t *testing.T) {
 	}
 }
 
-func TestRunHelpDoesNotForward(t *testing.T) {
+func TestRunHelpForwardsToFullHelpArgv(t *testing.T) {
 	t.Parallel()
-	called := false
-	err := sipp.Run([]string{"help"}, func([]string) error {
-		called = true
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if called {
-		t.Fatal("forward should not run for help")
+	for _, helpTok := range []string{"help", "-h", "--help"} {
+		helpTok := helpTok
+		t.Run(helpTok, func(t *testing.T) {
+			t.Parallel()
+			var got []string
+			err := sipp.Run([]string{helpTok, "-sn", "uac"}, func(argv []string) error {
+				got = append([]string(nil), argv...)
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"-h", "-sn", "uac"}
+			if len(got) != len(want) {
+				t.Fatalf("forward argv = %#v", got)
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("forward argv = %#v", got)
+				}
+			}
+		})
 	}
 }
 

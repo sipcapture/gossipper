@@ -28,8 +28,8 @@ func Run(rest []string, forward func([]string) error) error {
 	lf := strings.ToLower(first)
 	switch lf {
 	case "-h", "--help", "help":
-		PrintUsage(os.Stdout)
-		return nil
+		// Same flag surface as root `gossipper -h` (full list + preamble).
+		return forward(append([]string{"-h"}, rest[1:]...))
 	case "-interactive", "--interactive":
 		return fmt.Errorf("%w; use `gossipper -interactive` or `gossipper tui` (drop `sipp`)", ErrRootSubcommandAfterSipp)
 	}
@@ -53,6 +53,8 @@ func rootOnlyGossipperSubcommand(lf string) string {
 		return "report-html …"
 	case "summary-to-pdf":
 		return "summary-to-pdf …"
+	case "profile":
+		return "profile …"
 	default:
 		return ""
 	}
@@ -65,11 +67,11 @@ func PrintUsage(w io.Writer) {
 	}
 	fmt.Fprintln(w, "Gossipper — SIPp-style CLI entry (same binary as gossipper).")
 	fmt.Fprintln(w, "`gossipper sipp` is only for command-line scenario runs (SIPp-like flags).")
-	fmt.Fprintln(w, "Use the root command for everything else, e.g. `gossipper tui`, `gossipper shell`, `gossipper server …`.")
+	fmt.Fprintln(w, "Use the root command for everything else, e.g. `gossipper tui`, `gossipper cli`, `gossipper server …`.")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  gossipper sipp [flags...]   SIP/XML scenario load (same flags as `gossipper` scenario mode; see docs/compatibility.md)")
-	fmt.Fprintln(w, "  gossipper sipp -h           this help")
+	fmt.Fprintln(w, "  gossipper sipp -h           full flag list (same as `gossipper -h`)")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Documentation:")
 	fmt.Fprintln(w, "  docs/gossipper-vs-sipp.md — parity overview")

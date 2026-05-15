@@ -64,6 +64,9 @@ func runMain(args []string) error {
 	if len(args) > 0 && args[0] == "summary-to-pdf" {
 		return runSummaryToPDF(args[1:])
 	}
+	if len(args) > 0 && args[0] == "profile" {
+		return runProfileHelp(args[1:])
+	}
 	if len(args) > 0 && (args[0] == "shell" || args[0] == "cli") {
 		return shell.Run(os.Stdin, os.Stdout, os.Stderr)
 	}
@@ -229,6 +232,22 @@ func runPCAP2Scenario(args []string) error {
 	}
 
 	return pcap2scenario.Run(fs.Arg(0), *outDir, *sipPort, *pcapLink)
+}
+
+// runProfileHelp implements `gossipper profile` (JSON run-profile flags summary only).
+func runProfileHelp(args []string) error {
+	for _, a := range args {
+		switch strings.ToLower(strings.TrimSpace(a)) {
+		case "-h", "--help", "help":
+			cli.PrintRunProfileHelp(os.Stdout)
+			return nil
+		}
+	}
+	if len(args) == 0 {
+		cli.PrintRunProfileHelp(os.Stdout)
+		return nil
+	}
+	return fmt.Errorf("gossipper profile: unexpected arguments %v; use gossipper profile -h", args)
 }
 
 func runReportHTML(args []string) error {

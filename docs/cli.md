@@ -6,7 +6,7 @@ Gossipper is a single binary (`cmd/gossip`) with:
 2. **Default path** — everything else is parsed as **SIP/XML scenario flags** (SIPp-style surface; see [`compatibility.md`](compatibility.md) and [`cli-gap-list.md`](cli-gap-list.md)).
 3. **Optional `gossipper sipp` prefix** — same scenario flags as (2); **not** for subcommands (see below).
 
-Run **`gossipper -h`** for the full flag list embedded in the binary.
+Run **`gossipper -h`** for the full scenario flag list embedded in the binary. Run-profile preset flags are summarized under **`gossipper profile -h`** (see [`run-profile.md`](run-profile.md)).
 
 ## Subcommands (first argument)
 
@@ -22,6 +22,7 @@ These tokens must appear **first** (after any optional `sipp` strip — you shou
 | `gossipper pcap2scenario …` | PCAP → generated XML scenarios. See [`pcap2scenario.md`](pcap2scenario.md). |
 | `gossipper report-html …` | Summary JSON → standalone HTML (separate small flag set). |
 | `gossipper summary-to-pdf …` | HTML → PDF (optional embedded renderer when built with `-tags pdf`, else Chromium in `PATH`). |
+| `gossipper profile` / `gossipper profile -h` | Prints the **run-profile** flag summary (**`-config`**, **`-run-alias`**, **`-list-aliases`**, **`-config-server`**, **`-config-client`**). Same text that used to appear in **`gossipper -h`**; full narrative in [`run-profile.md`](run-profile.md). |
 
 **Version:** `-version` / `--version` anywhere in argv prints build info and exits (handled before subcommand routing).
 
@@ -32,7 +33,7 @@ gossipper -sn uac -rsa 127.0.0.1:5060 -m 10 -r 5
 gossipper -sf ./scenario.xml -rsa 127.0.0.1:5060 …
 ```
 
-Same parsing as **`gossipper sipp …`** for the flag tail. Run profiles (**`-config`**, **`-run-alias`**, **`-config-server`**, **`-config-client`**) apply on this path only — not after `shell` / `tui` / `pcap2scenario`. See [`run-profile.md`](run-profile.md).
+Same parsing as **`gossipper sipp …`** for the flag tail. Run profiles (**`-config`**, **`-run-alias`**, **`-config-server`**, **`-config-client`**) apply on this path only — not after `shell` / `tui` / `pcap2scenario` (the **`gossipper profile`** subcommand only prints that flag summary; it does not load JSON). See [`run-profile.md`](run-profile.md).
 
 ## `gossipper sipp` (SIPp-style entry only)
 
@@ -43,7 +44,7 @@ Rules (enforced in `internal/sipp`):
 - **Allowed:** any argv that is valid **scenario / launcher flags** on the root command (e.g. **`-sn`**, **`-sf`**, **`-rsa`**, **`-config-server`**, **`-rtp_send`**, …).
 - **Rejected:** placing **Gossipper-only** subcommands or **`-interactive`** after `sipp` (e.g. `gossipper sipp tui`). Use **`gossipper tui`** without `sipp`. Error: `ErrRootSubcommandAfterSipp`.
 
-Leading **`sipp`** tokens may be repeated and are stripped (e.g. shell aliases); then empty argv prints **`gossipper sipp -h`** style usage.
+Leading **`sipp`** tokens may be repeated and are stripped (e.g. shell aliases); empty argv prints a short SIPp-entry summary; **`-h` / `--help` / `help`** forwards to the same full flag list as **`gossipper -h`**.
 
 Full narrative vs SIPp: [`gossipper-vs-sipp.md`](gossipper-vs-sipp.md).
 

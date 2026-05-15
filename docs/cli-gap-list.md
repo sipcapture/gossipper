@@ -28,7 +28,7 @@ It is intentionally pragmatic:
 ## Ground truth used for this matrix
 
 - `internal/cli/config.go`: currently parsed CLI flags and validation rules
-- `cmd/gossip/main.go`: subcommand dispatch (`tui`, `shell`, `server`, `pcap2scenario`, …), `-interactive`, `-version`
+- `cmd/gossip/main.go`: subcommand dispatch (`tui`, `shell`, `server`, `profile`, `pcap2scenario`, …), `-interactive`, `-version`
 - `internal/sipp/sipp.go`: **`gossipper sipp`** — scenario flags only (rejects `tui` / `shell` / … after `sipp`)
 - [`docs/cli.md`](cli.md): human-readable CLI overview
 - `docs/compatibility.md`: project-level status for CLI/transport semantics

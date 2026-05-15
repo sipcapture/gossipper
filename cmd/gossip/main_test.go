@@ -142,6 +142,60 @@ func TestRunSippRejectsGossipperSubcommands(t *testing.T) {
 	}
 }
 
+func TestRunProfileSubcommand(t *testing.T) {
+	t.Parallel()
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	if err := run([]string{"profile"}); err != nil {
+		_ = w.Close()
+		t.Fatalf("run(profile) error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "-config <path>") || !strings.Contains(s, "Run profile") {
+		t.Fatalf("unexpected profile help: %s", s)
+	}
+}
+
+func TestRunSippDashHIncludesScenarioFlags(t *testing.T) {
+	t.Parallel()
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	if err := run([]string{"sipp", "-h"}); err != nil {
+		_ = w.Close()
+		t.Fatalf("run(sipp -h) error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	if _, err := io.Copy(&out, r); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "-sn string") || !strings.Contains(s, "Flags:") {
+		t.Fatalf("expected full flag help, got head: %.200q…", s)
+	}
+}
+
 func TestRunPrintsVersion(t *testing.T) {
 	t.Parallel()
 
@@ -203,6 +257,7 @@ func TestShouldRunInteractive(t *testing.T) {
 		{name: "tui subcommand is not interactive", args: []string{"tui"}, want: false},
 		{name: "sipp prefix is not interactive alone", args: []string{"sipp", "-sn", "uac"}, want: false},
 		{name: "server subcommand is not interactive", args: []string{"server"}, want: false},
+		{name: "profile subcommand is not interactive", args: []string{"profile"}, want: false},
 		{name: "regular cli", args: []string{"-sn", "uac"}, want: false},
 	}
 

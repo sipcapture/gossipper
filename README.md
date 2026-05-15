@@ -28,8 +28,8 @@ The current MVP implements:
 - SIPp-style auth credentials via `-au` / `-ap` for challenged `401` / `407` request retries, inline `[authentication username=... password=...]`, and server-side `verifyauth`
 - Optional SIP identity for built-in UAC / `invite_media`: `-sip_from` (From before `;tag=`), `-sip_pai`, `-sip_provider`, repeatable `-sip_extra_header` (see `docs/compatibility.md` `[trunk_*]` keywords)
 - Concurrent call generation with rate limiting
-- Interactive terminal UI via `gossipper tui` / `gossipper -interactive` for launch presets and live runtime control
-- **`gossipper sipp`** — optional **SIPp-style CLI** prefix for scenario flags only (not `tui` / `shell` / `server`); same engine as root `gossipper [flags…]`; see `docs/gossipper-vs-sipp.md`
+- Interactive UI via **`gossipper tui`** (full-screen launcher) or **`gossipper cli`** (line-oriented shell: `set`, `wizard`, `run`, …)
+- **`gossipper sipp`** — optional **SIPp-style CLI** prefix for scenario flags only (not `tui` / `cli` / `server`); same engine as root **`gossipper [flags…]`**; bare **`gossipper sipp`** prints a short entry summary, **`gossipper sipp -h`** the full flag list (same as **`gossipper -h`**); see `docs/gossipper-vs-sipp.md`
 - **`gossipper server`** — management / long-run SIP UAS + HTTP API: prepends **`-server`** (or pass **`-config-server`** / **`-server`** in the tail unchanged); recommended in **systemd** alongside **`-config-server`**
 - Basic statistics and JSON summary export (`-summary_json`), optional standalone **HTML** report (`-summary_html` or `gossipper report-html -in … -out …`; see `docs/summary-json.md`)
 - Named per-step RTD timers via `start_rtd` / `rtd`, aggregated into summary JSON
@@ -67,7 +67,7 @@ The current MVP implements:
 
 ## Documentation
 
-- `docs/cli.md`: **subcommands** (`shell`, `tui`, `server`, …), optional **`gossipper sipp`**, run-profile path vs helpers
+- `docs/cli.md`: **subcommands** (`sipp`, `cli`, `tui`, `server`, …), run-profile path vs helpers
 - `docs/gossipper-vs-sipp.md`: high-level overview of what `Gossipper` can do and how it compares to SIPp
 - `docs/compatibility.md`: XML, keyword, action, transport, and scenario-time CLI compatibility matrix (including [TLS socket modes](docs/compatibility.md#tls-socket-modes-sipp-style) vs SIPp / [issue #7](https://github.com/sipcapture/gossipper/issues/7)); process-level CLI in `docs/cli.md`
 - `docs/architecture.md`: package-level architecture and execution model
@@ -76,7 +76,7 @@ The current MVP implements:
 - `docs/statistics-mapping.md`: mapping between current `Gossipper` stats exports and SIPp-style counters
 - `docs/trace-schema-contract.md`: stable CSV header/order contract for `-trace_stat`, `-trace_rtt`, and `-trace_screen`
 - `docs/tui.md`: interactive TUI usage guide with launcher and runtime screen examples
-- `docs/interactive-shell.md`: line shell (`gossipper shell` / `cli`) with `set`, `wizard`, `hint`, and `run`
+- `docs/interactive-shell.md`: line CLI (`gossipper cli`) with `set`, `wizard`, `hint`, and `run`
 - `docs/run-profile.md`: JSON run profiles (`-config`, `-run-alias`, `-list-aliases`), flat **`-config-server`** / **`-config-client`**; bundled `testdata/run-profiles/*.json` including HEP script presets
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
 - `milestone.md`: prioritized roadmap for SIPp features that are still missing in `Gossipper`
@@ -100,6 +100,12 @@ Run the built-in UAC scenario against a SIP endpoint:
 
 ```bash
 ./gossipper -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
+```
+
+Same run via the **SIPp-style** entry (flags identical; **`gossipper sipp -h`** prints the same full flag list as **`gossipper -h`**):
+
+```bash
+./gossipper sipp -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
 Run SIPp-style rate period scheduling (`-r n -rp m`):
@@ -161,16 +167,11 @@ Write CPU and memory profiles to files at exit:
 go tool pprof -http=:8080 cpu.prof   # or mem.prof for heap
 ```
 
-Launch the interactive TUI:
+Launch the full-screen TUI or the line CLI:
 
 ```bash
 ./gossipper tui
-```
-
-or:
-
-```bash
-./gossipper -interactive
+./gossipper cli
 ```
 
 Run a custom XML scenario:

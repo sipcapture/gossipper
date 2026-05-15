@@ -392,9 +392,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.LogLevel, "log_level", cfg.LogLevel, "minimum event level: debug|info|warn|error")
 
 	if err := fs.Parse(normalizedArgs); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			fs.Usage()
-		}
+		// flag.Parse already printed usage for -h / -help (undefined built-ins).
 		return Config{}, err
 	}
 	providedFlags := make(map[string]struct{})
@@ -861,28 +859,18 @@ func applyServerModeIfEnabled(cfg *Config, flagProvided map[string]struct{}) err
 func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "Gossipper — SIP load generator (https://github.com/sipcapture/gossipper)")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Optional SIPp-style scenario prefix: `gossipper sipp [flags…]` — same flags as scenario mode; not for tui/shell/server (see `gossipper sipp -h`).")
-	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Subcommands (run before any flags):")
-	fmt.Fprintln(w, "  gossipper shell              interactive line shell: set flags, wizard, hint, run")
-	fmt.Fprintln(w, "  gossipper cli                alias for shell")
+	fmt.Fprintln(w, "  gossipper sipp [flags…]      SIPp-style entry only (same flags as a root scenario run); gossipper sipp -h = full flags like gossipper -h; do not use with tui/cli/server")
+	fmt.Fprintln(w, "  gossipper cli                interactive line CLI: set flags, wizard, hint, run")
 	fmt.Fprintln(w, "  gossipper tui                full-screen launcher / runtime UI")
-	fmt.Fprintln(w, "  gossipper -interactive       same as tui")
 	fmt.Fprintln(w, "  gossipper server [flags]     long-run management server (prepends -server; use with -config-server … or same flags as -server)")
 	fmt.Fprintln(w, "  gossipper -server            same as `gossipper server` (systemd); SIP bind -i/-p (default -p 5060 if omitted); see examples/gossipper-server.service")
 	fmt.Fprintln(w, "  gossipper pcap2scenario ...  PCAP → XML scenarios")
 	fmt.Fprintln(w, "  gossipper report-html ...  summary JSON → standalone HTML report")
 	fmt.Fprintln(w, "  gossipper summary-to-pdf ...  HTML → PDF (optional -tags pdf or Chromium in PATH)")
+	fmt.Fprintln(w, "  gossipper profile            JSON run-profile flags (-config, -run-alias, …); gossipper profile -h")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "See also: docs/cli.md, docs/interactive-shell.md, docs/tui.md")
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Run profile (optional JSON presets):")
-	fmt.Fprintln(w, "  -config <path>      JSON file with \"aliases\" map (use with -run-alias or -list-aliases)")
-	fmt.Fprintln(w, "  -run-alias <name>   apply alias entry from -config before other flags (CLI overrides)")
-	fmt.Fprintln(w, "  -list-aliases        print alias names from -config and exit")
-	fmt.Fprintln(w, "  -config-server <path>  flat JSON (same keys as one alias, no \"aliases\"); implies -server; mutually exclusive with -config/-run-alias/-list-aliases/-config-client")
-	fmt.Fprintln(w, "  -config-client <path>  flat JSON for UAC/load-gen preset; forces non-server after load; mutually exclusive with -config/-run-alias/-list-aliases/-config-server")
-	fmt.Fprintln(w, "  See docs/run-profile.md")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Flags:")
 }

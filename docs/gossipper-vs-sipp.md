@@ -12,7 +12,7 @@ testing.
 same flag surface as running a load test from SIPp’s CLI). Helpers such as **`tui`**,
 **`shell`**, **`server`**, **`pcap2scenario`**, **`report-html`**, and **`summary-to-pdf`**
 must be run as **`gossipper <subcommand>`** without the **`sipp`** token. Run
-**`gossipper sipp`** or **`gossipper sipp -h`** for a short SIPp-oriented usage summary.
+**`gossipper sipp`** with no further args prints a short SIPp-entry summary; **`gossipper sipp -h`** (or **`--help`**, first-token **`help`**) shows the **full** scenario flag list, same as **`gossipper -h`**.
 
 The root command **`gossipper [flags…]`** runs scenarios the same way; **`sipp`** is an
 optional explicit SIPp-style entry point.
