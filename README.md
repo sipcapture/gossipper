@@ -58,7 +58,7 @@ The current MVP implements:
 - `internal/template`: SIPp keyword rendering
 - `internal/sip`: SIP message parsing helpers
 - `internal/transport`: UDP, TCP, and TLS transports
-- `internal/api`: optional HTTP management API (`-api_addr`): stats, scenario, apply, control, transports, dynamic clients, WebSocket **`/api/v1/live`**, optional internal auth (**`/api/v1/auth/status`**, **`/api/v1/auth/login`**) when `auth.type` is `internal` in flat server JSON
+- `internal/api`: optional HTTP management API (`-api_addr`): stats, scenario, apply, control, transports, dynamic clients, WebSocket **`/api/v1/live`**, optional internal auth (**`/api/v1/auth/status`**, **`/api/v1/auth/login`**) when `auth.type` is `internal` in flat server JSON; optional embedded Control UI (`go:embed` webdist)
 - `web/control-ui`: optional Vite/React control panel for that HTTP API (see `web/control-ui/README.md`); production build is written to `internal/api/webdist/` and embedded into the binary (`go:embed`). A tiny `web/control-ui/go.mod` exists so `go test ./...` does not scan `node_modules`.
 - `internal/scheduler`: timing abstraction
 - `internal/stats`: counters and summaries
@@ -80,7 +80,10 @@ The current MVP implements:
 - `docs/run-profile.md`: JSON run profiles (`-config`, `-run-alias`, `-list-aliases`), flat JSON via **`gossipper server -config`**; bundled `testdata/run-profiles/*.json` including HEP script presets
 - `docs/sipstress-style-load-testing.md`: long-run SIP load, HTTP control, hybrid JSON, live WebSocket, dynamic clients, internal auth (stress-style operations guide)
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
-- `milestone.md`: prioritized roadmap for SIPp features that are still missing in `Gossipper`
+- `docs/rtp-in-scenarios.md`: `exec rtp_stream`, PCAP replay, **SRTP / DTLS-SRTP** (`-media_srtp`), RTCP, `rtpcheck`
+- `docs/srtp.md`: SRTP (SDES + DTLS-SRTP), ICE, TURN, BUNDLE, trickle JSON — full media security contract
+- `docs/pcap2scenario.md`: PCAP → paired UAC/UAS XML scenarios
+- `docs/cli-gap-list.md`: SIPp CLI parity tracking and priorities
 
 ## Quick start
 
@@ -451,7 +454,7 @@ A symlink **`/usr/local/bin/gossipper`** → `/usr/local/gossipper/bin/gossipper
 - RTP support is a separate milestone layered on top of the SIP engine.
 - Current RTP support focuses on audio streaming from PCM mono 8kHz WAV input, audio PCAP replay, RTP echo, and basic RTCP observability.
 - `play_pcap_audio` currently replays UDP payloads from the capture as RTP toward the negotiated audio endpoint; pragmatic `play_pcap_video` / `play_pcap_image` support reuses the same replay mechanism for SDP `m=video` / `m=image` endpoints.
-- `rtpcheck` currently provides pragmatic RTP activity validation (`min_packets`, `timeout_ms`, `direction`; legacy `bidirectional` alias) and is not full SIPp SRTP/quality parity.
+- `rtpcheck` currently provides pragmatic RTP activity validation (`min_packets`, `timeout_ms`, `direction`; legacy `bidirectional` alias) and is not full SIPp `rtpcheck` quality parity. **SRTP / DTLS-SRTP** for scenario media uses **`-media_srtp`** (see `docs/srtp.md`, `docs/rtp-in-scenarios.md`).
 
 ## Releasing
 

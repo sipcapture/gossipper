@@ -40,6 +40,8 @@ Canonical CLI reference (subcommands, `sipp`, run profiles): [`cli.md`](cli.md).
   `verifyauth`
 - Supports Homer/HEP export for SIP signaling via `-hep_addr`,
   `-hep_capture_id`, and `-hep_password`
+- Long-run **management** mode with **HTTP API** (**`-api_addr`**, **`/api/v1/*`**), optional **WebSocket `/api/v1/live`**, **dynamic UAC clients**, and **internal auth** (**`gossipper auth`**, JWT) — see **`docs/sipstress-style-load-testing.md`** and **`docs/cli.md`**
+- **SRTP** (**SDES** + **DTLS-SRTP**) and lightweight **ICE / TURN** for **`rtp_stream`** / **`mic`** when **`-media_srtp`** — see **`docs/srtp.md`** and **`docs/rtp-in-scenarios.md`**
 - Provides media helpers for `rtp_stream`, RTP echo, RTCP counters, and audio
   PCAP replay through `play_pcap_audio`
 - Exposes JSON summary output, named RTD metrics, execution counters,
@@ -57,7 +59,8 @@ Canonical CLI reference (subcommands, `sipp`, run profiles): [`cli.md`](cli.md).
 | 3PCC command flows | Supported | Supported |
 | Digest auth | Supported for common `401` / `407` flows plus `verifyauth` | Supported |
 | HEP / Homer export | SIP signaling export over HEP3 | Mature capture/export ecosystem |
-| RTP helpers | `rtp_stream`, echo, RTCP counters, audio PCAP replay | More mature media feature set |
+| RTP helpers | `rtp_stream`, echo, RTCP, PCAP replay, **SRTP** (**SDES** + **DTLS-SRTP** via **`-media_srtp`**) | More mature media feature set |
+| Management HTTP API | **`gossipper server`**, **`-api_addr`**, **`/api/v1/*`**, WebSocket **`/live`**, dynamic clients, internal JWT auth | External automation / scripts (no single built-in HTTP control plane) |
 | Reporting | JSON summary, RTD, failure classes, CSV stats, RTT dumps, tracing | Rich CLI stats and long-standing reporting model |
 | Compatibility scope | Explicit and documented | De facto full reference behavior |
 

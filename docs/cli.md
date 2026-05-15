@@ -19,6 +19,7 @@ These tokens must appear **first** (after any optional `sipp` strip — you shou
 | `gossipper tui` | Full-screen launcher and runtime UI. See [`tui.md`](tui.md). |
 | `gossipper -interactive` / `--interactive` | Same control UI as `tui` (handled as a flag on the root path). |
 | `gossipper server …` | Long-run **management** mode: **`gossipper server`** runs the SIP UAS + HTTP API path. An internal marker is prepended before flags unless argv already contains it (see `internal/cli/server_subcmd.go`). Prefer **`gossipper server -config /path.json`** for flat JSON (management vs load is inferred). |
+| `gossipper auth …` | Internal Control UI / API users: **`gossipper auth user-add -config <flat.json> -username … -password …`** (requires **`auth.type`**: **`internal`** + **`sqlite_path`** + **`jwt_secret`** in that JSON). |
 | `gossipper pcap2scenario …` | PCAP → generated XML scenarios. See [`pcap2scenario.md`](pcap2scenario.md). |
 | `gossipper report-html …` | Summary JSON → standalone HTML (separate small flag set). |
 | `gossipper summary-to-pdf …` | HTML → PDF (optional embedded renderer when built with `-tags pdf`, else Chromium in `PATH`). |
@@ -73,6 +74,24 @@ When **`GET /api/v1/stats`** works, **`PUT /api/v1/scenario?apply=true`** and **
 - The new scenario’s **mode** (`client` vs `server`) must still match how the process was started; changing mode requires a process restart.
 - Built-in **`-sn`** scenarios without **`-sf`** cannot be edited via **`PUT /scenario`** (no on-disk path); use **`-sf`** or **`POST /apply`** with an **XML body**.
 
+### HTTP route summary (same listener as `/`)
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| **GET** | `/api/v1/health` | Liveness |
+| **GET** | `/api/v1/stats` | Stats; **`multi`** + **`engines`** when hybrid / extra engines |
+| **GET** / **PUT** | `/api/v1/scenario` | Read / write scenario XML (primary engine); **`PUT ?apply=true`** hot-reloads |
+| **POST** | `/api/v1/scenario/apply` | Apply XML body or file-backed scenario |
+| **GET** / **POST** | `/api/v1/control` | Read / set **rate** and **paused** (**POST** applies to **all** engines in **`multi`** mode) |
+| **GET** / **POST** / **DELETE** | `/api/v1/clients` | List / start / stop **dynamic** UAC engines (**management** + **`api_addr`** only) |
+| **GET** | `/api/v1/auth/status` | Always mounted: **`{"auth":"none"}`** or **`{"auth":"internal"}`** |
+| **POST** | `/api/v1/auth/login` | JSON credentials → JWT when **internal** auth is enabled; **404** when it is not |
+| **GET** (WebSocket) | `/api/v1/live` | Periodic JSON frames (**stats**, **control**, **transports**, …) |
+
+**Authorization:** routes above that go through **`wrap`** call **`authorizeRequest`**: **internal** auth validates **JWT** (**`Authorization: Bearer`** or WebSocket **`?token=`**); legacy **`api_token`** accepts the same **Bearer** value or matching query **`token`**. If neither internal auth nor **`api_token`** is configured, wrapped routes stay **open** (use only on trusted networks).
+
+See also [`sipstress-style-load-testing.md`](sipstress-style-load-testing.md).
+
 ## SIP transports (server listeners)
 
 Only in **management / server** mode. Sockets stay bound; toggling affects **acceptance of new dialogs** only (existing calls are unchanged).
@@ -87,5 +106,7 @@ In **client** mode, **GET** returns `listeners: []`; **POST** returns **400** (n
 ## See also
 
 - [`run-profile.md`](run-profile.md) — JSON aliases and flat server/client configs  
+- [`sipstress-style-load-testing.md`](sipstress-style-load-testing.md) — hybrid JSON, live WebSocket, dynamic clients, internal auth  
+- [`rtp-in-scenarios.md`](rtp-in-scenarios.md), [`srtp.md`](srtp.md) — scenario media and SRTP/DTLS-SRTP  
 - [`gossipper-vs-sipp.md`](gossipper-vs-sipp.md) — product comparison and CLI philosophy  
 - [`interactive-shell.md`](interactive-shell.md), [`tui.md`](tui.md) — interactive entry points  

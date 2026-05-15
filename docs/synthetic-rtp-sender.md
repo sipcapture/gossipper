@@ -57,21 +57,21 @@ if you want the SIPp-oriented entry point; behavior is identical to the root com
 
 ```bash
 # Send PCMU silence for 5 seconds at 20 ms intervals
-gossipper -rtp_send -rtp_addr 192.168.1.10:20000 -rtp_dur 5000
+gossipper sipp -rtp_send -rtp_addr 192.168.1.10:20000 -rtp_dur 5000
 
 # Send PCMA at 20 ms intervals until Ctrl-C
-gossipper -rtp_send -rtp_addr 192.168.1.10:20000 -rtp_codec PCMA/8000
+gossipper sipp -rtp_send -rtp_addr 192.168.1.10:20000 -rtp_codec PCMA/8000
 
 # G722 with a non-default dynamic PT, 10 seconds
-gossipper -rtp_send -rtp_addr 192.168.1.10:20000 \
+gossipper sipp -rtp_send -rtp_addr 192.168.1.10:20000 \
   -rtp_codec G722/8000 -rtp_pt 110 -rtp_dur 10000
 
 # 30 ms ILBC frames, stereo channel layout, 1 minute
-gossipper -rtp_send -rtp_addr 192.168.1.10:20000 \
+gossipper sipp -rtp_send -rtp_addr 192.168.1.10:20000 \
   -rtp_codec ILBC/8000 -rtp_ch 2 -rtp_dur 60000
 
 # Bind to a specific local IP
-gossipper -rtp_send -rtp_addr 192.168.1.10:20000 -i 10.0.0.5 -rtp_dur 3000
+gossipper sipp -rtp_send -rtp_addr 192.168.1.10:20000 -i 10.0.0.5 -rtp_dur 3000
 ```
 
 ### Output
@@ -282,6 +282,6 @@ are.  No additional configuration is needed.
 
 - Synthetic streams always produce silence; arbitrary tone or noise generation is
   not supported.
-- No SRTP support.
+- **SRTP / DTLS:** synthetic **`rtp_stream`** uses the same media session as file-based audio; enable **`-media_srtp`** when the peer SDP requires **SDES** or **DTLS-SRTP** (see **[srtp.md](srtp.md)**).
 - Multi-channel WAV encoding is not validated against the `channels` parameter;
   the parameter only affects the raw byte count of each synthetic payload.

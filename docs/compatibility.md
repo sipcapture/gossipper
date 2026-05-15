@@ -72,7 +72,7 @@ into no-ops or empty strings.
 | `urlencode` | supported | URL-encodes the referenced variable in place |
 | `urldecode` | supported | URL-decodes the referenced variable in place |
 | `verifyauth` | supported | Validates incoming Digest `Authorization` / `Proxy-Authorization` headers for `MD5` and `SHA-256` with `qop=auth` |
-| `exec` | partial | Supports `command`, `int_cmd`, `rtp_stream` `start` / `pause` / `resume` / `stop` / `echo`, pragmatic `rtpcheck` (`min_packets`, `timeout_ms`, `direction=any|send|recv|both`, legacy `bidirectional`), `play_pcap_audio`, `play_pcap_video`, and `play_pcap_image`; PCAP replay preserves timing and uses SDP endpoint discovery for matching media lines (`m=audio`, `m=video`, `m=image`) |
+| `exec` | partial | Supports `command`, `int_cmd`, `rtp_stream` `start` / `pause` / `resume` / `stop` / `echo`, pragmatic `rtpcheck` (`min_packets`, `timeout_ms`, `direction=any|send|recv|both`, legacy `bidirectional`), `play_pcap_audio`, `play_pcap_video`, and `play_pcap_image`; PCAP replay preserves timing and uses SDP endpoint discovery for matching media lines (`m=audio`, `m=video`, `m=image`); **`rtp_stream` / `mic`** honor **`-media_srtp`** / **`-media_reject_srtp`** per **srtp.md** |
 | `sample` | partial | Pragmatic deterministic subset: `value="min=<int> max=<int> [step=<int>] [seed=<int>]"` with `assign_to` target |
 | `insert` | partial | Pragmatic CSV field mutation subset: `file=...` and `value="line=<int> field=<int> text=<value> [position=prefix|suffix]"`; affects in-memory `[fieldN ...]` reads for the current call |
 | `replace` | partial | Pragmatic CSV field mutation subset: `file=...` and `value="line=<int> field=<int> text=<value>"`; affects in-memory `[fieldN ...]` reads for the current call |
@@ -235,6 +235,14 @@ Relates to [issue #7](https://github.com/sipcapture/gossipper/issues/7): how SIP
 | `-hep_password` | supported | Sets the optional HEP auth key |
 | RTP/RTCP mirroring | deferred | Current HEP MVP exports SIP signaling only |
 
+## Media and SRTP (scenario-time)
+
+| CLI surface | Status | Notes |
+| --- | --- | --- |
+| `-media_srtp` | supported | When peer SDP offers SRTP: **SDES** (`a=crypto:`) and/or **DTLS-SRTP** (`a=fingerprint:`); encrypt RTP/SRTCP outbound, decrypt inbound; see **`docs/srtp.md`**, **`docs/rtp-in-scenarios.md`** |
+| `-media_reject_srtp` | supported | Fail **`rtp_stream` / `mic`** when SDP hints SRTP (cleartext-only runs) |
+| `-turn_server`, `-turn_user`, `-turn_pass`, `-turn_realm` | partial | **UDP** TURN relay for ICE **`typ relay`** paths when using **`-media_srtp`**; not a full browser ICE stack |
+
 ## Authentication CLI workflow
 
 | CLI surface | Status | Notes |
@@ -255,5 +263,5 @@ Relates to [issue #7](https://github.com/sipcapture/gossipper/issues/7): how SIP
 - full video/image media pipeline parity beyond pragmatic PCAP replay coverage
 - advanced `-t ui` parity beyond current client+server multi-IP MVP (broader SIPp behavior alignment)
 - keyword helpers such as `[tdmmap]` and advanced `[fill]` semantics beyond the current pragmatic subset
-- SRTP and full SIPp `rtpcheck` parity (current support is pragmatic RTP activity validation)
+- full SIPp `rtpcheck` parity (Gossipper's `rtpcheck` is pragmatic RTP activity validation; not full SIPp SRTP/QoS metrics)
 - full CLI parity with SIPp

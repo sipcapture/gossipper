@@ -4,7 +4,7 @@
 
 ## Binary entry (`cmd/gossip`)
 
-The main binary parses **`-version`** early, routes **reserved subcommands** (`tui`, `shell`, `server`, `pcap2scenario`, …) and optional **`gossipper sipp`** (SIPp-style flag tail only), then runs **`internal/cli.Parse`** and **`internal/launcher`**. See **[`cli.md`](cli.md)**.
+The main binary parses **`-version`** early, routes **reserved subcommands** (`tui`, `shell`, `server`, `auth`, `pcap2scenario`, …) and optional **`gossipper sipp`** (SIPp-style flag tail only), then runs **`internal/cli.Parse`** and **`internal/launcher`**. See **[`cli.md`](cli.md)**.
 
 ## Main components
 
@@ -45,7 +45,21 @@ The main binary parses **`-version`** early, routes **reserved subcommands** (`t
 
 - `internal/media`
   - isolated RTP helpers based on Pion
+  - SRTP (**SDES** + **DTLS-SRTP**), ICE, and TURN integration for scenario media when **`-media_srtp`** (see **`docs/srtp.md`**)
   - intentionally decoupled from SIP call execution
+
+- `internal/api`
+  - HTTP **`/api/v1/*`** management surface: stats, scenario get/put/apply, control, transports, dynamic clients, **`/live`** WebSocket, optional **`/auth/*`** when internal auth is enabled
+  - optional embedded **Control UI** (`go:embed webdist`) at **`GET /`**
+
+- `internal/settingsauth`
+  - SQLite user store, bcrypt passwords, JWT issuance for **`auth.type`**: **`internal`**
+
+- `internal/launcher`
+  - builds engines from CLI and **flat JSON** (`gossipper server -config`): composite **`server`** + **`clients[]`**, hybrid multi-listener profiles, **`LoadCoordinator`** for **POST /api/v1/clients**
+
+- `web/control-ui`
+  - Vite/React panel for the management API (see `web/control-ui/README.md`); production assets go to `internal/api/webdist/`
 
 ## Execution flow
 

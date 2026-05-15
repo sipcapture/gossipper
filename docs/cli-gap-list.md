@@ -28,7 +28,7 @@ It is intentionally pragmatic:
 ## Ground truth used for this matrix
 
 - `internal/cli/config.go`: currently parsed CLI flags and validation rules
-- `cmd/gossip/main.go`: subcommand dispatch (`tui`, `shell`, `server`, `profile`, `pcap2scenario`, …), `-interactive`, `-version`
+- `cmd/gossip/main.go`: subcommand dispatch (`tui`, `shell`, `server`, `profile`, `pcap2scenario`, `auth`, …), `-interactive`, `-version`, standalone **`-rtp_send`**
 - `internal/sipp/sipp.go`: **`gossipper sipp`** — scenario flags only (rejects `tui` / `shell` / … after `sipp`)
 - [`docs/cli.md`](cli.md): human-readable CLI overview
 - `docs/compatibility.md`: project-level status for CLI/transport semantics
@@ -56,6 +56,10 @@ It is intentionally pragmatic:
 | `-tls_cert`, `-tls_key`, `-tls_ca`, `-tls_skip_verify` | `supported` | `P1` | TLS runtime configuration |
 | `-cmd_name`, `-cmd_peers`, `-master`, `-slave`, `-slave_cfg` | `supported` | `P1` | external command transport and SIPp-style 3PCC aliases |
 | `-interactive`, `tui`, `-version`, `--version` | `supported` | `P1` | runtime UI and version surface |
+| `gossipper server`, **`-config`** flat JSON (`server` + `clients`) | `supported` | `P0` | systemd-style management + optional parallel UAC engines; see `docs/run-profile.md` |
+| `-api_addr`, `/api/v1/*`, WebSocket **`/api/v1/live`** | `supported` | `P0` | HTTP control plane; **`multi`** stats when composite |
+| **`gossipper auth user-add`** + **`auth` JSON** | `supported` | `P1` | internal SQLite + JWT for API/Control UI |
+| `-media_srtp`, `-media_reject_srtp`, `-turn_server`, `-turn_user`, `-turn_pass`, `-turn_realm` | `supported` / `partial` | `P1` | SRTP (SDES + DTLS-SRTP), ICE relay; see `docs/srtp.md` |
 
 ## SIPp parity gaps for Milestone 5
 

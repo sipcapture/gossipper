@@ -45,23 +45,27 @@ After a successful run the output directory contains:
 
 ## Running the Generated Scenarios
 
+Gossipper loads scenarios with **`-sf`** (XML file) or **`-sn`** (built-in name). Use the **`gossipper sipp`** prefix in scripts so the same flags match **`gossipper sipp -h`**.
+
 ### UAC (caller side)
 
+Remote SIP peer **`192.168.1.20:5060`**, local bind **`192.168.1.10`**, SIP port **`5060`**:
+
 ```bash
-gossipper -scenario scenarios/scenario_uac.xml \
-          -d 192.168.1.20 \
-          -p 5060 \
-          -l 192.168.1.10 \
-          -r 1
+gossipper sipp -sf ./scenarios/scenario_uac.xml \
+  -rsa 192.168.1.20:5060 \
+  -i 192.168.1.10 -p 5060 \
+  -r 1
 ```
 
 ### UAS (callee side)
 
+Listen as UDP server on **`192.168.1.20:5060`** (server transport alias **`s1`**):
+
 ```bash
-gossipper -scenario scenarios/scenario_uas.xml \
-          -l 192.168.1.20 \
-          -p 5060 \
-          -r 1
+gossipper sipp -sf ./scenarios/scenario_uas.xml \
+  -t s1 -i 192.168.1.20 -p 5060 \
+  -r 1
 ```
 
 > The `caller_rtp.pcap` / `callee_rtp.pcap` files must reside in the same
@@ -331,9 +335,10 @@ run time** from the received challenge using the credentials you supply via
 `-au` / `-ap`:
 
 ```bash
-gossipper -scenario scenarios/scenario_uac.xml \
-          -d 192.168.1.20 -p 5060 \
-          -au alice -ap secret
+gossipper sipp -sf ./scenarios/scenario_uac.xml \
+  -rsa 192.168.1.20:5060 \
+  -i 192.168.1.10 -p 5060 \
+  -au alice -ap secret
 ```
 
 If the PCAP does not contain a 401/407 response the generator falls back to
@@ -354,7 +359,7 @@ the simple single-INVITE flow automatically.
 | IPv6 | ⚠️ Parsed, but address templatisation is untested |
 | Multiple calls in one PCAP | ⚠️ First Call-ID found is used |
 | Re-INVITE / hold / transfer | ❌ Not supported in v1 |
-| SRTP | ❌ Not supported in v1 |
+| SRTP / DTLS-SRTP | ⚠️ Supported for live **`rtp_stream`** / **`mic`** / PCAP replay when **`-media_srtp`** matches peer SDP (**SDES** or **DTLS-SRTP**); the PCAP→XML generator itself does not rewrite SDP for SRTP — see **[srtp.md](srtp.md)** and **[rtp-in-scenarios.md](rtp-in-scenarios.md)** |
 | Video RTP (`m=video`) | ❌ Audio only |
 
 ---
@@ -382,4 +387,6 @@ gossipper pcap2scenario call.pcap -sip-port 5080
 ## Related Documentation
 
 - [RTP in scenarios](rtp-in-scenarios.md) — using `play_pcap_audio` and `rtp_stream` actions
+- [SRTP and Gossipper](srtp.md) — **`-media_srtp`** / **`-media_reject_srtp`** when replaying toward encrypted peers
 - [Synthetic RTP sender](synthetic-rtp-sender.md) — generating silence frames without a PCAP file
+- [CLI](cli.md) — **`gossipper sipp`** and scenario flags (**`-sf`**, **`-rsa`**, …)

@@ -162,6 +162,7 @@ These JSON keys map to `Config` / CLI (snake_case in JSON only):
 | `log_otel_insecure` | bool | `-log_otel_insecure` |
 | `api_addr` | string | `-api_addr` (Control UI / `/api/v1`; in management server mode, default `:8080` if omitted after profile merge) |
 | `api_token` | string | `-api_token` |
+| `auth` | object | **Flat / composite JSON only:** internal API users — **`type`** (`internal` \| omit/`none`), **`sqlite_path`**, **`jwt_secret`** (≥16 chars when `internal`). Use **`gossipper auth user-add -config …`** to seed users. See [`examples/gossipper-management-auth.sample.json`](../examples/gossipper-management-auth.sample.json). |
 | `server` | bool | Request management server mode from JSON when using run-profile aliases (flat JSON management vs load is chosen separately via `InferServerFlatManagement`) |
 | `extra_args` | string[] | Additional argv fragments (see merge order). |
 

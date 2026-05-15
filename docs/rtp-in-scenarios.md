@@ -22,6 +22,23 @@ For **`m=audio`**, **`m=video`**, or **`m=image`**, if the classic **`c=` / `m=`
 
 ---
 
+## SRTP and DTLS-SRTP (scenario media)
+
+`exec rtp_stream` (**file** or **`synthetic`**) and **`mic`** negotiate media security from the last SIP body when you start the stream: enable **`-media_srtp`** on the process for **SDES** (`a=crypto:`) or **DTLS-SRTP** (`a=fingerprint:`), or **`-media_reject_srtp`** to refuse encrypted SDP.
+
+| Mode | SDP signal | Notes |
+| --- | --- | --- |
+| **SDES** | `a=crypto:` with `inline:` | RFC 4568-style keys; supported suites per **srtp.md**. |
+| **DTLS-SRTP** | `a=fingerprint:` (SHA-256 / SHA-384) | **DTLS 1.2** on the RTP **`PacketConn`**; demux DTLS vs RTP; SRTP keys from the negotiated DTLS-SRTP profile. Role from **`a=setup:`** (Gossipper as DTLS client by default; **DTLS server** when the peer is **`a=setup:active`**). |
+
+If the peer hints SRTP and you pass **neither** **`-media_srtp`** nor **`-media_reject_srtp`**, **`rtp_stream start`** and **`mic`** **fail** with a message pointing at those flags (see **`configureMediaSRTPForRTPStream`** in the engine).
+
+**PCAP replay** (`exec play_pcap_audio` / `video` / `image`) can encrypt outbound RTP when an SRTP send context is active on the **`Session`**; the engine clears SRTP state before starting PCAP, so treat **srtp.md** as the source of truth for PCAP + SRTP ordering and limits.
+
+ICE placeholders, **BUNDLE**, **JSON trickle**, and **TURN** interact with the same media socket used for RTP/SRTP/DTLS; see **[srtp.md](srtp.md)** and the **WebRTC-style SDP** subsection above.
+
+---
+
 ## exec rtp_stream
 
 The primary way to control an audio RTP stream from a scenario is the
@@ -402,7 +419,7 @@ Content-Length: 0
 
 ## Known limits
 
-- No SRTP support.
+- **SRTP / DTLS-SRTP:** supported for **`rtp_stream`**, **`mic`**, and PCAP replay when **`-media_srtp`** matches the peer SDP; not a full browser WebRTC stack (ICE nomination, TCP TURN, richer suites — see **[srtp.md](srtp.md)** and **[media-roadmap.md](media-roadmap.md)**).
 - `rtpcheck` performs pragmatic activity counting only; full SIPp `rtpcheck`
   parity with jitter and loss metrics is deferred.
 - No dedicated video/image codec pipeline; PCAP replay forwards raw RTP payloads.
