@@ -31,8 +31,8 @@ These tokens must appear **first** (after any optional `sipp` strip — you shou
 ## Scenario run (no subcommand)
 
 ```bash
-gossipper -sn uac -rsa 127.0.0.1:5060 -m 10 -r 5
-gossipper -sf ./scenario.xml -rsa 127.0.0.1:5060 …
+gossipper sipp -sn uac -rsa 127.0.0.1:5060 -m 10 -r 5
+gossipper sipp -sf ./scenario.xml -rsa 127.0.0.1:5060 …
 ```
 
 Same parsing as **`gossipper sipp …`** for the flag tail. Run profiles (**`-config`**, **`-run-alias`**) apply on this path only — not after `shell` / `tui` / `pcap2scenario` (the **`gossipper profile`** subcommand only prints that flag summary; it does not load JSON). See [`run-profile.md`](run-profile.md).
@@ -58,6 +58,8 @@ Full narrative vs SIPp: [`gossipper-vs-sipp.md`](gossipper-vs-sipp.md).
 | `gossipper server -config /path.json` | Loads flat JSON (same keys as one run-profile alias). Management vs load is inferred (or set via JSON `"role"`). |
 
 Example unit file: [`examples/gossipper-server.service`](../examples/gossipper-server.service).
+
+For **long-run load**, **hybrid `server`+`clients`**, **WebSocket `/api/v1/live`**, **dynamic UAC clients**, and **internal auth**, see [`sipstress-style-load-testing.md`](sipstress-style-load-testing.md).
 
 ## Management HTTP API (`-api_addr`): live scenario
 

@@ -229,4 +229,5 @@ gossipper -config gossipper.json -run-alias=uas-listen -hep_addr "$HEP_ADDR"
 ## See also
 
 - [`README.md`](../README.md) — documentation index.
+- [`docs/sipstress-style-load-testing.md`](sipstress-style-load-testing.md) — HTTP API, live WebSocket, dynamic clients, hybrid soak patterns.
 - [`docs/qos-reporting.md`](qos-reporting.md) — HEP media flags when combining profiles with `-send_media_report`.

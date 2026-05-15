@@ -164,7 +164,7 @@ Byte layout (28 bytes, no Report Blocks):
 ### SIP-only HEP mirroring (no media reports)
 
 ```sh
-gossipper -sn uac -hep_addr 127.0.0.1:9060 -hep_capture_id 100 \
+gossipper sipp -sn uac -hep_addr 127.0.0.1:9060 -hep_capture_id 100 \
   -r 10 -m 1000 192.168.1.1:5060
 ```
 
@@ -173,7 +173,7 @@ SIP messages are mirrored. No RTP or RTCP is sent to HEP.
 ### Raw RTCP SR reports every 5 seconds (recommended for Homer)
 
 ```sh
-gossipper -sn uac \
+gossipper sipp -sn uac \
   -hep_addr 127.0.0.1:9060 \
   -hep_capture_id 100 \
   -send_media_report=true \
@@ -188,7 +188,7 @@ Processed by `hepagent-go` `RTCPConverter`. This is the default when
 ### Homer-Lake JSON on type 5 every 5 seconds
 
 ```sh
-gossipper -sn uac \
+gossipper sipp -sn uac \
   -hep_addr 127.0.0.1:9060 \
   -hep_capture_id 100 \
   -send_media_report=true \

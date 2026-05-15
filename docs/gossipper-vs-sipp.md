@@ -114,4 +114,5 @@ scenario ever written.
 - `docs/compatibility.md`: exact support matrix
 - `docs/architecture.md`: package-level design
 - `docs/media-roadmap.md`: media-related direction and gaps
+- `docs/sipstress-style-load-testing.md`: management HTTP API, hybrid flat JSON, soak/dynamic-client patterns
 - `README.md`: quick-start examples and runnable demos

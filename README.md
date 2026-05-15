@@ -46,7 +46,7 @@ The current MVP implements:
 - Pragmatic RTP activity checks via `exec rtpcheck="..."` with configurable `min_packets`, `timeout_ms`, and `direction=any|send|recv|both` (legacy `bidirectional` alias is also supported)
 - RTP echo helper mode via `exec rtp_stream="echo"`
 - Periodic RTCP sender reports plus basic incoming RTCP counters via `pion/rtcp`
-- Optional HTTP API (`-api_addr`, optional `-api_token`) for `/api/v1/stats`, scenario XML (`GET`/`PUT` with `-sf`), `POST /api/v1/scenario/apply`, and `GET`/`POST /api/v1/control` (rate / pause). With `make frontend`, the same listener serves the Control UI at **`/`** (embedded in the binary) and Debian/RPM packages also ship a static copy under **`/usr/local/gossipper/dist/`** for optional hosting (e.g. nginx `root`). For **systemd**, use **`examples/gossipper-server.service`** with **`gossipper server -config …`** and repo sample **`examples/gossipper-management.json`** (packages install it as **`/usr/local/gossipper/etc/gossipper-server.json`**) — SIP **`local_ip` / `local_port`**, default **`-p` `5060`** when omitted in management mode, default **`api_addr` `:8080`**); UAC preset: **`examples/gossipper-uac.json`** (installed as **`gossipper-client.json`**) + **`examples/gossipper-client.service`** (`gossipper server -config` load preset).
+- Optional HTTP API (`-api_addr`) and Control UI at **`/`** when the web UI is built (`make frontend`; embedded in the binary). Packages also ship static assets under **`/usr/local/gossipper/dist/`** (optional nginx `root`). JSON routes live under **`/api/v1/`** (health, stats, scenario get/put/apply, control, transports, clients, **`live`** WebSocket, and auth when **auth.type** is **internal** — SQLite + JWT; create users with **`gossipper auth user-add -config /path/to.json`**). Without internal auth, **`api_token`** in JSON or **`-api_token`** on the CLI still gates the API. **Packaged sample configs** live under **`/usr/local/gossipper/etc/`** (see table below); matching **systemd** units are **`gossipper-server`**, **`gossipper-client`**, and **`gossipper-hybrid`** — all use **`gossipper server -config …`** with the corresponding JSON.
 
 ## Project layout
 
@@ -58,7 +58,7 @@ The current MVP implements:
 - `internal/template`: SIPp keyword rendering
 - `internal/sip`: SIP message parsing helpers
 - `internal/transport`: UDP, TCP, and TLS transports
-- `internal/api`: optional HTTP management API (`-api_addr`) for live stats, scenario file read/write, hot apply, and rate/pause control
+- `internal/api`: optional HTTP management API (`-api_addr`): stats, scenario, apply, control, transports, dynamic clients, WebSocket **`/api/v1/live`**, optional internal auth (**`/api/v1/auth/status`**, **`/api/v1/auth/login`**) when `auth.type` is `internal` in flat server JSON
 - `web/control-ui`: optional Vite/React control panel for that HTTP API (see `web/control-ui/README.md`); production build is written to `internal/api/webdist/` and embedded into the binary (`go:embed`). A tiny `web/control-ui/go.mod` exists so `go test ./...` does not scan `node_modules`.
 - `internal/scheduler`: timing abstraction
 - `internal/stats`: counters and summaries
@@ -78,6 +78,7 @@ The current MVP implements:
 - `docs/tui.md`: interactive TUI usage guide with launcher and runtime screen examples
 - `docs/interactive-shell.md`: line CLI (`gossipper cli`) with `set`, `wizard`, `hint`, and `run`
 - `docs/run-profile.md`: JSON run profiles (`-config`, `-run-alias`, `-list-aliases`), flat JSON via **`gossipper server -config`**; bundled `testdata/run-profiles/*.json` including HEP script presets
+- `docs/sipstress-style-load-testing.md`: long-run SIP load, HTTP control, hybrid JSON, live WebSocket, dynamic clients, internal auth (stress-style operations guide)
 - `docs/licensing.md`: license choice and SPDX header guidance for future source files
 - `milestone.md`: prioritized roadmap for SIPp features that are still missing in `Gossipper`
 
@@ -102,7 +103,7 @@ Run the built-in UAC scenario against a SIP endpoint:
 ./gossipper -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
-Same run via the **SIPp-style** entry (flags identical at runtime; **`gossipper sipp -h`** uses a SIPp-oriented help preamble and omits **`-api_*`**, and **`-rtp_send`** / **`-rtp_*`**; **`gossipper server -h`** shows management-oriented sections, not the full SIPp dump):
+Same flags with an explicit **`sipp`** prefix (recommended in scripts and in the examples below; **`gossipper sipp -h`** uses a SIPp-oriented help preamble and omits **`-api_*`**, and **`-rtp_send`** / **`-rtp_*`**; **`gossipper server -h`** shows management-oriented sections, not the full SIPp dump):
 
 ```bash
 ./gossipper sipp -sn uac -rsa 127.0.0.1:5060 -m 1 -r 1
@@ -111,19 +112,19 @@ Same run via the **SIPp-style** entry (flags identical at runtime; **`gossipper 
 Run SIPp-style rate period scheduling (`-r n -rp m`):
 
 ```bash
-./gossipper -sn uac -rsa 127.0.0.1:5060 -r 7 -rp 2000 -m 50
+./gossipper sipp -sn uac -rsa 127.0.0.1:5060 -r 7 -rp 2000 -m 50
 ```
 
 Run with periodic CPS ramping:
 
 ```bash
-./gossipper -sn uac -rsa 127.0.0.1:5060 -r 10 -rate_increase 2 -rate_interval 1000 -rate_max 50 -m 1000
+./gossipper sipp -sn uac -rsa 127.0.0.1:5060 -r 10 -rate_increase 2 -rate_interval 1000 -rate_max 50 -m 1000
 ```
 
 Run with a deterministic global timeout (CI-friendly):
 
 ```bash
-./gossipper -sn uac -rsa 127.0.0.1:5060 -m 10000 -r 50 -timeout_global 30
+./gossipper sipp -sn uac -rsa 127.0.0.1:5060 -m 10000 -r 50 -timeout_global 30
 ```
 
 Benchmark gossipper vs SIPp (requires UAS or `-start-uas`):
@@ -136,13 +137,13 @@ make benchmark   # same, via Makefile
 Generate CSV lookup index for faster `lookup` action resolution:
 
 ```bash
-./gossipper -infindex ./testdata/injection/inject.csv 0
+./gossipper sipp -infindex ./testdata/injection/inject.csv 0
 ```
 
 Run M3 `ui` transport MVP (source IP selected per call from CSV):
 
 ```bash
-./gossipper -sn uac -rsa 127.0.0.1:5060 -t ui -inf ./testdata/injection/ui_ips.csv -ip_field 0 -m 20 -r 10
+./gossipper sipp -sn uac -rsa 127.0.0.1:5060 -t ui -inf ./testdata/injection/ui_ips.csv -ip_field 0 -m 20 -r 10
 ```
 
 Print build version information:
@@ -156,14 +157,14 @@ Print build version information:
 Enable pprof HTTP server for live CPU/memory/goroutine profiling:
 
 ```bash
-./gossipper -sn uac -rsa 127.0.0.1:5060 -m 1000 -r 50 -pprof :6060
+./gossipper sipp -sn uac -rsa 127.0.0.1:5060 -m 1000 -r 50 -pprof :6060
 # In another terminal: go tool pprof -http=:8080 http://localhost:6060/debug/pprof/profile?seconds=30
 ```
 
 Write CPU and memory profiles to files at exit:
 
 ```bash
-./gossipper -sn uac -rsa 127.0.0.1:5060 -m 500 -r 20 -cpuprofile cpu.prof -memprofile mem.prof
+./gossipper sipp -sn uac -rsa 127.0.0.1:5060 -m 500 -r 20 -cpuprofile cpu.prof -memprofile mem.prof
 go tool pprof -http=:8080 cpu.prof   # or mem.prof for heap
 ```
 
@@ -177,43 +178,43 @@ Launch the full-screen TUI or the line CLI:
 Run a custom XML scenario:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -m 10 -r 5
+./gossipper sipp -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -m 10 -r 5
 ```
 
 Write a JSON summary:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -summary_json summary.json
+./gossipper sipp -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -summary_json summary.json
 ```
 
 Write full and short message traces:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_msg -trace_shortmsg -message_file ./messages.log
+./gossipper sipp -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_msg -trace_shortmsg -message_file ./messages.log
 ```
 
 Write unexpected responses and action logs to dedicated files:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_err -trace_error_codes -error_file ./errors.log -trace_logs -log_file ./actions.log
+./gossipper sipp -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_err -trace_error_codes -error_file ./errors.log -trace_logs -log_file ./actions.log
 ```
 
 Write periodic CSV stats snapshots:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_stat -fd 2 -message_file ./messages.log
+./gossipper sipp -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_stat -fd 2 -message_file ./messages.log
 ```
 
 Write periodic per-command SIP message counters:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_counts -fd 2 -message_file ./messages.log
+./gossipper sipp -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_counts -fd 2 -message_file ./messages.log
 ```
 
 Write periodic non-interactive runtime screen snapshots:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_screen -fd 2 -screen_file ./screen.log
+./gossipper sipp -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_screen -fd 2 -screen_file ./screen.log
 ```
 
 Interactive controls during a TUI run:
@@ -227,13 +228,13 @@ Interactive controls during a TUI run:
 Write RTD CSV samples:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_rtt -rtt_freq 50 -message_file ./messages.log
+./gossipper sipp -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -trace_rtt -rtt_freq 50 -message_file ./messages.log
 ```
 
 Mirror SIP messages to Homer over HEP3:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -hep_addr 127.0.0.1:9060 -hep_capture_id 2001 -hep_password secret
+./gossipper sipp -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -hep_addr 127.0.0.1:9060 -hep_capture_id 2001 -hep_password secret
 ```
 
 ### Structured event logging (OTel)
@@ -253,7 +254,7 @@ is also added — typical use is `self_tag` / `peer_tag` to label nodes such as
 Client `NYC02` shipping logs to a collector via OTLP/gRPC:
 
 ```bash
-./gossipper -sn uac -rsa 10.0.0.3:5060 \
+./gossipper sipp -sn uac -rsa 10.0.0.3:5060 \
   -log_otel_endpoint otel-collector:4317 -log_otel_proto grpc -log_otel_insecure \
   -log_attr self_tag=NYC02 -log_attr peer_tag=NYC01 -log_stdout
 ```
@@ -262,7 +263,7 @@ Server `NYC01` shipping logs over OTLP/HTTP (typical when the collector sits
 behind a TLS-terminating proxy):
 
 ```bash
-./gossipper -sn uas -t s1 -i 0.0.0.0 -p 5060 \
+./gossipper sipp -sn uas -t s1 -i 0.0.0.0 -p 5060 \
   -log_otel_endpoint http://otel-collector:4318 -log_otel_proto http \
   -log_attr self_tag=NYC01 -log_attr peer_tag=NYC02 \
   -log_file_jsonl /tmp/gossipper-events.jsonl
@@ -276,13 +277,13 @@ are unaffected by event logging.
 Run over TLS (UAC; `-t cl` is the same as `-t l1` after startup):
 
 ```bash
-./gossipper -t cl -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
+./gossipper sipp -t cl -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
 ```
 
 Same with explicit `l1`:
 
 ```bash
-./gossipper -t l1 -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
+./gossipper sipp -t l1 -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5061 -tls_skip_verify
 ```
 
 **SIP TLS (answers to common support questions):** signaling over TLS **is supported**. For **UAC** use `-t l1` or `-t ln`, or the aliases **`-t cl` / `-t cln`** (same as `l1` / `ln`). For a **UAS**, `-t s1` / `-t sn` are **UDP-only** aliases; use `-t l1` / `-t ln` or the TLS server shortcut `-t sl` (same as `l1`). A TLS listener needs `-tls_cert` and `-tls_key`; clients often use `-tls_ca` and `-tls_skip_verify=false` when validating the peer. The default `-tls_skip_verify=true` is convenient for lab setups only.
@@ -290,66 +291,66 @@ Same with explicit `l1`:
 Run the built-in **UAS over TLS** (replace certificate paths with real files):
 
 ```bash
-./gossipper -sn uas -t sl -i 0.0.0.0 -p 5061 \
+./gossipper sipp -sn uas -t sl -i 0.0.0.0 -p 5061 \
   -tls_cert ./server.crt -tls_key ./server.key -m 1
 ```
 
 Run the built-in UAS in SIPp-style server transport mode:
 
 ```bash
-./gossipper -sn uas -t s1 -i 0.0.0.0 -p 5060 -m 1
+./gossipper sipp -sn uas -t s1 -i 0.0.0.0 -p 5060 -m 1
 ```
 
 Run out-of-call `OPTIONS` ping/pong between two `Gossipper` instances:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/options_server.xml -t s1 -i 0.0.0.0 -p 5060 -m 1
-./gossipper -sf ./testdata/scenarios/options_client.xml -rsa 127.0.0.1:5060 -s options -m 1 -r 1
+./gossipper sipp -sf ./testdata/scenarios/options_server.xml -t s1 -i 0.0.0.0 -p 5060 -m 1
+./gossipper sipp -sf ./testdata/scenarios/options_client.xml -rsa 127.0.0.1:5060 -s options -m 1 -r 1
 ```
 
 Run a challenged Digest auth scenario with SIPp-style credentials:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/auth_uac.xml -rsa 127.0.0.1:5060 -s alice -au alice -ap secret -m 1 -r 1
+./gossipper sipp -sf ./testdata/scenarios/auth_uac.xml -rsa 127.0.0.1:5060 -s alice -au alice -ap secret -m 1 -r 1
 ```
 
 Run with an explicit base CSeq for `[cseq]` tokens:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -base_cseq 42 -m 1 -r 1
+./gossipper sipp -sf ./testdata/scenarios/basic_uac.xml -rsa 127.0.0.1:5060 -base_cseq 42 -m 1 -r 1
 ```
 
 Run a SIPp-style audio PCAP replay action from a scenario:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -m 1 -r 1
+./gossipper sipp -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -m 1 -r 1
 ```
 
 Run the bundled local two-sided PCAP demo between two `Gossipper` instances:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
-./gossipper -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
+./gossipper sipp -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
+./gossipper sipp -sf ./testdata/scenarios/uac_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
 ```
 
 Run the bundled DTMF-over-PCAP demo against the same local UAS:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
-./gossipper -sf ./testdata/scenarios/uac_dtmf_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
+./gossipper sipp -sf ./testdata/scenarios/uas_pcap.xml -t s1 -i 0.0.0.0 -p 5060 -s pcap -m 1
+./gossipper sipp -sf ./testdata/scenarios/uac_dtmf_pcap.xml -rsa 127.0.0.1:5060 -s pcap -m 1 -r 1
 ```
 
 Run 3PCC-style command exchange between instances with the low-level transport flags:
 
 ```bash
-./gossipper -sf ./scenario.xml -rsa 127.0.0.1:5060 -cmd_name m -cmd_peers ./peers.cfg
+./gossipper sipp -sf ./scenario.xml -rsa 127.0.0.1:5060 -cmd_name m -cmd_peers ./peers.cfg
 ```
 
 Run the same flow with SIPp-style master/slave aliases:
 
 ```bash
-./gossipper -sf ./testdata/scenarios/3pcc_slave.xml -slave s1 -slave_cfg ./peers.cfg
-./gossipper -sf ./testdata/scenarios/3pcc_master.xml -master m -slave_cfg ./peers.cfg -rsa 127.0.0.1:5060
+./gossipper sipp -sf ./testdata/scenarios/3pcc_slave.xml -slave s1 -slave_cfg ./peers.cfg
+./gossipper sipp -sf ./testdata/scenarios/3pcc_master.xml -master m -slave_cfg ./peers.cfg -rsa 127.0.0.1:5060
 ```
 
 ## Packaging
@@ -387,17 +388,20 @@ Package artifacts are written to `dist/` (build tree). The installed layout is u
 | Path | Contents |
 |------|----------|
 | `bin/gossipper` | main binary |
-| `etc/gossipper-server.json` | sample **`gossipper server -config`** for management (from repo `examples/gossipper-management.json`) |
-| `etc/gossipper-client.json` | sample load / UAC preset (from repo `examples/gossipper-uac.json`) |
-| `etc/gossipper-management-auth.sample.json` | optional internal-auth template (SQLite under `data/`); copy or merge into your server JSON |
+| `etc/gossipper-server.json` | management SIP UAS + HTTP API — from repo **`examples/gossipper-management.json`** (`gossipper server -config`); typical SIP bind **`0.0.0.0:5060`**, **`api_addr`** **`:8080`** unless overridden |
+| `etc/gossipper-client.json` | UAC / load preset — from repo **`examples/gossipper-uac.json`** (`gossipper server -config`; edit **`remote_addr`**, rates, scenario) |
+| `etc/gossipper-hybrid.json` | one process: management **`server`** + **`clients[]`** — from repo **`examples/gossipper-hybrid.json`** |
+| `etc/gossipper-management-auth.sample.json` | template for **`auth.type`**: **`internal`** (SQLite users + JWT); copy or merge into your server JSON, set **`jwt_secret`**, then **`gossipper auth user-add -config …`**. Default **`sqlite_path`** in the sample is **`/usr/local/gossipper/data/gossipper-settings.sqlite`**. |
 | `etc/doc/` | `README.md`, `LICENSE`, and `docs/` from this repository |
-| `data/` | empty directory for persistent local state (e.g. internal-auth SQLite when `auth.sqlite_path` points here) |
+| `data/` | empty directory for persistent local state (e.g. internal-auth SQLite when **`auth.sqlite_path`** points here) |
 | `logs/` | empty directory for runtime logs (operator-owned) |
 | `dist/` | Control UI static files (same as embedded webdist) |
 
 A symlink **`/usr/local/bin/gossipper`** → `/usr/local/gossipper/bin/gossipper` is created for `PATH`.
 
-**`.deb` / `.rpm`** also install **`/lib/systemd/system/gossipper-server.service`** and **`gossipper-client.service`** (see `examples/*.service` in the repo) and run **`systemctl daemon-reload`** on package install via `scripts/nfpm-postinstall.sh`. Enable one or both, e.g. `sudo systemctl enable --now gossipper-server` and/or `gossipper-client`.
+**Repo `examples/`** mirrors these JSON files and the **`*.service`** units (which reference the **`/usr/local/gossipper/etc/*.json`** paths above).
+
+**`.deb` / `.rpm`** install **`/lib/systemd/system/gossipper-server.service`**, **`gossipper-client.service`**, and **`gossipper-hybrid.service`** (see **`examples/*.service`**) and run **`systemctl daemon-reload`** via **`scripts/nfpm-postinstall.sh`**. Enable the unit that matches your profile, e.g. **`sudo systemctl enable --now gossipper-server`**, **`gossipper-client`**, or **`gossipper-hybrid`** (avoid two units binding the same SIP ports on one host).
 
 ## Notes
 
