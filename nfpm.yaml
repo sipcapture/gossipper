@@ -9,7 +9,7 @@ description: |
   Gossipper is a Go-based SIP traffic generator and SIPp-compatible
   scenario runner with incremental XML parity, 3PCC helpers, and RTP tooling.
   (AGPL-3.0)
-  Install layout under /usr/local/gossipper: bin, etc (sample JSON + doc), logs, dist (Control UI static files).
+  Install layout under /usr/local/gossipper: bin, etc (sample JSON + doc), data (persistent state, e.g. internal-auth SQLite), logs, dist (Control UI static files).
   Ships systemd units gossipper-server.service, gossipper-client.service, gossipper-hybrid.service plus sample JSON under /usr/local/gossipper/etc/ (management composite, flat UAC, hybrid server+clients).
 vendor: "QXIP"
 homepage: "https://github.com/sipcapture/gossipper"
@@ -48,6 +48,11 @@ contents:
     file_info:
       mode: 0755
 
+  - dst: /usr/local/gossipper/data
+    type: dir
+    file_info:
+      mode: 0755
+
   - src: ./examples/gossipper-hybrid.service
     dst: /lib/systemd/system/gossipper-hybrid.service
     file_info:
@@ -75,6 +80,11 @@ contents:
 
   - src: ./examples/gossipper-uac.json
     dst: /usr/local/gossipper/etc/gossipper-client.json
+    file_info:
+      mode: 0644
+
+  - src: ./examples/gossipper-management-auth.sample.json
+    dst: /usr/local/gossipper/etc/gossipper-management-auth.sample.json
     file_info:
       mode: 0644
 

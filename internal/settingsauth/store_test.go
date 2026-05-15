@@ -3,6 +3,7 @@ package settingsauth
 import (
 	"context"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -51,5 +52,18 @@ func TestAuthJWT(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+tok)
 	if !a.ValidRequest(req) {
 		t.Fatal("expected ValidRequest true")
+	}
+}
+
+func TestOpenStoreCreatesNestedParent(t *testing.T) {
+	dir := t.TempDir()
+	dbpath := filepath.Join(dir, "nested", "deep", "settings.sqlite")
+	db, err := OpenStore(dbpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := os.Stat(dbpath); err != nil {
+		t.Fatalf("sqlite file: %v", err)
 	}
 }

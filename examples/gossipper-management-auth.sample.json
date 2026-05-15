@@ -1,9 +1,9 @@
 {
-  "comment": "Sample management profile with internal API/Control UI auth (SQLite users + JWT). Copy and adjust paths/secrets.",
+  "comment": "Sample management profile with internal API/Control UI auth (SQLite users + JWT). For .deb/.rpm installs, sqlite_path matches the packaged data directory (/usr/local/gossipper/data). For local dev you may use e.g. ./data/gossipper-settings.sqlite. Copy, set jwt_secret, run gossipper auth user-add, then point server -config at this file.",
   "api_addr": ":8080",
   "auth": {
     "type": "internal",
-    "sqlite_path": "./data/gossipper-settings.sqlite",
+    "sqlite_path": "/usr/local/gossipper/data/gossipper-settings.sqlite",
     "jwt_secret": "CHANGE_ME__min_16_chars__"
   },
   "server": {

@@ -389,7 +389,9 @@ Package artifacts are written to `dist/` (build tree). The installed layout is u
 | `bin/gossipper` | main binary |
 | `etc/gossipper-server.json` | sample **`gossipper server -config`** for management (from repo `examples/gossipper-management.json`) |
 | `etc/gossipper-client.json` | sample load / UAC preset (from repo `examples/gossipper-uac.json`) |
+| `etc/gossipper-management-auth.sample.json` | optional internal-auth template (SQLite under `data/`); copy or merge into your server JSON |
 | `etc/doc/` | `README.md`, `LICENSE`, and `docs/` from this repository |
+| `data/` | empty directory for persistent local state (e.g. internal-auth SQLite when `auth.sqlite_path` points here) |
 | `logs/` | empty directory for runtime logs (operator-owned) |
 | `dist/` | Control UI static files (same as embedded webdist) |
 
