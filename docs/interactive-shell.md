@@ -86,4 +86,4 @@ See **`docs/tui.md`** for TUI-specific behaviour.
 gossipper -h
 ```
 
-The preamble lists **`shell`**, **`cli`**, **`tui`**, and **`-interactive`**, then all flags.
+The preamble lists **`shell`**, **`cli`**, **`tui`**, and **`-interactive`**, then points to **`gossipper sipp -h`** / **`gossipper server -h`** for full flags (no long scenario list on **`gossipper -h`** alone).

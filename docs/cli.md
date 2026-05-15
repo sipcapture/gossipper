@@ -6,7 +6,7 @@ Gossipper is a single binary (`cmd/gossip`) with:
 2. **Default path** — everything else is parsed as **SIP/XML scenario flags** (SIPp-style surface; see [`compatibility.md`](compatibility.md) and [`cli-gap-list.md`](cli-gap-list.md)).
 3. **Optional `gossipper sipp` prefix** — same scenario flags as (2); **not** for subcommands (see below).
 
-Run **`gossipper -h`** for the full scenario flag list embedded in the binary. Run-profile preset flags are summarized under **`gossipper profile -h`** (see [`run-profile.md`](run-profile.md)).
+Run **`gossipper -h`** for **subcommands** and pointers to detailed help (**`gossipper sipp -h`** for scenario flags, **`gossipper server -h`** for server/API, **`gossipper profile -h`** for run-profile presets — see [`run-profile.md`](run-profile.md)).
 
 ## Subcommands (first argument)
 
@@ -22,9 +22,9 @@ These tokens must appear **first** (after any optional `sipp` strip — you shou
 | `gossipper pcap2scenario …` | PCAP → generated XML scenarios. See [`pcap2scenario.md`](pcap2scenario.md). |
 | `gossipper report-html …` | Summary JSON → standalone HTML (separate small flag set). |
 | `gossipper summary-to-pdf …` | HTML → PDF (optional embedded renderer when built with `-tags pdf`, else Chromium in `PATH`). |
-| `gossipper profile` / `gossipper profile -h` | Prints the **run-profile** flag summary (**`-config`**, **`-run-alias`**, **`-list-aliases`**, **`-config-server`**, **`-config-client`**). Same text that used to appear in **`gossipper -h`**; full narrative in [`run-profile.md`](run-profile.md). |
+| `gossipper profile` / `gossipper profile -h` | Prints the **run-profile** flag summary (**`-config`**, **`-run-alias`**, **`-list-aliases`**, **`-config-server`**, **`-config-client`**). Full narrative in [`run-profile.md`](run-profile.md). |
 
-**`-h` / `--help` per entry:** root **`gossipper -h`** lists scenario flags but **not** **`-api_addr`** / **`-api_token`**; **`gossipper server -h`** and **`gossipper -server -h`** list **all** flags including API; **`gossipper sipp -h`** uses a **SIPp-oriented** preamble and groups the remaining flags as **HEP** → **OTLP** → **PPROF** → **SIPP**, omitting **`-server`**, **`-api_addr`**, **`-api_token`**, and **standalone RTP sender** flags (**`-rtp_send`**, **`-rtp_addr`**, …); **`gossipper tui -h`**, **`gossipper cli -h`**, **`gossipper shell -h`** print only that subcommand’s short help; **`gossipper pcap2scenario -h`**, **`report-html -h`**, **`summary-to-pdf -h`** show only their small flag sets.
+**`-h` / `--help` per entry:** root **`gossipper -h`** lists **subcommands** only (no scenario flag dump); **`gossipper server -h`** and **`gossipper -server -h`** list **all** flags including API; **`gossipper sipp -h`** uses a **SIPp-oriented** preamble and groups scenario flags as **HEP** → **OTLP** → **PPROF** → **SIPP**, omitting **`-server`**, **`-api_addr`**, **`-api_token`**, and **standalone RTP sender** flags (**`-rtp_send`**, **`-rtp_addr`**, …); **`gossipper tui -h`**, **`gossipper cli -h`**, **`gossipper shell -h`** print only that subcommand’s short help; **`gossipper pcap2scenario -h`**, **`report-html -h`**, **`summary-to-pdf -h`** show only their small flag sets.
 
 **Version:** `-version` / `--version` anywhere in argv prints build info and exits (handled before subcommand routing).
 
@@ -46,7 +46,7 @@ Rules (enforced in `internal/sipp`):
 - **Allowed:** any argv that is valid **scenario / launcher flags** on the root command (e.g. **`-sn`**, **`-sf`**, **`-rsa`**, **`-config-server`**, **`-rtp_send`**, …).
 - **Rejected:** placing **Gossipper-only** subcommands or **`-interactive`** after `sipp` (e.g. `gossipper sipp tui`). Use **`gossipper tui`** without `sipp`. Error: `ErrRootSubcommandAfterSipp`.
 
-Leading **`sipp`** tokens may be repeated and are stripped (e.g. shell aliases); empty argv prints a short SIPp-entry summary; **`-h` / `--help` / `help`** forwards to a **SIPp-oriented** preamble and the same scenario flags as **`gossipper -h`**, printed in sections **HEP** → **OTLP** → **PPROF** → **SIPP**, and **hides** **`-server`**, **`-api_addr`**, **`-api_token`**, and **`-rtp_send`** (and related **`-rtp_*`**) so the help matches the SIPp entry. Use **`gossipper server -h`** (or **`gossipper -server -h`**) for the full flag list including management API and **`-server`**.
+Leading **`sipp`** tokens may be repeated and are stripped (e.g. shell aliases); empty argv prints a short SIPp-entry summary; **`-h` / `--help` / `help`** forwards to a **SIPp-oriented** preamble and scenario flags in sections **HEP** → **OTLP** → **PPROF** → **SIPP**, and **hides** **`-server`**, **`-api_addr`**, **`-api_token`**, and **`-rtp_send`** (and related **`-rtp_*`**) so the help matches the SIPp entry. Use **`gossipper server -h`** (or **`gossipper -server -h`**) for the full flag list including management API and **`-server`**.
 
 Full narrative vs SIPp: [`gossipper-vs-sipp.md`](gossipper-vs-sipp.md).
 

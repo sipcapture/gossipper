@@ -7,7 +7,7 @@ type HelpContext int32
 
 const (
 	HelpContextUnset  HelpContext = 0
-	HelpContextRoot   HelpContext = 1 // gossipper -h (default scenario entry)
+	HelpContextRoot   HelpContext = 1 // gossipper -h (subcommands + where to read flags; no scenario dump)
 	HelpContextServer HelpContext = 2 // gossipper server … or -server / -config-server
 	HelpContextSipp   HelpContext = 3 // gossipper sipp -h (SIPp-style entry)
 )

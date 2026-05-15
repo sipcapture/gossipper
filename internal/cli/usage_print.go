@@ -31,6 +31,8 @@ var sippHelpOmitFlags = map[string]struct{}{
 // writeFlagDefaultsForHelp prints flag defaults for the active [HelpContext].
 func writeFlagDefaultsForHelp(fs *flag.FlagSet, w io.Writer) {
 	switch CurrentHelpContext() {
+	case HelpContextRoot:
+		writeRootScenarioFlagHint(w)
 	case HelpContextServer:
 		printFlagDefaultsOmit(fs, w, nil)
 	case HelpContextSipp:

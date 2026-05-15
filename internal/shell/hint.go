@@ -98,5 +98,5 @@ func printSetCheatsheet(out io.Writer) {
 	fmt.Fprintln(out, "  set sip_provider TOKEN         — X-provider (CLI -sip_provider)")
 	fmt.Fprintln(out, "  set stat_period 5s             — periodic stats line to stderr")
 	fmt.Fprintln(out, "  set trace_msg                  — SIP trace (off: set trace_msg false)")
-	fmt.Fprintln(out, "Full flag list: gossipper -h. Smarter review:  hint")
+	fmt.Fprintln(out, "Full flag list: gossipper sipp -h (server: gossipper server -h). Smarter review:  hint")
 }

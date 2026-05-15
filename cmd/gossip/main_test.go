@@ -208,7 +208,7 @@ func TestRunSippDashHIncludesScenarioFlags(t *testing.T) {
 	}
 }
 
-func TestRootHelpOmitsManagementAPIFlags(t *testing.T) {
+func TestRootHelpListsSubcommandsOnly(t *testing.T) {
 	oldStdout := os.Stdout
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -229,11 +229,14 @@ func TestRootHelpOmitsManagementAPIFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := out.String()
-	if strings.Contains(s, "\n  -api_addr") || strings.Contains(s, "\n  -api_token") {
-		t.Fatalf("root -h should omit -api_addr / -api_token; found in output")
+	if !strings.Contains(s, "Subcommands") || !strings.Contains(s, "gossipper sipp -h") {
+		t.Fatalf("root -h should list subcommands and point to sipp -h, got head: %.400q…", s)
 	}
-	if !strings.Contains(s, "-sn string") {
-		t.Fatalf("root -h should still list core flags")
+	if strings.Contains(s, "  -sn string") || strings.Contains(s, "HEP:\n") {
+		t.Fatalf("root -h should not dump scenario flags; found -sn or HEP section in output")
+	}
+	if strings.Contains(s, "\n  -api_addr") || strings.Contains(s, "\n  -api_token") {
+		t.Fatalf("root -h should not list -api_addr / -api_token lines; found in output")
 	}
 }
 

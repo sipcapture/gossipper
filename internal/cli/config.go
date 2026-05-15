@@ -874,6 +874,7 @@ func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "Subcommands (run before any flags):")
 	fmt.Fprintln(w, "  gossipper sipp [flags…]      SIPp-style entry; gossipper sipp -h shows a SIPp-oriented flag subset; do not use with tui/cli/server")
 	fmt.Fprintln(w, "  gossipper cli                interactive line CLI: set flags, wizard, hint, run")
+	fmt.Fprintln(w, "  gossipper shell              same as cli")
 	fmt.Fprintln(w, "  gossipper tui                full-screen launcher / runtime UI")
 	fmt.Fprintln(w, "  gossipper server [flags]     long-run management server (prepends -server; use with -config-server … or same flags as -server)")
 	fmt.Fprintln(w, "  gossipper -server            same as `gossipper server` (systemd); SIP bind -i/-p (default -p 5060 if omitted); see examples/gossipper-server.service")
@@ -883,8 +884,20 @@ func writeHelpPreamble(w io.Writer) {
 	fmt.Fprintln(w, "  gossipper profile            JSON run-profile flags (-config, -run-alias, …); gossipper profile -h")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "See also: docs/cli.md, docs/interactive-shell.md, docs/tui.md")
+}
+
+// writeRootScenarioFlagHint follows writeHelpPreamble for gossipper -h (no scenario flag list here).
+func writeRootScenarioFlagHint(w io.Writer) {
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Flags:")
+	fmt.Fprintln(w, "Scenario / load flags (SIPp-style surface, grouped HEP / OTLP / PPROF / SIPP):")
+	fmt.Fprintln(w, "  gossipper sipp -h")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Server mode — full flag list (includes -api_addr, -api_token, -server):")
+	fmt.Fprintln(w, "  gossipper server -h")
+	fmt.Fprintln(w, "  gossipper -server -h")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Run-profile JSON presets:")
+	fmt.Fprintln(w, "  gossipper profile -h")
 }
 
 func writeServerHelpPreamble(w io.Writer) {

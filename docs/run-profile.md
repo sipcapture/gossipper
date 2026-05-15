@@ -2,7 +2,7 @@
 
 Gossipper can load a **JSON run profile**: a file with a top-level `aliases` map. Each **alias** is a named preset of structured fields (and optional `extra_args`) that seed the internal [`Config`](../internal/cli/config.go) before the normal `flag` parser runs. Use this to version-control common invocations (HEP UAS, lab UAC, etc.) instead of long shell one-liners.
 
-**Short flag summary in the binary:** `gossipper profile` or `gossipper profile -h` (same text as in older `gossipper -h` preambles).
+**Short flag summary in the binary:** `gossipper profile` or `gossipper profile -h`.
 
 For **subcommands** (`tui`, `shell`, `server`, …), the optional **`gossipper sipp`** prefix, and **`-version`**, see [`cli.md`](cli.md).
 

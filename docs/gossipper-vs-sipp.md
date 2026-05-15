@@ -12,7 +12,7 @@ testing.
 same flag surface as running a load test from SIPp’s CLI). Helpers such as **`tui`**,
 **`shell`**, **`server`**, **`pcap2scenario`**, **`report-html`**, and **`summary-to-pdf`**
 must be run as **`gossipper <subcommand>`** without the **`sipp`** token. Run
-**`gossipper sipp`** with no further args prints a short SIPp-entry summary; **`gossipper sipp -h`** (or **`--help`**, first-token **`help`**) shows the scenario flag list with a **SIPp-oriented** preamble and **without** **`-server`**, **`-api_addr`**, **`-api_token`**, or **standalone `-rtp_send`** / **`-rtp_*`** knobs (those belong to **`gossipper server -h`** / root long-run modes). Root **`gossipper -h`** lists the same scenario surface but still **omits** **`-api_addr`** / **`-api_token`** only.
+**`gossipper sipp`** with no further args prints a short SIPp-entry summary; **`gossipper sipp -h`** (or **`--help`**, first-token **`help`**) shows the scenario flag list with a **SIPp-oriented** preamble and **without** **`-server`**, **`-api_addr`**, **`-api_token`**, or **standalone `-rtp_send`** / **`-rtp_*`** knobs (those belong to **`gossipper server -h`** / root long-run modes). Root **`gossipper -h`** lists **subcommands** and where to read flags (**`gossipper sipp -h`**, **`gossipper server -h`**, **`gossipper profile -h`**); it does **not** dump the scenario flag list.
 
 The root command **`gossipper [flags…]`** runs scenarios the same way; **`sipp`** is an
 optional explicit SIPp-style entry point.
