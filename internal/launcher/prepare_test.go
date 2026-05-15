@@ -9,6 +9,91 @@ import (
 	"github.com/sipcapture/gossipper/internal/stats"
 )
 
+func TestPreparePropagatesServerUDPListeners(t *testing.T) {
+	t.Parallel()
+
+	cfg := cli.DefaultConfig()
+	cfg.ScenarioName = "uas"
+	cfg.Transport = "u1"
+	cfg.LocalIP = "127.0.0.1"
+	cfg.LocalPort = 35060
+	cfg.ServerListeners = []cli.ServerListener{
+		{Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 35060},
+		{Transport: "un", LocalIP: "127.0.0.1", LocalPort: 35061},
+	}
+
+	prepared, err := Prepare(cfg)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if len(prepared.EngineConfig.ServerListeners) != 2 {
+		t.Fatalf("engine listeners: %+v", prepared.EngineConfig.ServerListeners)
+	}
+	if prepared.EngineConfig.ServerListeners[1].Transport != "un" {
+		t.Fatalf("second transport=%q", prepared.EngineConfig.ServerListeners[1].Transport)
+	}
+	if prepared.CLIConfig.LocalPort != 35060 {
+		t.Fatalf("expected primary port from first listener, got %d", prepared.CLIConfig.LocalPort)
+	}
+}
+
+func TestPrepareRejectsServerListenersForClientScenario(t *testing.T) {
+	t.Parallel()
+
+	cfg := cli.DefaultConfig()
+	cfg.ScenarioName = "uac"
+	cfg.RemoteHost = "127.0.0.1"
+	cfg.RemotePort = 5060
+	cfg.ServerListeners = []cli.ServerListener{
+		{Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 35060},
+	}
+
+	_, err := Prepare(cfg)
+	if err == nil || !strings.Contains(err.Error(), "listeners in config are only supported for server scenarios") {
+		t.Fatalf("expected error, got %v", err)
+	}
+}
+
+func TestPrepareRejectsTLSListenerWithoutCert(t *testing.T) {
+	t.Parallel()
+
+	cfg := cli.DefaultConfig()
+	cfg.ScenarioName = "uas"
+	cfg.ServerListeners = []cli.ServerListener{
+		{Transport: "l1", LocalIP: "127.0.0.1", LocalPort: 39070},
+	}
+
+	_, err := Prepare(cfg)
+	if err == nil || !strings.Contains(err.Error(), "tls_cert") {
+		t.Fatalf("expected tls cert error, got %v", err)
+	}
+}
+
+func TestPreparePropagatesMixedServerListeners(t *testing.T) {
+	t.Parallel()
+
+	cfg := cli.DefaultConfig()
+	cfg.ScenarioName = "uas"
+	cfg.Transport = "u1"
+	cfg.LocalIP = "127.0.0.1"
+	cfg.LocalPort = 5060
+	cfg.ServerListeners = []cli.ServerListener{
+		{Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 39060},
+		{Transport: "t1", LocalIP: "127.0.0.1", LocalPort: 39061},
+	}
+
+	prepared, err := Prepare(cfg)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if len(prepared.EngineConfig.ServerListeners) != 2 {
+		t.Fatalf("engine listeners: %+v", prepared.EngineConfig.ServerListeners)
+	}
+	if prepared.EngineConfig.ServerListeners[1].Transport != "t1" {
+		t.Fatalf("second transport=%q", prepared.EngineConfig.ServerListeners[1].Transport)
+	}
+}
+
 func TestPrepareNormalizesServerTransportAlias(t *testing.T) {
 	t.Parallel()
 

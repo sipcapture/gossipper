@@ -40,6 +40,13 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 	if err := NormalizeTransport(&cfg, sc); err != nil {
 		return Prepared{}, err
 	}
+	listenersEng, err := serverListenersForEngine(&cfg)
+	if err != nil {
+		return Prepared{}, err
+	}
+	if len(listenersEng) > 0 && sc.Mode != scenario.ModeServer {
+		return Prepared{}, fmt.Errorf("listeners in config are only supported for server scenarios")
+	}
 	if cfg.InjectionFile != "" && sc.Mode == scenario.ModeServer && cfg.Transport != "ui" {
 		return Prepared{}, fmt.Errorf("injection (-inf / -ip_field) is only supported for server transport ui")
 	}
@@ -61,6 +68,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		Transport:        cfg.Transport,
 		LocalIP:          cfg.LocalIP,
 		LocalPort:        cfg.LocalPort,
+		ServerListeners:  listenersEng,
 		RemoteHost:       cfg.RemoteHost,
 		RemotePort:       cfg.RemotePort,
 		Service:          cfg.Service,
@@ -174,6 +182,63 @@ func NormalizeTransport(cfg *cli.Config, sc scenario.Scenario) error {
 		}
 	}
 	return nil
+}
+
+func serverListenersForEngine(cfg *cli.Config) ([]engine.ServerListener, error) {
+	if len(cfg.ServerListeners) == 0 {
+		return nil, nil
+	}
+	out := make([]engine.ServerListener, 0, len(cfg.ServerListeners))
+	for i, ln := range cfg.ServerListeners {
+		t := strings.ToLower(strings.TrimSpace(ln.Transport))
+		switch t {
+		case "":
+			t = strings.ToLower(strings.TrimSpace(cfg.Transport))
+		case "s1":
+			t = "u1"
+		case "sn":
+			t = "un"
+		case "sl":
+			t = "l1"
+		}
+		switch t {
+		case "u1", "un", "t1", "tn", "l1", "ln":
+		default:
+			return nil, fmt.Errorf("listeners[%d]: transport %q is not supported (use u1, un, t1, tn, l1, ln)", i, ln.Transport)
+		}
+		if t == "l1" || t == "ln" {
+			if strings.TrimSpace(cfg.TLSCertFile) == "" || strings.TrimSpace(cfg.TLSKeyFile) == "" {
+				return nil, fmt.Errorf("listeners[%d]: transport %s requires tls_cert and tls_key in config or on the command line", i, t)
+			}
+		}
+		ip := strings.TrimSpace(ln.LocalIP)
+		if ip == "" {
+			ip = strings.TrimSpace(cfg.LocalIP)
+		}
+		if ip == "" {
+			return nil, fmt.Errorf("listeners[%d]: local_ip is empty", i)
+		}
+		port := ln.LocalPort
+		if port == 0 {
+			port = cfg.LocalPort
+		}
+		if port <= 0 {
+			return nil, fmt.Errorf("listeners[%d]: local_port must be > 0", i)
+		}
+		out = append(out, engine.ServerListener{Transport: t, LocalIP: ip, LocalPort: port})
+	}
+	cfg.Transport = out[0].Transport
+	cfg.LocalIP = out[0].LocalIP
+	cfg.LocalPort = out[0].LocalPort
+	cfg.ServerListeners = make([]cli.ServerListener, len(out))
+	for i := range out {
+		cfg.ServerListeners[i] = cli.ServerListener{
+			Transport: out[i].Transport,
+			LocalIP:   out[i].LocalIP,
+			LocalPort: out[i].LocalPort,
+		}
+	}
+	return out, nil
 }
 
 func Validate3PCCRole(cfg cli.Config, sc scenario.Scenario) error {

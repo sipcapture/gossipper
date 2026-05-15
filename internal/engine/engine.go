@@ -46,11 +46,23 @@ var (
 // so INVITE response chains don't abort before the transaction can complete.
 const sipTimerB = 64 * 500 * time.Millisecond
 
+// ServerListener is one SIP bind for server mode with multiple listeners (UDP/TCP/TLS).
+// Transport must be u1, un, t1, tn, l1, or ln.
+type ServerListener struct {
+	Transport string
+	LocalIP   string
+	LocalPort int
+}
+
 type Config struct {
 	Scenario         scenario.Scenario
 	Transport        string
 	LocalIP          string
 	LocalPort        int
+	// ServerListeners, when non-empty, runs parallel SIP listeners (u1/un/t1/tn/l1/ln, or mixed).
+	// UDP Call-ID sessions are shared across all u1/un sockets; TCP/TLS use separate accept paths.
+	// TotalCalls applies to accepted calls summed across all listeners.
+	ServerListeners []ServerListener
 	RemoteHost       string
 	RemotePort       int
 	Service          string
@@ -439,6 +451,7 @@ func (e *Engine) runClientCommandOnly(ctx context.Context) error {
 
 			runErrLocal := e.executeCall(
 				ctx,
+				e.cfg.Transport,
 				callNumber,
 				callID,
 				resolveLocalIP(0, e.cfg.LocalIP, e.cfg.RemoteHost, e.cfg.RemotePort),
@@ -520,7 +533,7 @@ func (e *Engine) runClientShared(ctx context.Context) error {
 			localIP := resolveLocalIP(shared.LocalPort(), e.cfg.LocalIP, remoteAddr.IP.String(), remoteAddr.Port)
 			send = e.wrapSIPSend(callNumber, callID, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send)
 			receive = e.wrapSIPReceive(callNumber, callID, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, receive)
-			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send, receive, setDestination)
+			runErrLocal := e.executeCall(ctx, e.cfg.Transport, callNumber, callID, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send, receive, setDestination)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
 			}
@@ -589,7 +602,7 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 			localIP := resolveLocalIP(dialog.LocalPort(), e.cfg.LocalIP, remoteAddr.IP.String(), remoteAddr.Port)
 			send = e.wrapSIPSend(callNumber, callID, localIP, dialog.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send)
 			receive = e.wrapSIPReceive(callNumber, callID, localIP, dialog.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, receive)
-			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, dialog.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send, receive, nil)
+			runErrLocal := e.executeCall(ctx, e.cfg.Transport, callNumber, callID, localIP, dialog.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send, receive, nil)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
 			}
@@ -678,7 +691,7 @@ func (e *Engine) runClientPerSourceIP(ctx context.Context) error {
 			localIP := resolveLocalIP(shared.LocalPort(), sourceIP, remoteAddr.IP.String(), remoteAddr.Port)
 			send = e.wrapSIPSend(callNumber, callID, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send)
 			receive = e.wrapSIPReceive(callNumber, callID, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, receive)
-			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send, receive, setDestination)
+			runErrLocal := e.executeCall(ctx, e.cfg.Transport, callNumber, callID, localIP, shared.LocalPort(), remoteAddr.IP.String(), remoteAddr.Port, send, receive, setDestination)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
 			}
@@ -740,7 +753,7 @@ func (e *Engine) runClientSharedTCP(ctx context.Context) error {
 			localIP := resolveLocalIP(shared.LocalPort(), e.cfg.LocalIP, e.cfg.RemoteHost, e.cfg.RemotePort)
 			send = e.wrapSIPSend(callNumber, callID, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send)
 			receive = e.wrapSIPReceive(callNumber, callID, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, receive)
-			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive, nil)
+			runErrLocal := e.executeCall(ctx, e.cfg.Transport, callNumber, callID, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive, nil)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
 			}
@@ -797,7 +810,7 @@ func (e *Engine) runClientPerCallTCP(ctx context.Context) error {
 			localIP := resolveLocalIP(dialog.LocalPort(), e.cfg.LocalIP, e.cfg.RemoteHost, e.cfg.RemotePort)
 			send = e.wrapSIPSend(callNumber, callID, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send)
 			receive = e.wrapSIPReceive(callNumber, callID, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, receive)
-			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive, nil)
+			runErrLocal := e.executeCall(ctx, e.cfg.Transport, callNumber, callID, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive, nil)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
 			}
@@ -907,6 +920,9 @@ func (e *Engine) serverFinishedAll(finished int) bool {
 }
 
 func (e *Engine) runServer(ctx context.Context) error {
+	if len(e.cfg.ServerListeners) > 0 {
+		return e.runServerMultiListeners(ctx)
+	}
 	switch e.cfg.Transport {
 	case "u1", "un":
 		return e.runServerUDP(ctx)
@@ -969,7 +985,57 @@ func resolveResponseAddr(msg sip.Message, packetAddr *net.UDPAddr) *net.UDPAddr 
 	return &net.UDPAddr{IP: viaIP, Port: port}
 }
 
+// serverMultiCoordinator tracks global UAS call numbering / limits when several
+// server listeners run in parallel (UDP, TCP, TLS, or mixed).
+type serverMultiCoordinator struct {
+	mu       sync.Mutex
+	sessions map[string]*serverUDPSession // UDP only: shared across u1/un listeners
+	accepted int
+	finished int
+	wg       sync.WaitGroup
+	doneOnce sync.Once
+	done     chan struct{}
+}
+
+func newServerMultiCoordinator() *serverMultiCoordinator {
+	return &serverMultiCoordinator{
+		sessions: make(map[string]*serverUDPSession),
+		done:     make(chan struct{}),
+	}
+}
+
+func (co *serverMultiCoordinator) finishCallUnlocked(e *Engine) {
+	co.finished++
+	if e.serverFinishedAll(co.finished) {
+		co.doneOnce.Do(func() { close(co.done) })
+	}
+}
+
+// reserveCallSlot allocates the next call number after a successful first-line match.
+// Caller must not hold co.mu.
+func (co *serverMultiCoordinator) reserveCallSlot(e *Engine) (callNumber int, ok bool) {
+	co.mu.Lock()
+	defer co.mu.Unlock()
+	if e.serverRejectNew(co.accepted) {
+		return 0, false
+	}
+	co.accepted++
+	return co.accepted, true
+}
+
+func (co *serverMultiCoordinator) refundReservedSlot() {
+	co.mu.Lock()
+	defer co.mu.Unlock()
+	if co.accepted > 0 {
+		co.accepted--
+	}
+}
+
 func (e *Engine) runServerUDP(ctx context.Context) error {
+	firstRecvIndex := firstReceiveIndex(e.cfg.Scenario)
+	if firstRecvIndex == -1 {
+		return errors.New("server scenario must start with a recv command")
+	}
 	localAddr := fmt.Sprintf("%s:%d", e.cfg.LocalIP, e.cfg.LocalPort)
 	shared, err := transport.NewSharedUDP(localAddr)
 	if err != nil {
@@ -977,119 +1043,364 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 	}
 	defer shared.Close()
 
+	st := newServerMultiCoordinator()
+	go e.udpServerReceivePump(ctx, st, e.cfg.Transport, shared, e.cfg.LocalIP, firstRecvIndex)
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-st.done:
+		st.wg.Wait()
+		return nil
+	}
+}
+
+func (e *Engine) runServerMultiListeners(ctx context.Context) error {
 	firstRecvIndex := firstReceiveIndex(e.cfg.Scenario)
 	if firstRecvIndex == -1 {
 		return errors.New("server scenario must start with a recv command")
 	}
+	co := newServerMultiCoordinator()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	errCh := make(chan error, len(e.cfg.ServerListeners))
+	var wg sync.WaitGroup
+	for _, ln := range e.cfg.ServerListeners {
+		ln := ln
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := e.runOneServerListener(ctx, co, ln, firstRecvIndex); err != nil {
+				select {
+				case errCh <- err:
+				default:
+				}
+				cancel()
+			}
+		}()
+	}
+
+	waitListeners := func() {
+		wg.Wait()
+	}
+
+	if e.cfg.UnlimitedCalls {
+		select {
+		case err := <-errCh:
+			waitListeners()
+			return err
+		case <-ctx.Done():
+			cancel()
+			waitListeners()
+			return ctx.Err()
+		}
+	}
+
+	select {
+	case err := <-errCh:
+		waitListeners()
+		return err
+	case <-ctx.Done():
+		cancel()
+		waitListeners()
+		return ctx.Err()
+	case <-co.done:
+		cancel()
+		waitListeners()
+		co.wg.Wait()
+		return nil
+	}
+}
+
+func (e *Engine) runOneServerListener(ctx context.Context, co *serverMultiCoordinator, ln ServerListener, firstRecvIndex int) error {
+	localAddr := fmt.Sprintf("%s:%d", ln.LocalIP, ln.LocalPort)
+	switch ln.Transport {
+	case "u1", "un":
+		shared, err := transport.NewSharedUDP(localAddr)
+		if err != nil {
+			return fmt.Errorf("udp listener %s: %w", localAddr, err)
+		}
+		defer shared.Close()
+		e.udpServerReceivePump(ctx, co, ln.Transport, shared, ln.LocalIP, firstRecvIndex)
+		return nil
+	case "t1":
+		return e.runServerTCPSharedOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex)
+	case "tn":
+		return e.runServerTCPPerConnOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex)
+	case "l1":
+		return e.runServerTLSSharedOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex)
+	case "ln":
+		return e.runServerTLSPerConnOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex)
+	default:
+		return fmt.Errorf("unsupported listener transport %q", ln.Transport)
+	}
+}
+
+func (e *Engine) runServerTCPSharedOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int) error {
+	server, err := transport.NewTCPServer(bindAddr)
+	if err != nil {
+		return fmt.Errorf("tcp listener %s: %w", bindAddr, err)
+	}
+	defer server.Close()
+
+	conn, err := server.Accept(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	reader := transport.NewTCPConnReader(conn)
+	var writeMu sync.Mutex
+
+	type session struct {
+		inbox chan sip.Message
+	}
 
 	var (
 		mu       sync.Mutex
-		sessions = make(map[string]*serverUDPSession)
+		sessions = make(map[string]*session)
 		wg       sync.WaitGroup
-		doneOnce sync.Once
+		done     = make(chan struct{})
 	)
 
-	accepted := 0
-	finished := 0
-	done := make(chan struct{})
-
 	go func() {
-		for packet := range shared.Receive() {
-			msg := sip.GetMessage()
-			if err := sip.ParseInto(msg, packet.Data); err != nil {
-				sip.PutMessage(msg)
-				continue
+		defer close(done)
+		for {
+			msg, err := reader.Read(ctx)
+			if err != nil {
+				return
 			}
-
 			callID, ok := sip.Header(msg.Headers, "Call-ID")
 			if !ok {
-				sip.PutMessage(msg)
 				continue
 			}
 			callID = sip.NormalizeCallID(callID)
-
 			mu.Lock()
 			sess, exists := sessions[callID]
 			if !exists {
 				firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
-				if !sip.Match(*msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(accepted) {
+				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) {
 					mu.Unlock()
-					sip.PutMessage(msg)
 					continue
 				}
-				accepted++
-				callNumber := accepted
-
-				remote := packet.Addr
-				if viaAddr := resolveResponseAddr(*msg, packet.Addr); viaAddr != nil {
-					remote = viaAddr
+				mu.Unlock()
+				callNumber, ok := co.reserveCallSlot(e)
+				if !ok {
+					continue
 				}
-				sess = &serverUDPSession{
-					inbox:     make(chan *sip.Message, sipMailboxCap),
-					remote:    remote,
-					shared:    shared,
-					localIP:   resolveLocalIP(shared.LocalPort(), e.cfg.LocalIP, remote.IP.String(), remote.Port),
-					localPort: shared.LocalPort(),
+				mu.Lock()
+				if _, taken := sessions[callID]; taken {
+					mu.Unlock()
+					co.refundReservedSlot()
+					continue
 				}
+				sess = &session{inbox: make(chan sip.Message, 8)}
 				sessions[callID] = sess
 				wg.Add(1)
-				go func(callNumber int, id string, startMsg *sip.Message, sess *serverUDPSession) {
+				go func(id string, inbox chan sip.Message, callNumber int) {
 					defer wg.Done()
 					defer func() {
 						mu.Lock()
 						delete(sessions, id)
-						finished++
-						if e.serverFinishedAll(finished) {
-							doneOnce.Do(func() { close(done) })
-						}
 						mu.Unlock()
+						co.mu.Lock()
+						co.finishCallUnlocked(e)
+						co.mu.Unlock()
 					}()
-					sess.inbox <- startMsg
-
-					receive := func(waitCtx context.Context) (*sip.Message, error) {
-						return recvPooledFromMailboxWaitFirst(waitCtx, sess.inbox)
+					receive := func(waitCtx context.Context) (sip.Message, error) {
+						return recvSIPValueFromMailboxWaitFirst(waitCtx, inbox)
 					}
 					send := func(payload []byte) error {
-						return sess.shared.Send(payload, sess.remote)
+						writeMu.Lock()
+						defer writeMu.Unlock()
+						return reader.Write(payload)
 					}
-
-					send = e.wrapSIPSend(callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send)
-					receive = e.wrapSIPReceive(callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, receive)
-					_ = e.executeCall(ctx, callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send, receive, func(host string, port int) (string, error) {
-						resolved, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, port))
-						if err != nil {
-							return "", fmt.Errorf("setdest failed to resolve %s:%d: %w", host, port, err)
-						}
-						sess.remote = resolved
-						return resolved.IP.String(), nil
-					})
-				}(callNumber, callID, msg, sess)
-				mu.Unlock()
-				continue
+					remote := conn.RemoteAddr().(*net.TCPAddr)
+					localIP := resolveLocalIP(reader.LocalPort(), bindIP, remote.IP.String(), remote.Port)
+					send = e.wrapSIPSend(callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
+					recv := adaptReceiveToPtr(receive)
+					recv = e.wrapSIPReceive(callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, recv)
+					_ = e.executeCall(ctx, sipTransport, callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, recv, nil)
+				}(callID, sess.inbox, callNumber)
 			}
 			mu.Unlock()
 
 			select {
 			case sess.inbox <- msg:
 			default:
-				e.log.Emit(eventlog.Event{
-					Time:  time.Now(),
-					Level: eventlog.LevelWarn,
-					Kind:  eventlog.KindSIPMailboxDrop,
-					Msg:   "SIP message dropped (server UDP session mailbox full)",
-					Attrs: map[string]any{"call_id": callID},
-				})
-				sip.PutMessage(msg)
 			}
 		}
 	}()
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-done:
-		wg.Wait()
-		return nil
+	<-done
+	wg.Wait()
+	return nil
+}
+
+func (e *Engine) runServerTCPPerConnOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int) error {
+	server, err := transport.NewTCPServer(bindAddr)
+	if err != nil {
+		return fmt.Errorf("tcp listener %s: %w", bindAddr, err)
+	}
+	defer server.Close()
+
+	var wg sync.WaitGroup
+	for {
+		conn, err := server.Accept(ctx)
+		if err != nil {
+			wg.Wait()
+			return err
+		}
+		callNumber, ok := co.reserveCallSlot(e)
+		if !ok {
+			conn.Close()
+			wg.Wait()
+			return nil
+		}
+		wg.Add(1)
+		go func(callNumber int, conn *net.TCPConn) {
+			defer wg.Done()
+			defer conn.Close()
+			defer func() {
+				co.mu.Lock()
+				co.finishCallUnlocked(e)
+				co.mu.Unlock()
+			}()
+
+			reader := transport.NewTCPConnReader(conn)
+			first, err := waitForFirstServerMessage(ctx, reader, firstRecvIndex, e.cfg.Scenario.Commands[firstRecvIndex])
+			if err != nil {
+				return
+			}
+			callID, ok := sip.Header(first.Headers, "Call-ID")
+			if !ok {
+				return
+			}
+			callID = sip.NormalizeCallID(callID)
+			inbox := make(chan sip.Message, 8)
+			inbox <- first
+			receive := func(waitCtx context.Context) (sip.Message, error) {
+				select {
+				case <-waitCtx.Done():
+					return sip.Message{}, waitCtx.Err()
+				case msg, ok := <-inbox:
+					if !ok {
+						return sip.Message{}, errSIPMailboxClosed
+					}
+					return msg, nil
+				default:
+					msg, err := reader.Read(waitCtx)
+					if err != nil {
+						return sip.Message{}, err
+					}
+					return msg, nil
+				}
+			}
+			send := func(payload []byte) error { return reader.Write(payload) }
+			remote := conn.RemoteAddr().(*net.TCPAddr)
+			localIP := resolveLocalIP(reader.LocalPort(), bindIP, remote.IP.String(), remote.Port)
+			send = e.wrapSIPSend(callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
+			recv := adaptReceiveToPtr(receive)
+			recv = e.wrapSIPReceive(callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, recv)
+			_ = e.executeCall(ctx, sipTransport, callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, recv, nil)
+		}(callNumber, conn)
+	}
+}
+
+func (e *Engine) udpServerReceivePump(
+	ctx context.Context,
+	co *serverMultiCoordinator,
+	sipTransport string,
+	shared *transport.SharedUDP,
+	bindIP string,
+	firstRecvIndex int,
+) {
+	for packet := range shared.Receive() {
+		msg := sip.GetMessage()
+		if err := sip.ParseInto(msg, packet.Data); err != nil {
+			sip.PutMessage(msg)
+			continue
+		}
+
+		callID, ok := sip.Header(msg.Headers, "Call-ID")
+		if !ok {
+			sip.PutMessage(msg)
+			continue
+		}
+		callID = sip.NormalizeCallID(callID)
+
+		co.mu.Lock()
+		sess, exists := co.sessions[callID]
+		if !exists {
+			firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
+			if !sip.Match(*msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(co.accepted) {
+				co.mu.Unlock()
+				sip.PutMessage(msg)
+				continue
+			}
+			co.accepted++
+			callNumber := co.accepted
+
+			remote := packet.Addr
+			if viaAddr := resolveResponseAddr(*msg, packet.Addr); viaAddr != nil {
+				remote = viaAddr
+			}
+			localPort := shared.LocalPort()
+			sess = &serverUDPSession{
+				inbox:     make(chan *sip.Message, sipMailboxCap),
+				remote:    remote,
+				shared:    shared,
+				localIP:   resolveLocalIP(localPort, bindIP, remote.IP.String(), remote.Port),
+				localPort: localPort,
+			}
+			co.sessions[callID] = sess
+			co.wg.Add(1)
+			go func(callNumber int, id string, startMsg *sip.Message, sess *serverUDPSession, tr string) {
+				defer co.wg.Done()
+				defer func() {
+					co.mu.Lock()
+					delete(co.sessions, id)
+					co.finishCallUnlocked(e)
+					co.mu.Unlock()
+				}()
+				sess.inbox <- startMsg
+
+				receive := func(waitCtx context.Context) (*sip.Message, error) {
+					return recvPooledFromMailboxWaitFirst(waitCtx, sess.inbox)
+				}
+				send := func(payload []byte) error {
+					return sess.shared.Send(payload, sess.remote)
+				}
+
+				send = e.wrapSIPSend(callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send)
+				receive = e.wrapSIPReceive(callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, receive)
+				_ = e.executeCall(ctx, tr, callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send, receive, func(host string, port int) (string, error) {
+					resolved, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, port))
+					if err != nil {
+						return "", fmt.Errorf("setdest failed to resolve %s:%d: %w", host, port, err)
+					}
+					sess.remote = resolved
+					return resolved.IP.String(), nil
+				})
+			}(callNumber, callID, msg, sess, sipTransport)
+			co.mu.Unlock()
+			continue
+		}
+		co.mu.Unlock()
+
+		select {
+		case sess.inbox <- msg:
+		default:
+			e.log.Emit(eventlog.Event{
+				Time:  time.Now(),
+				Level: eventlog.LevelWarn,
+				Kind:  eventlog.KindSIPMailboxDrop,
+				Msg:   "SIP message dropped (server UDP session mailbox full)",
+				Attrs: map[string]any{"call_id": callID},
+			})
+			sip.PutMessage(msg)
+		}
 	}
 }
 
@@ -1210,7 +1521,7 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 						}
 						send = e.wrapSIPSend(callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send)
 						receive = e.wrapSIPReceive(callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, receive)
-						_ = e.executeCall(ctx, callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send, receive, func(host string, port int) (string, error) {
+						_ = e.executeCall(ctx, e.cfg.Transport, callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send, receive, func(host string, port int) (string, error) {
 							resolved, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, port))
 							if err != nil {
 								return "", fmt.Errorf("setdest failed to resolve %s:%d: %w", host, port, err)
@@ -1333,7 +1644,7 @@ func (e *Engine) runServerTCPShared(ctx context.Context) error {
 					send = e.wrapSIPSend(callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
 					recv := adaptReceiveToPtr(receive)
 					recv = e.wrapSIPReceive(callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, recv)
-					_ = e.executeCall(ctx, callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, recv, nil)
+					_ = e.executeCall(ctx, e.cfg.Transport, callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, recv, nil)
 				}(callID, sess.inbox, callNumber)
 			}
 			mu.Unlock()
@@ -1408,7 +1719,7 @@ func (e *Engine) runServerTCPPerConn(ctx context.Context) error {
 			send = e.wrapSIPSend(callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
 			recv := adaptReceiveToPtr(receive)
 			recv = e.wrapSIPReceive(callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, recv)
-			_ = e.executeCall(ctx, callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, recv, nil)
+			_ = e.executeCall(ctx, e.cfg.Transport, callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, recv, nil)
 		}(accepted+1, conn)
 	}
 	wg.Wait()
@@ -1417,6 +1728,7 @@ func (e *Engine) runServerTCPPerConn(ctx context.Context) error {
 
 func (e *Engine) executeCall(
 	ctx context.Context,
+	sipTransport string,
 	callNumber int,
 	callID string,
 	localIP string,
@@ -1452,7 +1764,7 @@ func (e *Engine) executeCall(
 			"local_port":  localPort,
 			"remote_ip":   remoteHost,
 			"remote_port": remotePort,
-			"transport":   e.cfg.Transport,
+			"transport":   sipTransport,
 		},
 	})
 	defer func() {
@@ -1500,7 +1812,7 @@ func (e *Engine) executeCall(
 	scen := e.snapshotLiveScenario()
 	renderCtx := templ.Context{
 		Service:     e.cfg.Service,
-		Transport:   e.cfg.Transport,
+		Transport:   sipTransport,
 		RemoteHost:  remoteHost,
 		RemoteIP:    remoteHost,
 		RemotePort:  remotePort,
@@ -1692,7 +2004,7 @@ func (e *Engine) executeCall(
 			}
 
 			retransmit := lastRetrans
-			isTCP := !strings.HasPrefix(e.cfg.Transport, "u")
+			isTCP := !strings.HasPrefix(sipTransport, "u")
 			if isTCP {
 				retransmit = 0
 			}

@@ -257,6 +257,32 @@ func TestParseConfigServerExampleJSON(t *testing.T) {
 	}
 }
 
+func TestParseConfigServerMultiListenerExampleJSON(t *testing.T) {
+	t.Parallel()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	path := filepath.Join(repoRoot, "examples", "gossipper-server-multi-listener.json")
+	cfg, err := Parse([]string{"-config-server", path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.ServerListeners) != 3 {
+		t.Fatalf("listeners=%+v", cfg.ServerListeners)
+	}
+	if cfg.ServerListeners[0].LocalPort != 5060 || cfg.ServerListeners[1].LocalPort != 5061 || cfg.ServerListeners[2].LocalPort != 5062 {
+		t.Fatalf("ports %+v", cfg.ServerListeners)
+	}
+	if cfg.ServerListeners[1].Transport != "t1" {
+		t.Fatalf("second transport=%q want t1", cfg.ServerListeners[1].Transport)
+	}
+	if cfg.ScenarioName != "uas" {
+		t.Fatalf("scenario=%q", cfg.ScenarioName)
+	}
+}
+
 func TestParseConfigClientExampleJSON(t *testing.T) {
 	t.Parallel()
 	_, file, _, ok := runtime.Caller(0)
@@ -277,6 +303,31 @@ func TestParseConfigClientExampleJSON(t *testing.T) {
 	}
 	if cfg.TotalCalls != 1 || !cfg.TotalCallsSetExplicitly {
 		t.Fatalf("total_calls: m=%d explicit=%v", cfg.TotalCalls, cfg.TotalCallsSetExplicitly)
+	}
+}
+
+func TestApplyRunSpecListenersSyncsPrimaryBind(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Transport = "u1"
+	cfg.LocalIP = "0.0.0.0"
+	cfg.LocalPort = 5060
+	p9999 := 9999
+	spec := runSpec{
+		Listeners: []listenerRunSpec{
+			{LocalIP: ptr("10.0.0.1"), LocalPort: &p9999},
+		},
+	}
+	if err := applyRunSpec(&cfg, &spec, "."); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.ServerListeners) != 1 {
+		t.Fatalf("listeners len=%d", len(cfg.ServerListeners))
+	}
+	if cfg.LocalIP != "10.0.0.1" || cfg.LocalPort != 9999 {
+		t.Fatalf("primary bind got %s:%d", cfg.LocalIP, cfg.LocalPort)
+	}
+	if cfg.ServerListeners[0].Transport != "u1" {
+		t.Fatalf("listener transport=%q", cfg.ServerListeners[0].Transport)
 	}
 }
 

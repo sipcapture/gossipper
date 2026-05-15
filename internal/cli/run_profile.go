@@ -26,6 +26,12 @@ type runProfileMeta struct {
 
 // runSpec is one alias entry in a gossipper run profile JSON file.
 // Field names are stable snake_case; optional pointers mean "leave Config default".
+type listenerRunSpec struct {
+	Transport *string `json:"transport,omitempty"`
+	LocalIP   *string `json:"local_ip,omitempty"`
+	LocalPort *int    `json:"local_port,omitempty"`
+}
+
 type runSpec struct {
 	ScenarioFile                   *string  `json:"scenario_file,omitempty"`
 	ScenarioName                   *string  `json:"scenario_name,omitempty"`
@@ -71,6 +77,7 @@ type runSpec struct {
 	Server                         *bool    `json:"server,omitempty"`
 	ExtraArgs                      []string `json:"extra_args,omitempty"`
 	PCAPLink                       *string  `json:"pcap_link,omitempty"`
+	Listeners                      []listenerRunSpec `json:"listeners,omitempty"`
 }
 
 type runProfileFile struct {
@@ -387,6 +394,35 @@ func applyRunSpec(cfg *Config, spec *runSpec, configDir string) error {
 	}
 	if spec.PCAPLink != nil {
 		cfg.PCAPLinkLayer = strings.TrimSpace(*spec.PCAPLink)
+	}
+	if len(spec.Listeners) > 0 {
+		cfg.ServerListeners = nil
+		for _, ls := range spec.Listeners {
+			ln := ServerListener{}
+			if ls.Transport != nil {
+				ln.Transport = strings.TrimSpace(*ls.Transport)
+			}
+			if ls.LocalIP != nil {
+				ln.LocalIP = strings.TrimSpace(*ls.LocalIP)
+			}
+			if ls.LocalPort != nil {
+				ln.LocalPort = *ls.LocalPort
+			}
+			if ln.Transport == "" {
+				ln.Transport = cfg.Transport
+			}
+			if ln.LocalIP == "" {
+				ln.LocalIP = cfg.LocalIP
+			}
+			if ln.LocalPort == 0 {
+				ln.LocalPort = cfg.LocalPort
+			}
+			cfg.ServerListeners = append(cfg.ServerListeners, ln)
+		}
+		first := cfg.ServerListeners[0]
+		cfg.Transport = first.Transport
+		cfg.LocalIP = first.LocalIP
+		cfg.LocalPort = first.LocalPort
 	}
 	return nil
 }

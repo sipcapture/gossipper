@@ -72,7 +72,7 @@ func (e *Engine) runClientSharedTLS(ctx context.Context) error {
 			localIP := resolveLocalIP(shared.LocalPort(), e.cfg.LocalIP, e.cfg.RemoteHost, e.cfg.RemotePort)
 			send = e.wrapSIPSend(callNumber, callID, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send)
 			receive = e.wrapSIPReceive(callNumber, callID, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, receive)
-			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive, nil)
+			runErrLocal := e.executeCall(ctx, e.cfg.Transport, callNumber, callID, localIP, shared.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive, nil)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
 			}
@@ -119,7 +119,7 @@ func (e *Engine) runClientPerCallTLS(ctx context.Context) error {
 			receive := adaptReceiveToPtr(func(waitCtx context.Context) (sip.Message, error) { return dialog.Receive(waitCtx) })
 			send = e.wrapSIPSend(callNumber, callID, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send)
 			receive = e.wrapSIPReceive(callNumber, callID, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, receive)
-			runErrLocal := e.executeCall(ctx, callNumber, callID, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive, nil)
+			runErrLocal := e.executeCall(ctx, e.cfg.Transport, callNumber, callID, localIP, dialog.LocalPort(), e.cfg.RemoteHost, e.cfg.RemotePort, send, receive, nil)
 			if runErrLocal != nil {
 				once.Do(func() { runErr = runErrLocal })
 			}
@@ -206,7 +206,7 @@ func (e *Engine) runServerTLSShared(ctx context.Context) error {
 					localIP := resolveLocalIP(reader.LocalPort(), e.cfg.LocalIP, remote.IP.String(), remote.Port)
 					send = e.wrapSIPSend(callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
 					receive = e.wrapSIPReceive(callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, receive)
-					_ = e.executeCall(ctx, callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive, nil)
+					_ = e.executeCall(ctx, e.cfg.Transport, callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive, nil)
 				}(callID, sess.inbox, callNumber)
 			}
 			mu.Unlock()
@@ -271,9 +271,182 @@ func (e *Engine) runServerTLSPerConn(ctx context.Context) error {
 			localIP := resolveLocalIP(reader.LocalPort(), e.cfg.LocalIP, remote.IP.String(), remote.Port)
 			send = e.wrapSIPSend(callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
 			receive = e.wrapSIPReceive(callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, receive)
-			_ = e.executeCall(ctx, callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive, nil)
+			_ = e.executeCall(ctx, e.cfg.Transport, callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive, nil)
 		}(accepted+1, conn)
 	}
 	wg.Wait()
 	return nil
+}
+
+func (e *Engine) runServerTLSSharedOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int) error {
+	serverCfg, err := e.serverTLSConfig()
+	if err != nil {
+		return fmt.Errorf("tls listener %s: %w", bindAddr, err)
+	}
+	server, err := transport.NewTLSServer(bindAddr, serverCfg)
+	if err != nil {
+		return fmt.Errorf("tls listener %s: %w", bindAddr, err)
+	}
+	defer server.Close()
+
+	conn, err := server.Accept(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	reader := transport.NewTLSConnReader(conn)
+	var writeMu sync.Mutex
+
+	type session struct{ inbox chan sip.Message }
+
+	var (
+		mu       sync.Mutex
+		sessions = make(map[string]*session)
+		wg       sync.WaitGroup
+		done     = make(chan struct{})
+	)
+
+	go func() {
+		defer close(done)
+		for {
+			msg, err := reader.Read(ctx)
+			if err != nil {
+				return
+			}
+			callID, ok := sip.Header(msg.Headers, "Call-ID")
+			if !ok {
+				continue
+			}
+			callID = sip.NormalizeCallID(callID)
+			mu.Lock()
+			sess, exists := sessions[callID]
+			if !exists {
+				firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
+				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) {
+					mu.Unlock()
+					continue
+				}
+				mu.Unlock()
+				callNumber, ok := co.reserveCallSlot(e)
+				if !ok {
+					continue
+				}
+				mu.Lock()
+				if _, taken := sessions[callID]; taken {
+					mu.Unlock()
+					co.refundReservedSlot()
+					continue
+				}
+				sess = &session{inbox: make(chan sip.Message, 8)}
+				sessions[callID] = sess
+				wg.Add(1)
+				go func(id string, inbox chan sip.Message, callNumber int) {
+					defer wg.Done()
+					defer func() {
+						mu.Lock()
+						delete(sessions, id)
+						mu.Unlock()
+						co.mu.Lock()
+						co.finishCallUnlocked(e)
+						co.mu.Unlock()
+					}()
+					receive := adaptReceiveToPtr(func(waitCtx context.Context) (sip.Message, error) {
+						select {
+						case <-waitCtx.Done():
+							return sip.Message{}, waitCtx.Err()
+						case msg := <-inbox:
+							return msg, nil
+						}
+					})
+					send := func(payload []byte) error {
+						writeMu.Lock()
+						defer writeMu.Unlock()
+						return reader.Write(payload)
+					}
+					remote := conn.RemoteAddr().(*net.TCPAddr)
+					localIP := resolveLocalIP(reader.LocalPort(), bindIP, remote.IP.String(), remote.Port)
+					send = e.wrapSIPSend(callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
+					receive = e.wrapSIPReceive(callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, receive)
+					_ = e.executeCall(ctx, sipTransport, callNumber, id, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive, nil)
+				}(callID, sess.inbox, callNumber)
+			}
+			mu.Unlock()
+
+			select {
+			case sess.inbox <- msg:
+			default:
+			}
+		}
+	}()
+
+	<-done
+	wg.Wait()
+	return nil
+}
+
+func (e *Engine) runServerTLSPerConnOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int) error {
+	serverCfg, err := e.serverTLSConfig()
+	if err != nil {
+		return fmt.Errorf("tls listener %s: %w", bindAddr, err)
+	}
+	server, err := transport.NewTLSServer(bindAddr, serverCfg)
+	if err != nil {
+		return fmt.Errorf("tls listener %s: %w", bindAddr, err)
+	}
+	defer server.Close()
+
+	var wg sync.WaitGroup
+	for {
+		conn, err := server.Accept(ctx)
+		if err != nil {
+			wg.Wait()
+			return err
+		}
+		callNumber, ok := co.reserveCallSlot(e)
+		if !ok {
+			conn.Close()
+			wg.Wait()
+			return nil
+		}
+		wg.Add(1)
+		go func(callNumber int, conn *tls.Conn) {
+			defer wg.Done()
+			defer conn.Close()
+			defer func() {
+				co.mu.Lock()
+				co.finishCallUnlocked(e)
+				co.mu.Unlock()
+			}()
+
+			reader := transport.NewTLSConnReader(conn)
+			first, err := waitForFirstServerMessage(ctx, reader, firstRecvIndex, e.cfg.Scenario.Commands[firstRecvIndex])
+			if err != nil {
+				return
+			}
+			callID, ok := sip.Header(first.Headers, "Call-ID")
+			if !ok {
+				return
+			}
+			callID = sip.NormalizeCallID(callID)
+			inbox := make(chan sip.Message, 8)
+			inbox <- first
+			receive := adaptReceiveToPtr(func(waitCtx context.Context) (sip.Message, error) {
+				select {
+				case <-waitCtx.Done():
+					return sip.Message{}, waitCtx.Err()
+				case msg := <-inbox:
+					return msg, nil
+				default:
+					return reader.Read(waitCtx)
+				}
+			})
+			send := func(payload []byte) error { return reader.Write(payload) }
+			remote := conn.RemoteAddr().(*net.TCPAddr)
+			localIP := resolveLocalIP(reader.LocalPort(), bindIP, remote.IP.String(), remote.Port)
+			send = e.wrapSIPSend(callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send)
+			receive = e.wrapSIPReceive(callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, receive)
+			_ = e.executeCall(ctx, sipTransport, callNumber, callID, localIP, reader.LocalPort(), remote.IP.String(), remote.Port, send, receive, nil)
+		}(callNumber, conn)
+	}
 }

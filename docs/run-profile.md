@@ -33,7 +33,7 @@ For **systemd** or any long-lived **Control UI** deployment, you can keep a **si
 - With **`-server`** or **`-config-server`**, if **`local_port`** is absent and **`-p`** is not passed on the command line, gossipper sets **`5060`** (pass **`-p 0`** explicitly for an ephemeral SIP port).
 - Remaining argv (e.g. **`-api_token`**, **`-p`** to override JSON) still wins per the merge order below.
 
-Example: [`examples/gossipper-server.json`](../examples/gossipper-server.json).
+Example: [`examples/gossipper-server.json`](../examples/gossipper-server.json). Several binds (UDP `u1` / `un`, TCP `t1`, TLS `l1` / `ln`, or mixed): [`examples/gossipper-server-multi-listener.json`](../examples/gossipper-server-multi-listener.json).
 
 ```bash
 gossipper -config-server /etc/gossipper/server.json
@@ -100,6 +100,7 @@ These JSON keys map to `Config` / CLI (snake_case in JSON only):
 | `transport` | string | `-t` (`u1`, `un`, …) |
 | `local_ip` | string | `-i` |
 | `local_port` | int | `-p` |
+| `listeners` | object[] | **`-server` / UAS only:** several SIP binds in parallel. Each element: `transport` (`u1`, `un`, `t1`, `tn`, `l1`, `ln`; optional — inherits top-level `transport`), `local_ip`, `local_port` (optional fields inherit top-level `local_ip` / `local_port`). **TLS** listeners require **`tls_cert`** / **`tls_key`** (CLI or `extra_args`). Global `total_calls` counts accepted calls across all listeners. |
 | `remote_addr` | string | `-rsa` (`host:port`) — UAC remote peer; **not** the UAS SIP listen address (use `local_ip` / `local_port` for `-server` / UAS bind) |
 | `auth_username` | string | `-au` |
 | `auth_password` | string | `-ap` |

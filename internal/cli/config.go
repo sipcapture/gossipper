@@ -15,6 +15,14 @@ import (
 	"github.com/sipcapture/gossipper/mediasink"
 )
 
+// ServerListener is one SIP server bind for --server when using the "listeners" config array.
+// Transport must be u1, un, t1, tn, l1, or ln (TLS requires tls_cert / tls_key in config).
+type ServerListener struct {
+	Transport string `json:"transport,omitempty"`
+	LocalIP   string `json:"local_ip,omitempty"`
+	LocalPort int    `json:"local_port,omitempty"`
+}
+
 const (
 	DefaultTransport       = "u1"
 	DefaultRate            = 1.0
@@ -34,6 +42,9 @@ type Config struct {
 	Transport        string
 	LocalIP          string
 	LocalPort        int
+	// ServerListeners binds several SIP server sockets in --server when non-empty
+	// (UDP u1/un, TCP t1/tn, TLS l1/ln, or mixed; see run profile "listeners").
+	ServerListeners []ServerListener
 	RemoteHost       string
 	RemotePort       int
 	AuthUsername     string
