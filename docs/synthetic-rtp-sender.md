@@ -17,7 +17,8 @@ There are two independent entry points:
 ## Standalone CLI mode
 
 Run Gossipper as a pure RTP generator by passing `-rtp_send`.  The SIP scenario
-engine is bypassed entirely.
+engine is bypassed entirely. You may prefix the same flag tail with **`gossipper sipp`**
+if you want the SIPp-oriented entry point; behavior is identical to the root command.
 
 ### Required flag
 

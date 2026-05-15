@@ -63,12 +63,13 @@ The current MVP implements:
 - `internal/scheduler`: timing abstraction
 - `internal/stats`: counters and summaries
 - `internal/media`: RTP helpers backed by Pion
-- `docs`: compatibility matrix, media roadmap, testing strategy
+- `docs`: [`cli.md`](docs/cli.md) (process CLI), compatibility matrix, media roadmap, testing strategy
 
 ## Documentation
 
+- `docs/cli.md`: **subcommands** (`shell`, `tui`, `server`, …), optional **`gossipper sipp`**, run-profile path vs helpers
 - `docs/gossipper-vs-sipp.md`: high-level overview of what `Gossipper` can do and how it compares to SIPp
-- `docs/compatibility.md`: current XML, keyword, action, transport, and CLI compatibility matrix (including [TLS socket modes](docs/compatibility.md#tls-socket-modes-sipp-style) vs SIPp / [issue #7](https://github.com/sipcapture/gossipper/issues/7))
+- `docs/compatibility.md`: XML, keyword, action, transport, and scenario-time CLI compatibility matrix (including [TLS socket modes](docs/compatibility.md#tls-socket-modes-sipp-style) vs SIPp / [issue #7](https://github.com/sipcapture/gossipper/issues/7)); process-level CLI in `docs/cli.md`
 - `docs/architecture.md`: package-level architecture and execution model
 - `docs/media-roadmap.md`: media-related scope, next steps, and deferred items
 - `docs/compatibility-testing.md`: testing approach for compatibility work and regression coverage

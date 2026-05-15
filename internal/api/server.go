@@ -57,6 +57,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/scenario/apply", s.wrap(s.handleScenarioApply))
 	mux.HandleFunc("GET /api/v1/control", s.wrap(s.handleControlGet))
 	mux.HandleFunc("POST /api/v1/control", s.wrap(s.handleControlPost))
+	mux.HandleFunc("GET /api/v1/transports", s.wrap(s.handleTransportsGet))
+	mux.HandleFunc("POST /api/v1/transports", s.wrap(s.handleTransportsPost))
 	registerEmbeddedControlUI(mux)
 	return mux
 }
@@ -289,6 +291,63 @@ func (s *Server) handleControlPost(w http.ResponseWriter, r *http.Request) {
 		e.Resume()
 	}
 	s.handleControlGet(w, r)
+}
+
+type transportsGetResponse struct {
+	Listeners []engine.TransportListenerState `json:"listeners"`
+}
+
+func (s *Server) handleTransportsGet(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.Engine == nil {
+		s.jsonErr(w, http.StatusServiceUnavailable, "engine unavailable")
+		return
+	}
+	out := transportsGetResponse{Listeners: s.cfg.Engine.TransportListenerStates()}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if err := json.NewEncoder(w).Encode(out); err != nil {
+		s.logger.Error("api: encode transports", "error", err)
+	}
+}
+
+type transportToggle struct {
+	Index   int  `json:"index"`
+	Enabled bool `json:"enabled"`
+}
+
+type transportsPostBody struct {
+	Listeners []transportToggle `json:"listeners"`
+	// Single-toggle shorthand when listeners is omitted: {"index":0,"enabled":false}
+	Index   *int  `json:"index,omitempty"`
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+func (s *Server) handleTransportsPost(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.Engine == nil {
+		s.jsonErr(w, http.StatusServiceUnavailable, "engine unavailable")
+		return
+	}
+	var body transportsPostBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		s.jsonErr(w, http.StatusBadRequest, fmt.Sprintf("invalid json: %v", err))
+		return
+	}
+	var ops []transportToggle
+	if len(body.Listeners) > 0 {
+		ops = append(ops, body.Listeners...)
+	} else if body.Index != nil && body.Enabled != nil {
+		ops = append(ops, transportToggle{Index: *body.Index, Enabled: *body.Enabled})
+	} else {
+		s.jsonErr(w, http.StatusBadRequest, "provide listeners[] or index and enabled")
+		return
+	}
+	e := s.cfg.Engine
+	for _, op := range ops {
+		if err := e.SetTransportListenerEnabled(op.Index, op.Enabled); err != nil {
+			s.jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	s.handleTransportsGet(w, r)
 }
 
 func atomicWriteFile(path string, data []byte) error {

@@ -54,15 +54,24 @@ type ServerListener struct {
 	LocalPort int
 }
 
+// TransportListenerState describes one SIP server bind for runtime enable/disable via the HTTP API.
+type TransportListenerState struct {
+	Index     int    `json:"index"`
+	Transport string `json:"transport"`
+	LocalIP   string `json:"local_ip"`
+	LocalPort int    `json:"local_port"`
+	Enabled   bool   `json:"enabled"`
+}
+
 type Config struct {
-	Scenario         scenario.Scenario
-	Transport        string
-	LocalIP          string
-	LocalPort        int
+	Scenario  scenario.Scenario
+	Transport string
+	LocalIP   string
+	LocalPort int
 	// ServerListeners, when non-empty, runs parallel SIP listeners (u1/un/t1/tn/l1/ln, or mixed).
 	// UDP Call-ID sessions are shared across all u1/un sockets; TCP/TLS use separate accept paths.
 	// TotalCalls applies to accepted calls summed across all listeners.
-	ServerListeners []ServerListener
+	ServerListeners  []ServerListener
 	RemoteHost       string
 	RemotePort       int
 	Service          string
@@ -167,7 +176,7 @@ type Engine struct {
 	hep      *hep.Client
 	log      eventlog.Logger
 
-	// liveScenario is the SIP scenario executed by new and running calls (executeCall).
+	// liveScenario is the SIP scenario used for new calls (executeCall snapshots it at call start).
 	// It starts as a copy of cfg.Scenario and can be replaced at runtime via TryReplaceLiveScenario
 	// when no calls are active and the mode matches the original scenario.
 	liveScMu     sync.RWMutex
@@ -185,6 +194,11 @@ type Engine struct {
 	perSocketMode  atomic.Bool
 	runtimeMaxConc atomic.Int64 // user-set value (0 = use cfg.MaxConcurrent)
 
+	// listenerAccept toggles whether each server SIP listener accepts new dialogs.
+	// Length is 1 for single-listener server mode, or len(ServerListeners) for multi-listen.
+	// Empty in client (UAC) mode.
+	listenerAccept []atomic.Bool
+
 	callRecordsMu sync.Mutex
 }
 
@@ -197,7 +211,7 @@ func New(cfg Config) *Engine {
 	if limit < 1 {
 		limit = 1
 	}
-	return &Engine{
+	e := &Engine{
 		cfg:          cfg,
 		sched:        scheduler.New(),
 		rate:         scheduler.NewRateController(cfg.Rate),
@@ -210,6 +224,73 @@ func New(cfg Config) *Engine {
 		startTime:    time.Now(),
 		sem:          newDynSemaphore(limit),
 	}
+	if n := serverTransportControlSlots(cfg); n > 0 {
+		e.listenerAccept = make([]atomic.Bool, n)
+		for i := range e.listenerAccept {
+			e.listenerAccept[i].Store(true)
+		}
+	}
+	return e
+}
+
+func serverTransportControlSlots(cfg Config) int {
+	if cfg.Scenario.Mode != scenario.ModeServer {
+		return 0
+	}
+	if len(cfg.ServerListeners) > 0 {
+		return len(cfg.ServerListeners)
+	}
+	return 1
+}
+
+func (e *Engine) listenerAcceptNew(idx int) bool {
+	if len(e.listenerAccept) == 0 {
+		return true
+	}
+	if idx < 0 || idx >= len(e.listenerAccept) {
+		return true
+	}
+	return e.listenerAccept[idx].Load()
+}
+
+func (e *Engine) transportListenerMetas() []ServerListener {
+	if e.cfg.Scenario.Mode != scenario.ModeServer {
+		return nil
+	}
+	if len(e.cfg.ServerListeners) > 0 {
+		return e.cfg.ServerListeners
+	}
+	return []ServerListener{{Transport: e.cfg.Transport, LocalIP: e.cfg.LocalIP, LocalPort: e.cfg.LocalPort}}
+}
+
+// TransportListenerStates returns metadata and enabled flags for each server SIP listener slot.
+func (e *Engine) TransportListenerStates() []TransportListenerState {
+	metas := e.transportListenerMetas()
+	out := make([]TransportListenerState, 0, len(metas))
+	for i, m := range metas {
+		st := TransportListenerState{
+			Index: i, Transport: m.Transport, LocalIP: m.LocalIP, LocalPort: m.LocalPort,
+			Enabled: true,
+		}
+		if i < len(e.listenerAccept) {
+			st.Enabled = e.listenerAccept[i].Load()
+		}
+		out = append(out, st)
+	}
+	return out
+}
+
+// SetTransportListenerEnabled toggles whether a server listener accepts new SIP dialogs.
+// In-flight calls are not torn down; only new matches / accepts are affected.
+func (e *Engine) SetTransportListenerEnabled(index int, enabled bool) error {
+	if len(e.listenerAccept) == 0 {
+		return errors.New("transport toggles are only available in server (-server) mode")
+	}
+	if index < 0 || index >= len(e.listenerAccept) {
+		return fmt.Errorf("listener index %d out of range (0..%d)", index, len(e.listenerAccept)-1)
+	}
+	e.listenerAccept[index].Store(enabled)
+	return nil
 }
 
 // nextDynamicID returns the next unique [dynamic_id] value with INT32 wraparound, matching SIPp.
@@ -237,16 +318,31 @@ func (e *Engine) snapshotLiveScenario() scenario.Scenario {
 	return e.liveScenario
 }
 
-// TryReplaceLiveScenario swaps the live SIP scenario for subsequent calls.
+// snapshotLiveFirstRecvCommand returns the first <recv> command from the live scenario
+// for matching the initial SIP message on new server-side dialogs. Callers must not
+// retain the returned command across TryReplaceLiveScenario without re-querying.
+func (e *Engine) snapshotLiveFirstRecvCommand() (scenario.Command, bool) {
+	sc := e.snapshotLiveScenario()
+	i := firstReceiveIndex(sc)
+	if i < 0 || i >= len(sc.Commands) {
+		return scenario.Command{}, false
+	}
+	cmd := sc.Commands[i]
+	if cmd.Type != scenario.CommandRecv {
+		return scenario.Command{}, false
+	}
+	return cmd, true
+}
+
+// TryReplaceLiveScenario swaps the live SIP scenario for new calls.
+// Each call snapshots the scenario once at executeCall start, so in-flight calls
+// keep the previous scenario; new server-side sessions use the new scenario's first
+// <recv> for initial SIP matching on the accept path.
 // Init commands are not re-run; trace count specs stay based on the original scenario.
-// It fails if any call is active or if the new scenario mode differs from the startup scenario.
+// The new scenario mode must match the startup scenario mode (e.g. client vs server).
 func (e *Engine) TryReplaceLiveScenario(next scenario.Scenario) error {
 	if next.Mode != e.cfg.Scenario.Mode {
 		return fmt.Errorf("scenario mode %q does not match startup mode %q (restart required)", next.Mode, e.cfg.Scenario.Mode)
-	}
-	snap := e.Stats().Snapshot()
-	if snap.ActiveCalls > 0 {
-		return fmt.Errorf("cannot replace scenario while %d calls are active", snap.ActiveCalls)
 	}
 	e.liveScMu.Lock()
 	defer e.liveScMu.Unlock()
@@ -1044,7 +1140,7 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 	defer shared.Close()
 
 	st := newServerMultiCoordinator()
-	go e.udpServerReceivePump(ctx, st, e.cfg.Transport, shared, e.cfg.LocalIP, firstRecvIndex)
+	go e.udpServerReceivePump(ctx, st, e.cfg.Transport, shared, e.cfg.LocalIP, 0)
 
 	select {
 	case <-ctx.Done():
@@ -1066,12 +1162,13 @@ func (e *Engine) runServerMultiListeners(ctx context.Context) error {
 
 	errCh := make(chan error, len(e.cfg.ServerListeners))
 	var wg sync.WaitGroup
-	for _, ln := range e.cfg.ServerListeners {
-		ln := ln
+	for i := range e.cfg.ServerListeners {
+		ln := e.cfg.ServerListeners[i]
+		i := i
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := e.runOneServerListener(ctx, co, ln, firstRecvIndex); err != nil {
+			if err := e.runOneServerListener(ctx, co, ln, firstRecvIndex, i); err != nil {
 				select {
 				case errCh <- err:
 				default:
@@ -1113,7 +1210,7 @@ func (e *Engine) runServerMultiListeners(ctx context.Context) error {
 	}
 }
 
-func (e *Engine) runOneServerListener(ctx context.Context, co *serverMultiCoordinator, ln ServerListener, firstRecvIndex int) error {
+func (e *Engine) runOneServerListener(ctx context.Context, co *serverMultiCoordinator, ln ServerListener, firstRecvIndex int, listenerIdx int) error {
 	localAddr := fmt.Sprintf("%s:%d", ln.LocalIP, ln.LocalPort)
 	switch ln.Transport {
 	case "u1", "un":
@@ -1122,22 +1219,22 @@ func (e *Engine) runOneServerListener(ctx context.Context, co *serverMultiCoordi
 			return fmt.Errorf("udp listener %s: %w", localAddr, err)
 		}
 		defer shared.Close()
-		e.udpServerReceivePump(ctx, co, ln.Transport, shared, ln.LocalIP, firstRecvIndex)
+		e.udpServerReceivePump(ctx, co, ln.Transport, shared, ln.LocalIP, listenerIdx)
 		return nil
 	case "t1":
-		return e.runServerTCPSharedOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex)
+		return e.runServerTCPSharedOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex, listenerIdx)
 	case "tn":
-		return e.runServerTCPPerConnOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex)
+		return e.runServerTCPPerConnOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex, listenerIdx)
 	case "l1":
-		return e.runServerTLSSharedOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex)
+		return e.runServerTLSSharedOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex, listenerIdx)
 	case "ln":
-		return e.runServerTLSPerConnOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex)
+		return e.runServerTLSPerConnOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex, listenerIdx)
 	default:
 		return fmt.Errorf("unsupported listener transport %q", ln.Transport)
 	}
 }
 
-func (e *Engine) runServerTCPSharedOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int) error {
+func (e *Engine) runServerTCPSharedOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int, listenerIdx int) error {
 	server, err := transport.NewTCPServer(bindAddr)
 	if err != nil {
 		return fmt.Errorf("tcp listener %s: %w", bindAddr, err)
@@ -1179,7 +1276,15 @@ func (e *Engine) runServerTCPSharedOn(ctx context.Context, co *serverMultiCoordi
 			mu.Lock()
 			sess, exists := sessions[callID]
 			if !exists {
-				firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
+				if !e.listenerAcceptNew(listenerIdx) {
+					mu.Unlock()
+					continue
+				}
+				firstCmd, ok := e.snapshotLiveFirstRecvCommand()
+				if !ok {
+					mu.Unlock()
+					continue
+				}
 				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) {
 					mu.Unlock()
 					continue
@@ -1238,7 +1343,7 @@ func (e *Engine) runServerTCPSharedOn(ctx context.Context, co *serverMultiCoordi
 	return nil
 }
 
-func (e *Engine) runServerTCPPerConnOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int) error {
+func (e *Engine) runServerTCPPerConnOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int, listenerIdx int) error {
 	server, err := transport.NewTCPServer(bindAddr)
 	if err != nil {
 		return fmt.Errorf("tcp listener %s: %w", bindAddr, err)
@@ -1251,6 +1356,10 @@ func (e *Engine) runServerTCPPerConnOn(ctx context.Context, co *serverMultiCoord
 		if err != nil {
 			wg.Wait()
 			return err
+		}
+		if !e.listenerAcceptNew(listenerIdx) {
+			conn.Close()
+			continue
 		}
 		callNumber, ok := co.reserveCallSlot(e)
 		if !ok {
@@ -1269,7 +1378,11 @@ func (e *Engine) runServerTCPPerConnOn(ctx context.Context, co *serverMultiCoord
 			}()
 
 			reader := transport.NewTCPConnReader(conn)
-			first, err := waitForFirstServerMessage(ctx, reader, firstRecvIndex, e.cfg.Scenario.Commands[firstRecvIndex])
+			firstCmd, ok := e.snapshotLiveFirstRecvCommand()
+			if !ok {
+				return
+			}
+			first, err := waitForFirstServerMessage(ctx, reader, firstCmd)
 			if err != nil {
 				return
 			}
@@ -1314,7 +1427,7 @@ func (e *Engine) udpServerReceivePump(
 	sipTransport string,
 	shared *transport.SharedUDP,
 	bindIP string,
-	firstRecvIndex int,
+	listenerIdx int,
 ) {
 	for packet := range shared.Receive() {
 		msg := sip.GetMessage()
@@ -1333,7 +1446,17 @@ func (e *Engine) udpServerReceivePump(
 		co.mu.Lock()
 		sess, exists := co.sessions[callID]
 		if !exists {
-			firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
+			if !e.listenerAcceptNew(listenerIdx) {
+				co.mu.Unlock()
+				sip.PutMessage(msg)
+				continue
+			}
+			firstCmd, ok := e.snapshotLiveFirstRecvCommand()
+			if !ok {
+				co.mu.Unlock()
+				sip.PutMessage(msg)
+				continue
+			}
 			if !sip.Match(*msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(co.accepted) {
 				co.mu.Unlock()
 				sip.PutMessage(msg)
@@ -1479,7 +1602,17 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 				mu.Lock()
 				sess, exists := sessions[packet.callID]
 				if !exists {
-					firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
+					if !e.listenerAcceptNew(0) {
+						mu.Unlock()
+						sip.PutMessage(packet.msg)
+						continue
+					}
+					firstCmd, ok := e.snapshotLiveFirstRecvCommand()
+					if !ok {
+						mu.Unlock()
+						sip.PutMessage(packet.msg)
+						continue
+					}
 					if !sip.Match(*packet.msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(accepted) {
 						mu.Unlock()
 						sip.PutMessage(packet.msg)
@@ -1614,7 +1747,15 @@ func (e *Engine) runServerTCPShared(ctx context.Context) error {
 			mu.Lock()
 			sess, exists := sessions[callID]
 			if !exists {
-				firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
+				if !e.listenerAcceptNew(0) {
+					mu.Unlock()
+					continue
+				}
+				firstCmd, ok := e.snapshotLiveFirstRecvCommand()
+				if !ok {
+					mu.Unlock()
+					continue
+				}
 				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(len(sessions)) {
 					mu.Unlock()
 					continue
@@ -1679,13 +1820,21 @@ func (e *Engine) runServerTCPPerConn(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if !e.listenerAcceptNew(0) {
+			conn.Close()
+			continue
+		}
 		wg.Add(1)
 		go func(callNumber int, conn *net.TCPConn) {
 			defer wg.Done()
 			defer conn.Close()
 
 			reader := transport.NewTCPConnReader(conn)
-			first, err := waitForFirstServerMessage(ctx, reader, firstRecvIndex, e.cfg.Scenario.Commands[firstRecvIndex])
+			firstCmd, ok := e.snapshotLiveFirstRecvCommand()
+			if !ok {
+				return
+			}
+			first, err := waitForFirstServerMessage(ctx, reader, firstCmd)
 			if err != nil {
 				return
 			}
@@ -3626,7 +3775,7 @@ type tcpReader interface {
 	Read(context.Context) (sip.Message, error)
 }
 
-func waitForFirstServerMessage(ctx context.Context, reader tcpReader, firstRecvIndex int, firstCmd scenario.Command) (sip.Message, error) {
+func waitForFirstServerMessage(ctx context.Context, reader tcpReader, firstCmd scenario.Command) (sip.Message, error) {
 	for {
 		msg, err := reader.Read(ctx)
 		if err != nil {
@@ -3635,6 +3784,5 @@ func waitForFirstServerMessage(ctx context.Context, reader tcpReader, firstRecvI
 		if sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) {
 			return msg, nil
 		}
-		_ = firstRecvIndex
 	}
 }

@@ -10,6 +10,8 @@ gossipper shell
 gossipper cli
 ```
 
+The **`sipp`** prefix is **not** supported here — use **`gossipper shell`** / **`gossipper cli`** directly (**`gossipper sipp shell`** is rejected; see [`cli.md`](cli.md)).
+
 ## Commands (summary)
 
 | Command | Purpose |

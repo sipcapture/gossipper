@@ -19,7 +19,10 @@ optional explicit SIPp-style entry point.
 
 The **`gossipper server`** subcommand is the preferred entry for systemd-style
 management mode: **`gossipper server -config-server /path.json`** or
-**`gossipper server`** (equivalent to **`gossipper -server`**).
+**`gossipper server`** (prepends **`-server`** when the tail does not already
+include **`-server`** or **`-config-server`**; same end state as **`gossipper -server`**).
+
+Canonical CLI reference (subcommands, `sipp`, run profiles): [`cli.md`](cli.md).
 
 ## What `Gossipper` already does well
 

@@ -173,7 +173,15 @@ func (e *Engine) runServerTLSShared(ctx context.Context) error {
 			mu.Lock()
 			sess, exists := sessions[callID]
 			if !exists {
-				firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
+				if !e.listenerAcceptNew(0) {
+					mu.Unlock()
+					continue
+				}
+				firstCmd, ok := e.snapshotLiveFirstRecvCommand()
+				if !ok {
+					mu.Unlock()
+					continue
+				}
 				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(len(sessions)) {
 					mu.Unlock()
 					continue
@@ -241,12 +249,20 @@ func (e *Engine) runServerTLSPerConn(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if !e.listenerAcceptNew(0) {
+			conn.Close()
+			continue
+		}
 		wg.Add(1)
 		go func(callNumber int, conn *tls.Conn) {
 			defer wg.Done()
 			defer conn.Close()
 			reader := transport.NewTLSConnReader(conn)
-			first, err := waitForFirstServerMessage(ctx, reader, firstRecvIndex, e.cfg.Scenario.Commands[firstRecvIndex])
+			firstCmd, ok := e.snapshotLiveFirstRecvCommand()
+			if !ok {
+				return
+			}
+			first, err := waitForFirstServerMessage(ctx, reader, firstCmd)
 			if err != nil {
 				return
 			}
@@ -278,7 +294,7 @@ func (e *Engine) runServerTLSPerConn(ctx context.Context) error {
 	return nil
 }
 
-func (e *Engine) runServerTLSSharedOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int) error {
+func (e *Engine) runServerTLSSharedOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int, listenerIdx int) error {
 	serverCfg, err := e.serverTLSConfig()
 	if err != nil {
 		return fmt.Errorf("tls listener %s: %w", bindAddr, err)
@@ -322,7 +338,15 @@ func (e *Engine) runServerTLSSharedOn(ctx context.Context, co *serverMultiCoordi
 			mu.Lock()
 			sess, exists := sessions[callID]
 			if !exists {
-				firstCmd := e.cfg.Scenario.Commands[firstRecvIndex]
+				if !e.listenerAcceptNew(listenerIdx) {
+					mu.Unlock()
+					continue
+				}
+				firstCmd, ok := e.snapshotLiveFirstRecvCommand()
+				if !ok {
+					mu.Unlock()
+					continue
+				}
 				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) {
 					mu.Unlock()
 					continue
@@ -385,7 +409,7 @@ func (e *Engine) runServerTLSSharedOn(ctx context.Context, co *serverMultiCoordi
 	return nil
 }
 
-func (e *Engine) runServerTLSPerConnOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int) error {
+func (e *Engine) runServerTLSPerConnOn(ctx context.Context, co *serverMultiCoordinator, bindAddr, bindIP, sipTransport string, firstRecvIndex int, listenerIdx int) error {
 	serverCfg, err := e.serverTLSConfig()
 	if err != nil {
 		return fmt.Errorf("tls listener %s: %w", bindAddr, err)
@@ -402,6 +426,10 @@ func (e *Engine) runServerTLSPerConnOn(ctx context.Context, co *serverMultiCoord
 		if err != nil {
 			wg.Wait()
 			return err
+		}
+		if !e.listenerAcceptNew(listenerIdx) {
+			conn.Close()
+			continue
 		}
 		callNumber, ok := co.reserveCallSlot(e)
 		if !ok {
@@ -420,7 +448,11 @@ func (e *Engine) runServerTLSPerConnOn(ctx context.Context, co *serverMultiCoord
 			}()
 
 			reader := transport.NewTLSConnReader(conn)
-			first, err := waitForFirstServerMessage(ctx, reader, firstRecvIndex, e.cfg.Scenario.Commands[firstRecvIndex])
+			firstCmd, ok := e.snapshotLiveFirstRecvCommand()
+			if !ok {
+				return
+			}
+			first, err := waitForFirstServerMessage(ctx, reader, firstCmd)
 			if err != nil {
 				return
 			}
