@@ -113,6 +113,7 @@ export type StatsGetResponse =
 
 export type TransportListenerRow = {
   index: number
+  scenario_name: string
   transport: string
   local_ip: string
   local_port: number
@@ -121,6 +122,8 @@ export type TransportListenerRow = {
 
 export type ClientTransportRow = {
   id: string
+  scenario_name: string
+  dynamic: boolean
   transport: string
   local_ip: string
   local_port: number
@@ -131,6 +134,13 @@ export type ClientTransportRow = {
 export type TransportsResponse = {
   listeners: TransportListenerRow[]
   clients: ClientTransportRow[]
+  dynamic_client_api: { can_post: boolean; can_delete: boolean }
+}
+
+export type ClientsGetResponse = {
+  dynamic: string[]
+  engines: ClientTransportRow[]
+  dynamic_client_api: { can_post: boolean; can_delete: boolean }
 }
 
 export type PostTransportsBody = {
@@ -237,7 +247,7 @@ export function postControl(patch: ControlPatch, bearer?: string) {
 }
 
 export async function getDynamicClients(bearer?: string) {
-  return apiRequest<{ dynamic: string[] }>('/clients', { method: 'GET', bearer })
+  return apiRequest<ClientsGetResponse>('/clients', { method: 'GET', bearer })
 }
 
 export async function postDynamicClient(

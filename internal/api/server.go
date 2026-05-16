@@ -239,11 +239,36 @@ func (s *Server) collectClientTransportSummaries() []engine.ClientTransportSumma
 	return out
 }
 
-func (s *Server) buildTransportsGetResponse() transportsGetResponse {
-	return transportsGetResponse{
-		Listeners: s.cfg.Engine.TransportListenerStates(),
-		Clients:   s.collectClientTransportSummaries(),
+// markDynamicClientRows sets Dynamic=true for engines returned by LiveExtras (POST /clients).
+func (s *Server) markDynamicClientRows(rows []engine.ClientTransportSummary) {
+	if s.cfg.LiveExtras == nil {
+		return
 	}
+	_, dynIDs := s.cfg.LiveExtras()
+	dyn := make(map[string]struct{}, len(dynIDs))
+	for _, id := range dynIDs {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			dyn[id] = struct{}{}
+		}
+	}
+	for i := range rows {
+		if _, ok := dyn[rows[i].ID]; ok {
+			rows[i].Dynamic = true
+		}
+	}
+}
+
+func (s *Server) buildTransportsGetResponse() transportsGetResponse {
+	clients := s.collectClientTransportSummaries()
+	s.markDynamicClientRows(clients)
+	out := transportsGetResponse{
+		Listeners: s.cfg.Engine.TransportListenerStates(),
+		Clients:   clients,
+	}
+	out.DynamicClientAPI.CanPost = s.cfg.AddLoadClient != nil
+	out.DynamicClientAPI.CanDelete = s.cfg.RemoveLoadClient != nil
+	return out
 }
 
 func (s *Server) engineForClientTransportID(id string) (*engine.Engine, error) {
@@ -537,13 +562,27 @@ func (s *Server) handleControlPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleClientsGet(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.LiveExtras == nil {
-		s.jsonErr(w, http.StatusNotFound, "dynamic client listing is not available for this process")
+	if s.cfg.Engine == nil {
+		s.jsonErr(w, http.StatusServiceUnavailable, "engine unavailable")
 		return
 	}
-	_, ids := s.cfg.LiveExtras()
+	clients := s.collectClientTransportSummaries()
+	s.markDynamicClientRows(clients)
+	out := map[string]any{
+		"engines": clients,
+		"dynamic_client_api": map[string]bool{
+			"can_post":   s.cfg.AddLoadClient != nil,
+			"can_delete": s.cfg.RemoveLoadClient != nil,
+		},
+	}
+	if s.cfg.LiveExtras != nil {
+		_, ids := s.cfg.LiveExtras()
+		out["dynamic"] = ids
+	} else {
+		out["dynamic"] = []string{}
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(map[string]any{"dynamic": ids})
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 func (s *Server) handleClientsDelete(w http.ResponseWriter, r *http.Request) {
@@ -597,8 +636,12 @@ func (s *Server) handleClientsPost(w http.ResponseWriter, r *http.Request) {
 }
 
 type transportsGetResponse struct {
-	Listeners []engine.TransportListenerState `json:"listeners"`
-	Clients   []engine.ClientTransportSummary `json:"clients"`
+	Listeners        []engine.TransportListenerState `json:"listeners"`
+	Clients          []engine.ClientTransportSummary `json:"clients"`
+	DynamicClientAPI struct {
+		CanPost   bool `json:"can_post"`
+		CanDelete bool `json:"can_delete"`
+	} `json:"dynamic_client_api"`
 }
 
 func (s *Server) handleTransportsGet(w http.ResponseWriter, r *http.Request) {

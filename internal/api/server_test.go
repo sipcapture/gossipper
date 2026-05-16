@@ -146,8 +146,14 @@ func TestAPITransportsServerAndClient(t *testing.T) {
 	if len(got.Clients) != 0 {
 		t.Fatalf("server mode want no client rows, got %#v", got.Clients)
 	}
+	if got.DynamicClientAPI.CanPost || got.DynamicClientAPI.CanDelete {
+		t.Fatalf("server api without client hooks: want can_post/can_delete false, got %+v", got.DynamicClientAPI)
+	}
 	if got.Listeners[0].Index != 0 || !got.Listeners[0].Enabled {
 		t.Fatalf("unexpected listener: %+v", got.Listeners[0])
+	}
+	if got.Listeners[0].ScenarioName != "srv" {
+		t.Fatalf("listener scenario name: got %q want srv", got.Listeners[0].ScenarioName)
 	}
 
 	reqOff, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/transports", strings.NewReader(`{"index":0,"enabled":false}`))
@@ -210,6 +216,12 @@ func TestAPITransportsServerAndClient(t *testing.T) {
 	}
 	if empty.Clients[0].ID != "primary" || !empty.Clients[0].Accepting {
 		t.Fatalf("unexpected client row: %+v", empty.Clients[0])
+	}
+	if empty.Clients[0].ScenarioName != "t" {
+		t.Fatalf("scenario name: got %q want t", empty.Clients[0].ScenarioName)
+	}
+	if empty.Clients[0].Dynamic {
+		t.Fatal("primary client should not be marked dynamic")
 	}
 	reqPause, _ := http.NewRequest(http.MethodPost, ts2.URL+"/api/v1/transports", strings.NewReader(`{"clients":[{"id":"primary","accepting":false}]}`))
 	reqPause.Header.Set("Content-Type", "application/json")
@@ -529,9 +541,26 @@ func TestAPIClientsGet(t *testing.T) {
 	if len(dyn) != 1 || dyn[0] != "dyn-a" {
 		t.Fatalf("dynamic: %#v", out)
 	}
+	engs, _ := out["engines"].([]any)
+	if len(engs) != 2 {
+		t.Fatalf("engines: want 2 got %d %#v", len(engs), out)
+	}
+	var sawDyn bool
+	for _, row := range engs {
+		m, ok := row.(map[string]any)
+		if !ok {
+			t.Fatalf("engine row type %T", row)
+		}
+		if m["id"] == "dyn-a" && m["dynamic"] == true {
+			sawDyn = true
+		}
+	}
+	if !sawDyn {
+		t.Fatalf("expected dyn-a with dynamic=true in %#v", engs)
+	}
 }
 
-func TestAPIClientsGet404WithoutLiveExtras(t *testing.T) {
+func TestAPIClientsGetWithoutLiveExtras(t *testing.T) {
 	sc := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
 
 ]]></send><recv response="200" optional="true"/></scenario>`)
@@ -545,8 +574,20 @@ func TestAPIClientsGet404WithoutLiveExtras(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusNotFound {
-		t.Fatalf("want 404, got %d", res.StatusCode)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", res.StatusCode)
+	}
+	var out map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	engs, _ := out["engines"].([]any)
+	if len(engs) != 1 {
+		t.Fatalf("want 1 engine row, got %#v", out)
+	}
+	dyn, _ := out["dynamic"].([]any)
+	if len(dyn) != 0 {
+		t.Fatalf("want empty dynamic, got %#v", dyn)
 	}
 }
 

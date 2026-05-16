@@ -51,8 +51,8 @@ With **`-api_addr`** (or **`api_addr`** in flat JSON), the same process exposes:
 | GET/PUT | `/api/v1/scenario` | Read/write scenario XML (primary engine); `PUT` may use `?apply=true` |
 | POST | `/api/v1/scenario/apply` | Hot-apply XML body or file-backed scenario |
 | GET/POST | `/api/v1/control` | Read or set **rate** / **paused** (all engines on POST) |
-| GET/POST | `/api/v1/transports` | Listener enable/disable (management) |
-| GET/POST/DELETE | `/api/v1/clients` | List, start, or stop **dynamic** UAC snippets (when enabled) |
+| GET/POST | `/api/v1/transports` | Listener toggles + **`scenario_name`** per bind (shared live server scenario) + UAC **clients** rows |
+| GET/POST/DELETE | `/api/v1/clients` | **GET**: all UAC engines + **`dynamic`** ids + API caps; **POST**/**DELETE**: start/stop **dynamic** snippets (when enabled) |
 | GET | `/api/v1/auth/status` | Whether internal auth is active |
 | POST | `/api/v1/auth/login` | Username/password → JWT (internal auth) |
 

@@ -83,7 +83,7 @@ When **`GET /api/v1/stats`** works, **`PUT /api/v1/scenario?apply=true`** and **
 | **GET** / **PUT** | `/api/v1/scenario` | Read / write scenario XML (primary engine); **`PUT ?apply=true`** hot-reloads |
 | **POST** | `/api/v1/scenario/apply` | Apply XML body or file-backed scenario |
 | **GET** / **POST** | `/api/v1/control` | Read / set **rate** and **paused** (**POST** applies to **all** engines in **`multi`** mode) |
-| **GET** / **POST** / **DELETE** | `/api/v1/clients` | List / start / stop **dynamic** UAC engines (**management** + **`api_addr`** only) |
+| **GET** / **POST** / **DELETE** | `/api/v1/clients` | **GET**: all UAC engines (**`engines`**, same metadata as **GET /transports** `clients`), legacy **`dynamic`** id list, and **`dynamic_client_api`** (`can_post` / `can_delete`); **POST** / **DELETE**: start/stop **dynamic** engines when hooks are configured (**management** + **`api_addr`**) |
 | **GET** | `/api/v1/auth/status` | Always mounted: **`{"auth":"none"}`** or **`{"auth":"internal"}`** |
 | **POST** | `/api/v1/auth/login` | JSON credentials → JWT when **internal** auth is enabled; **404** when it is not |
 | **GET** (WebSocket) | `/api/v1/live` | Periodic JSON frames (**stats**, **control**, **transports**, …) |
@@ -100,7 +100,7 @@ See also [`sipstress-style-load-testing.md`](sipstress-style-load-testing.md).
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
-| **GET** | `/api/v1/transports` | — | `{"listeners":[...], "clients":[...]}` — **`listeners`** may be empty in client-only mode; **`clients`** may be empty in server-only mode. |
+| **GET** | `/api/v1/transports` | — | `{"listeners":[{"index","scenario_name",...}],"clients":[{"id","scenario_name","dynamic",...}],"dynamic_client_api":{...}}` — **listener** `scenario_name` repeats the **primary** server live scenario (all binds share one XML); **clients** rows mirror UAC engines. |
 | **POST** | `/api/v1/transports` | **`listeners`** batch or shorthand **`index`+`enabled`** (primary server only), **and/or** **`clients`**: `[{"id":"primary","accepting":false}]` | Same shape as **GET** after apply |
 
 **POST** with only **listener** toggles in **client** mode still returns **400** (no listener slots). **POST** with **`clients`** is valid whenever the target id exists and that engine runs client scenarios.

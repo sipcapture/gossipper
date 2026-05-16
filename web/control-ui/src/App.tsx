@@ -268,13 +268,40 @@ export default function App() {
     })
   }, [effectiveBearer, run])
 
+  const loadScenarioData = useCallback(async () => {
+    const s = await getScenario(effectiveBearer)
+    setScenarioMeta(s)
+    setScenarioXml(s.xml ?? '')
+  }, [effectiveBearer])
+
   const loadScenario = useCallback(() => {
-    void run(async () => {
-      const s = await getScenario(effectiveBearer)
-      setScenarioMeta(s)
-      setScenarioXml(s.xml ?? '')
+    return run(() => loadScenarioData())
+  }, [run, loadScenarioData])
+
+  const doScenarioSaveFile = useCallback(async () => {
+    await putScenario(scenarioXml, { apply: false, bearer: effectiveBearer })
+    await loadScenarioData()
+  }, [effectiveBearer, scenarioXml, loadScenarioData])
+
+  const doScenarioSaveApply = useCallback(async () => {
+    await putScenario(scenarioXml, { apply: true, bearer: effectiveBearer })
+    await loadScenarioData()
+    const c = await getControl(effectiveBearer)
+    setControl(c)
+    setRateDraft(String(primaryRate(c)))
+  }, [effectiveBearer, scenarioXml, loadScenarioData])
+
+  const doScenarioApply = useCallback(async () => {
+    const t = scenarioXml.trim()
+    const hasFile = Boolean(scenarioMeta?.scenario_file?.trim())
+    const isBuiltin = scenarioMeta?.builtin === true
+    await postScenarioApply(t === '' ? undefined : scenarioXml, effectiveBearer, {
+      reloadFromDisk: t === '' && hasFile && !isBuiltin,
     })
-  }, [effectiveBearer, run])
+    const c = await getControl(effectiveBearer)
+    setControl(c)
+    setRateDraft(String(primaryRate(c)))
+  }, [effectiveBearer, scenarioXml, scenarioMeta])
 
   const refreshStats = useCallback(() => {
     void run(async () => {
@@ -501,29 +528,9 @@ export default function App() {
               onScenarioXml={setScenarioXml}
               builtin={builtin}
               onLoad={() => void loadScenario()}
-              onSaveFile={() =>
-                void run(async () => {
-                  await putScenario(scenarioXml, { apply: false, bearer: effectiveBearer })
-                  await loadScenario()
-                })
-              }
-              onSaveApply={() =>
-                void run(async () => {
-                  await putScenario(scenarioXml, { apply: true, bearer: effectiveBearer })
-                  await loadScenario()
-                  await refreshControl()
-                })
-              }
-              onApply={() =>
-                void run(async () => {
-                  const t = scenarioXml.trim()
-                  const hasFile = Boolean(scenarioMeta?.scenario_file?.trim())
-                  await postScenarioApply(t === '' ? undefined : scenarioXml, effectiveBearer, {
-                    reloadFromDisk: t === '' && hasFile && !builtin,
-                  })
-                  await refreshControl()
-                })
-              }
+              onSaveFile={() => void run(() => doScenarioSaveFile())}
+              onSaveApply={() => void run(() => doScenarioSaveApply())}
+              onApply={() => void run(() => doScenarioApply())}
             />
           )}
           {nav === 'load' && (
@@ -568,6 +575,16 @@ export default function App() {
               liveTransports={liveFrame?.transports}
               liveWs={liveWs}
               run={run}
+              serverScenario={{
+                builtin,
+                scenarioMeta,
+                scenarioXml,
+                onScenarioXml: setScenarioXml,
+                onLoad: loadScenarioData,
+                onSaveFile: doScenarioSaveFile,
+                onSaveApply: doScenarioSaveApply,
+                onApply: doScenarioApply,
+              }}
             />
           )}
           {nav === 'sip_clients' && (
@@ -578,6 +595,16 @@ export default function App() {
               liveTransports={liveFrame?.transports}
               liveWs={liveWs}
               run={run}
+              sipClientDraft={{
+                snippet: clientSnippet,
+                wantId: clientWantId,
+                onSnippet: setClientSnippet,
+                onWantId: setClientWantId,
+              }}
+              onClientsMutated={() => {
+                void refreshDynamicList()
+                void refreshStats()
+              }}
             />
           )}
           {nav === 'clients' && (

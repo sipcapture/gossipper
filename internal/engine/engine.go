@@ -56,23 +56,28 @@ type ServerListener struct {
 }
 
 // TransportListenerState describes one SIP server bind for runtime enable/disable via the HTTP API.
+// ScenarioName is the live SIP scenario name (shared across all listeners on this engine).
 type TransportListenerState struct {
-	Index     int    `json:"index"`
-	Transport string `json:"transport"`
-	LocalIP   string `json:"local_ip"`
-	LocalPort int    `json:"local_port"`
-	Enabled   bool   `json:"enabled"`
+	Index          int    `json:"index"`
+	ScenarioName   string `json:"scenario_name"`
+	Transport      string `json:"transport"`
+	LocalIP        string `json:"local_ip"`
+	LocalPort      int    `json:"local_port"`
+	Enabled        bool   `json:"enabled"`
 }
 
 // ClientTransportSummary describes a UAC/load engine SIP bind (HTTP API "clients" side).
 // Accepting mirrors !Paused(): when false, the scheduler stops starting new outbound calls.
+// Dynamic is filled by the HTTP API for engines started via POST /api/v1/clients (LiveExtras).
 type ClientTransportSummary struct {
-	ID         string `json:"id"`
-	Transport  string `json:"transport"`
-	LocalIP    string `json:"local_ip"`
-	LocalPort  int    `json:"local_port"`
-	RemoteAddr string `json:"remote_addr"`
-	Accepting  bool   `json:"accepting"`
+	ID           string `json:"id"`
+	ScenarioName string `json:"scenario_name"`
+	Dynamic      bool   `json:"dynamic"`
+	Transport    string `json:"transport"`
+	LocalIP      string `json:"local_ip"`
+	LocalPort    int    `json:"local_port"`
+	RemoteAddr   string `json:"remote_addr"`
+	Accepting    bool   `json:"accepting"`
 }
 
 type Config struct {
@@ -281,8 +286,12 @@ func (e *Engine) TransportListenerStates() []TransportListenerState {
 	out := make([]TransportListenerState, 0, len(metas))
 	for i, m := range metas {
 		st := TransportListenerState{
-			Index: i, Transport: m.Transport, LocalIP: m.LocalIP, LocalPort: m.LocalPort,
-			Enabled: true,
+			Index:        i,
+			ScenarioName: e.LiveScenario().Name,
+			Transport:    m.Transport,
+			LocalIP:      m.LocalIP,
+			LocalPort:    m.LocalPort,
+			Enabled:      true,
 		}
 		if i < len(e.listenerAccept) {
 			st.Enabled = e.listenerAccept[i].Load()
@@ -312,12 +321,14 @@ func (e *Engine) ClientTransportSummary(displayID string) (ClientTransportSummar
 	}
 	ra := net.JoinHostPort(e.cfg.RemoteHost, strconv.Itoa(e.cfg.RemotePort))
 	return ClientTransportSummary{
-		ID:         displayID,
-		Transport:  e.cfg.Transport,
-		LocalIP:    e.cfg.LocalIP,
-		LocalPort:  e.cfg.LocalPort,
-		RemoteAddr: ra,
-		Accepting:  !e.Paused(),
+		ID:           displayID,
+		ScenarioName: e.LiveScenario().Name,
+		Dynamic:      false,
+		Transport:    e.cfg.Transport,
+		LocalIP:      e.cfg.LocalIP,
+		LocalPort:    e.cfg.LocalPort,
+		RemoteAddr:   ra,
+		Accepting:    !e.Paused(),
 	}, true
 }
 
