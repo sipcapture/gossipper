@@ -92,16 +92,18 @@ When **`GET /api/v1/stats`** works, **`PUT /api/v1/scenario?apply=true`** and **
 
 See also [`sipstress-style-load-testing.md`](sipstress-style-load-testing.md).
 
-## SIP transports (server listeners)
+## SIP transports (listeners and client engines)
 
-Only in **management / server** mode. Sockets stay bound; toggling affects **acceptance of new dialogs** only (existing calls are unchanged).
+**Listeners** (UAS): only the **primary** engine’s server binds are listed; toggling affects **acceptance of new dialogs** only (existing calls are unchanged). Sockets stay bound.
+
+**Clients** (UAC / load): one row per client-mode engine (primary id matches **GET /stats** first row — `primary` or **`stats_primary_id`**, plus composite / dynamic extras). **`accepting`** mirrors **`!paused`** for that engine; **`POST`** with **`clients`** toggles pause/resume the same way as **POST /control** for that engine id.
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
-| **GET** | `/api/v1/transports` | — | `{"listeners":[{"index", "transport", "local_ip", "local_port", "enabled"}, ...]}` |
-| **POST** | `/api/v1/transports` | `{"listeners":[{"index":0,"enabled":false},...]}` **or** shorthand `{"index":0,"enabled":false}` | Same shape as **GET** (current state after apply) |
+| **GET** | `/api/v1/transports` | — | `{"listeners":[...], "clients":[...]}` — **`listeners`** may be empty in client-only mode; **`clients`** may be empty in server-only mode. |
+| **POST** | `/api/v1/transports` | **`listeners`** batch or shorthand **`index`+`enabled`** (primary server only), **and/or** **`clients`**: `[{"id":"primary","accepting":false}]` | Same shape as **GET** after apply |
 
-In **client** mode, **GET** returns `listeners: []`; **POST** returns **400** (no listener slots).
+**POST** with only **listener** toggles in **client** mode still returns **400** (no listener slots). **POST** with **`clients`** is valid whenever the target id exists and that engine runs client scenarios.
 
 ## See also
 

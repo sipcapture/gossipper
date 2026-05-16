@@ -37,14 +37,15 @@ const LS_JWT = 'gossipper_internal_jwt'
 const LS_THEME = 'gossipper_control_theme'
 const LS_THEME_LEGACY = 'gossipper_control_dark'
 
-type NavId = 'dashboard' | 'scenario' | 'load' | 'transports' | 'clients' | 'session'
+type NavId = 'dashboard' | 'scenario' | 'load' | 'servers' | 'sip_clients' | 'clients' | 'session'
 
 const NAV: { id: NavId; label: string; hint: string }[] = [
   { id: 'dashboard', label: 'Dashboard', hint: 'engine summary and stats' },
   { id: 'scenario', label: 'Scenario', hint: 'XML, save, hot reload' },
   { id: 'load', label: 'Load control', hint: 'pause, rate, live / poll' },
-  { id: 'transports', label: 'SIP transports', hint: 'UAS listeners' },
-  { id: 'clients', label: 'Clients', hint: 'dynamic UAC' },
+  { id: 'servers', label: 'SIP servers', hint: 'UAS listeners' },
+  { id: 'sip_clients', label: 'SIP clients', hint: 'UAC binds and load engines' },
+  { id: 'clients', label: 'Dynamic clients', hint: 'start/stop extra UAC engines' },
   { id: 'session', label: 'Session', hint: 'token, theme, health' },
 ]
 
@@ -515,7 +516,11 @@ export default function App() {
               }
               onApply={() =>
                 void run(async () => {
-                  await postScenarioApply(scenarioXml, effectiveBearer)
+                  const t = scenarioXml.trim()
+                  const hasFile = Boolean(scenarioMeta?.scenario_file?.trim())
+                  await postScenarioApply(t === '' ? undefined : scenarioXml, effectiveBearer, {
+                    reloadFromDisk: t === '' && hasFile && !builtin,
+                  })
                   await refreshControl()
                 })
               }
@@ -555,8 +560,19 @@ export default function App() {
               multiEngines={multiEngines}
             />
           )}
-          {nav === 'transports' && (
+          {nav === 'servers' && (
             <TransportsView
+              section="servers"
+              bearer={effectiveBearer}
+              busy={busy}
+              liveTransports={liveFrame?.transports}
+              liveWs={liveWs}
+              run={run}
+            />
+          )}
+          {nav === 'sip_clients' && (
+            <TransportsView
+              section="sip_clients"
               bearer={effectiveBearer}
               busy={busy}
               liveTransports={liveFrame?.transports}

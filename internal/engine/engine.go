@@ -64,6 +64,17 @@ type TransportListenerState struct {
 	Enabled   bool   `json:"enabled"`
 }
 
+// ClientTransportSummary describes a UAC/load engine SIP bind (HTTP API "clients" side).
+// Accepting mirrors !Paused(): when false, the scheduler stops starting new outbound calls.
+type ClientTransportSummary struct {
+	ID         string `json:"id"`
+	Transport  string `json:"transport"`
+	LocalIP    string `json:"local_ip"`
+	LocalPort  int    `json:"local_port"`
+	RemoteAddr string `json:"remote_addr"`
+	Accepting  bool   `json:"accepting"`
+}
+
 type Config struct {
 	Scenario  scenario.Scenario
 	Transport string
@@ -292,6 +303,22 @@ func (e *Engine) SetTransportListenerEnabled(index int, enabled bool) error {
 	}
 	e.listenerAccept[index].Store(enabled)
 	return nil
+}
+
+// ClientTransportSummary returns UAC-side bind metadata when this engine runs client scenarios.
+func (e *Engine) ClientTransportSummary(displayID string) (ClientTransportSummary, bool) {
+	if e.cfg.Scenario.Mode == scenario.ModeServer {
+		return ClientTransportSummary{}, false
+	}
+	ra := net.JoinHostPort(e.cfg.RemoteHost, strconv.Itoa(e.cfg.RemotePort))
+	return ClientTransportSummary{
+		ID:         displayID,
+		Transport:  e.cfg.Transport,
+		LocalIP:    e.cfg.LocalIP,
+		LocalPort:  e.cfg.LocalPort,
+		RemoteAddr: ra,
+		Accepting:  !e.Paused(),
+	}, true
 }
 
 // nextDynamicID returns the next unique [dynamic_id] value with INT32 wraparound, matching SIPp.

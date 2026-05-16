@@ -119,18 +119,32 @@ export type TransportListenerRow = {
   enabled: boolean
 }
 
-export type TransportsResponse = { listeners: TransportListenerRow[] }
+export type ClientTransportRow = {
+  id: string
+  transport: string
+  local_ip: string
+  local_port: number
+  remote_addr: string
+  accepting: boolean
+}
+
+export type TransportsResponse = {
+  listeners: TransportListenerRow[]
+  clients: ClientTransportRow[]
+}
+
+export type PostTransportsBody = {
+  listeners?: { index: number; enabled: boolean }[]
+  clients?: { id: string; accepting: boolean }[]
+  index?: number
+  enabled?: boolean
+}
 
 export function getTransports(bearer?: string) {
   return apiRequest<TransportsResponse>('/transports', { method: 'GET', bearer })
 }
 
-export function postTransports(
-  body:
-    | { listeners: { index: number; enabled: boolean }[] }
-    | { index: number; enabled: boolean },
-  bearer?: string,
-) {
+export function postTransports(body: PostTransportsBody, bearer?: string) {
   return apiRequest<TransportsResponse>('/transports', {
     method: 'POST',
     bearer,
@@ -182,12 +196,24 @@ export function putScenario(
   })
 }
 
-export function postScenarioApply(xml: string | undefined, bearer?: string) {
-  if (xml === undefined || xml === '') {
-    return apiRequest<ScenarioApplyResponse>('/scenario/apply', {
-      method: 'POST',
-      bearer,
-    })
+export function postScenarioApply(
+  xml: string | undefined,
+  bearer?: string,
+  opts?: { reloadFromDisk?: boolean },
+) {
+  const trimmed = (xml ?? '').trim()
+  if (trimmed === '') {
+    if (opts?.reloadFromDisk) {
+      return apiRequest<ScenarioApplyResponse>('/scenario/apply', {
+        method: 'POST',
+        bearer,
+      })
+    }
+    return Promise.reject(
+      new Error(
+        'Cannot apply empty XML: paste XML, insert a preset, or start gossipper with -sf (then an empty POST reloads that file). Built-in scenarios do not expose XML via GET.',
+      ),
+    )
   }
   return apiRequest<ScenarioApplyResponse>('/scenario/apply', {
     method: 'POST',

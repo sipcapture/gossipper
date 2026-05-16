@@ -28,7 +28,7 @@ const maxClientsPostBody = 1 << 20
 type ServerConfig struct {
 	Engine *engine.Engine
 	// ExtraEngines are additional SIP engines (composite server -config clients). Stats aggregate includes them;
-	// scenario apply / transport toggles still target Engine only.
+	// scenario apply still targets Engine only; GET/POST /transports includes listener slots on Engine and client rows for all client engines.
 	ExtraEngines []*engine.Engine
 	ExtraIDs     []string // same length as ExtraEngines; stable profile ids for stats/control
 	// LiveExtras returns dynamically added load engines (POST /api/v1/clients), appended after ExtraEngines for stats/control.
@@ -214,6 +214,59 @@ func (s *Server) mergedExtras() ([]*engine.Engine, []string) {
 	return engines, ids
 }
 
+func (s *Server) statsPrimaryID() string {
+	if pid := strings.TrimSpace(s.cfg.StatsPrimaryID); pid != "" {
+		return pid
+	}
+	return "primary"
+}
+
+func (s *Server) collectClientTransportSummaries() []engine.ClientTransportSummary {
+	out := make([]engine.ClientTransportSummary, 0, 1+len(s.cfg.ExtraEngines))
+	pid := s.statsPrimaryID()
+	if sum, ok := s.cfg.Engine.ClientTransportSummary(pid); ok {
+		out = append(out, sum)
+	}
+	extras, ids := s.mergedExtras()
+	for i, e := range extras {
+		if e == nil {
+			continue
+		}
+		if sum, ok := e.ClientTransportSummary(ids[i]); ok {
+			out = append(out, sum)
+		}
+	}
+	return out
+}
+
+func (s *Server) buildTransportsGetResponse() transportsGetResponse {
+	return transportsGetResponse{
+		Listeners: s.cfg.Engine.TransportListenerStates(),
+		Clients:   s.collectClientTransportSummaries(),
+	}
+}
+
+func (s *Server) engineForClientTransportID(id string) (*engine.Engine, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, errors.New("empty client id")
+	}
+	pid := s.statsPrimaryID()
+	if id == pid {
+		return s.cfg.Engine, nil
+	}
+	extras, ids := s.mergedExtras()
+	for i, e := range extras {
+		if e == nil {
+			continue
+		}
+		if ids[i] == id {
+			return e, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown client id %q", id)
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -374,7 +427,7 @@ func (s *Server) handleScenarioApply(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		if cfg.ScenarioFile == "" {
-			s.jsonErr(w, http.StatusBadRequest, "apply without body requires -sf (scenario file) or Content-Type: application/xml")
+			s.jsonErr(w, http.StatusBadRequest, "POST /scenario/apply without XML body: set Content-Type: application/xml and send scenario XML, or start gossipper with -sf so the on-disk file can be re-read (built-in -sn scenarios have no file path)")
 			return
 		}
 		sc, err = scenario.ParseFile(cfg.ScenarioFile)
@@ -545,6 +598,7 @@ func (s *Server) handleClientsPost(w http.ResponseWriter, r *http.Request) {
 
 type transportsGetResponse struct {
 	Listeners []engine.TransportListenerState `json:"listeners"`
+	Clients   []engine.ClientTransportSummary `json:"clients"`
 }
 
 func (s *Server) handleTransportsGet(w http.ResponseWriter, r *http.Request) {
@@ -552,7 +606,7 @@ func (s *Server) handleTransportsGet(w http.ResponseWriter, r *http.Request) {
 		s.jsonErr(w, http.StatusServiceUnavailable, "engine unavailable")
 		return
 	}
-	out := transportsGetResponse{Listeners: s.cfg.Engine.TransportListenerStates()}
+	out := s.buildTransportsGetResponse()
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err := json.NewEncoder(w).Encode(out); err != nil {
 		s.logger.Error("api: encode transports", "error", err)
@@ -564,8 +618,14 @@ type transportToggle struct {
 	Enabled bool `json:"enabled"`
 }
 
+type clientTransportToggle struct {
+	ID        string `json:"id"`
+	Accepting bool   `json:"accepting"`
+}
+
 type transportsPostBody struct {
-	Listeners []transportToggle `json:"listeners"`
+	Listeners []transportToggle `json:"listeners,omitempty"`
+	Clients   []clientTransportToggle `json:"clients,omitempty"`
 	// Single-toggle shorthand when listeners is omitted: {"index":0,"enabled":false}
 	Index   *int  `json:"index,omitempty"`
 	Enabled *bool `json:"enabled,omitempty"`
@@ -581,20 +641,37 @@ func (s *Server) handleTransportsPost(w http.ResponseWriter, r *http.Request) {
 		s.jsonErr(w, http.StatusBadRequest, fmt.Sprintf("invalid json: %v", err))
 		return
 	}
-	var ops []transportToggle
+	var listenerOps []transportToggle
 	if len(body.Listeners) > 0 {
-		ops = append(ops, body.Listeners...)
+		listenerOps = append(listenerOps, body.Listeners...)
 	} else if body.Index != nil && body.Enabled != nil {
-		ops = append(ops, transportToggle{Index: *body.Index, Enabled: *body.Enabled})
-	} else {
-		s.jsonErr(w, http.StatusBadRequest, "provide listeners[] or index and enabled")
+		listenerOps = append(listenerOps, transportToggle{Index: *body.Index, Enabled: *body.Enabled})
+	}
+	if len(listenerOps) == 0 && len(body.Clients) == 0 {
+		s.jsonErr(w, http.StatusBadRequest, "provide listeners[] or index+enabled, and/or clients[{id,accepting}]")
 		return
 	}
 	e := s.cfg.Engine
-	for _, op := range ops {
+	for _, op := range listenerOps {
 		if err := e.SetTransportListenerEnabled(op.Index, op.Enabled); err != nil {
 			s.jsonErr(w, http.StatusBadRequest, err.Error())
 			return
+		}
+	}
+	for _, c := range body.Clients {
+		eng, err := s.engineForClientTransportID(c.ID)
+		if err != nil {
+			s.jsonErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if _, ok := eng.ClientTransportSummary(c.ID); !ok {
+			s.jsonErr(w, http.StatusBadRequest, fmt.Sprintf("engine %q is not a SIP client (UAC)", strings.TrimSpace(c.ID)))
+			return
+		}
+		if c.Accepting {
+			eng.Resume()
+		} else {
+			eng.Pause()
 		}
 	}
 	s.handleTransportsGet(w, r)

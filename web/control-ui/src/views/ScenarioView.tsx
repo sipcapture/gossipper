@@ -28,19 +28,52 @@ export function ScenarioView({
   onSaveApply,
   onApply,
 }: Props) {
+  const xmlTrim = scenarioXml.trim()
+  const hasScenarioFile = Boolean(scenarioMeta?.scenario_file?.trim())
+  const canSaveToDisk = !builtin && xmlTrim !== ''
+  const canApply = xmlTrim !== '' || (hasScenarioFile && !builtin)
+
   return (
     <div className="flex flex-col gap-4">
       <div className="border-border flex flex-wrap gap-2 border-b pb-3">
         <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onLoad}>
           Load from server
         </Button>
-        <Button type="button" size="sm" variant="outline" disabled={busy || builtin} onClick={onSaveFile}>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy || !canSaveToDisk}
+          title={!canSaveToDisk ? (builtin ? 'Built-in scenario' : 'Editor is empty') : undefined}
+          onClick={onSaveFile}
+        >
           Write to file
         </Button>
-        <Button type="button" size="sm" variant="secondary" disabled={busy || builtin} onClick={onSaveApply}>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          disabled={busy || !canSaveToDisk}
+          title={!canSaveToDisk ? (builtin ? 'Built-in scenario' : 'Editor is empty') : undefined}
+          onClick={onSaveApply}
+        >
           Write and apply
         </Button>
-        <Button type="button" size="sm" disabled={busy} onClick={onApply}>
+        <Button
+          type="button"
+          size="sm"
+          disabled={busy || !canApply}
+          title={
+            !canApply
+              ? builtin
+                ? 'Built-in: GET has no XML — paste XML or use a preset'
+                : 'Empty editor and no -sf scenario file on server'
+              : xmlTrim === '' && hasScenarioFile
+                ? 'Re-read XML from -sf file on server and hot-reload'
+                : undefined
+          }
+          onClick={onApply}
+        >
           Apply (hot reload)
         </Button>
       </div>
@@ -50,6 +83,13 @@ export function ScenarioView({
           file: <span className="text-foreground/90">{scenarioMeta.scenario_file || '—'}</span> · scenario:{' '}
           <span className="text-foreground/90">{scenarioMeta.scenario_name || '—'}</span>
           {builtin ? <span className="text-warning ml-2">(built-in — write disabled)</span> : null}
+        </p>
+      ) : null}
+      {builtin ? (
+        <p className="text-muted-foreground max-w-3xl text-[11px] leading-relaxed">
+          Built-in scenarios are not returned as XML on <code className="text-foreground/80">GET /scenario</code>. Use
+          a preset or paste XML, then Apply — or run with <code className="text-foreground/80">-sf</code> for file-backed
+          hot reload.
         </p>
       ) : null}
 
@@ -93,8 +133,10 @@ export function ScenarioView({
 
       <p className="text-muted-foreground max-w-3xl text-[11px] leading-relaxed">
         <code className="text-foreground/80">PUT /scenario</code> writes the file; <code className="text-foreground/80">?apply=true</code> or{' '}
-        <code className="text-foreground/80">POST /scenario/apply</code> hot-reloads for new calls. In-flight dialogs
-        keep the XML they started with.
+        <code className="text-foreground/80">POST /scenario/apply</code> with <code className="text-foreground/80">Content-Type: application/xml</code>{' '}
+        hot-reloads for new calls. With <code className="text-foreground/80">-sf</code>, an empty-body{' '}
+        <code className="text-foreground/80">POST /scenario/apply</code> re-reads that file. In-flight dialogs keep the
+        XML they started with.
       </p>
     </div>
   )

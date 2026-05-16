@@ -92,7 +92,7 @@ func (s *Server) snapshotForLive() map[string]any {
 		}
 	}
 
-	out["transports"] = transportsGetResponse{Listeners: s.cfg.Engine.TransportListenerStates()}
+	out["transports"] = s.buildTransportsGetResponse()
 	return out
 }
 

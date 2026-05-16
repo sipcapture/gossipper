@@ -143,6 +143,9 @@ func TestAPITransportsServerAndClient(t *testing.T) {
 	if len(got.Listeners) != 1 {
 		t.Fatalf("want 1 listener, got %#v", got.Listeners)
 	}
+	if len(got.Clients) != 0 {
+		t.Fatalf("server mode want no client rows, got %#v", got.Clients)
+	}
 	if got.Listeners[0].Index != 0 || !got.Listeners[0].Enabled {
 		t.Fatalf("unexpected listener: %+v", got.Listeners[0])
 	}
@@ -163,6 +166,9 @@ func TestAPITransportsServerAndClient(t *testing.T) {
 	}
 	if len(st2.Listeners) != 1 || st2.Listeners[0].Enabled {
 		t.Fatalf("expected disabled: %#v", st2)
+	}
+	if len(st2.Clients) != 0 {
+		t.Fatalf("server want no clients: %#v", st2.Clients)
 	}
 
 	reqOn, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/transports", strings.NewReader(`{"listeners":[{"index":0,"enabled":true}]}`))
@@ -198,6 +204,56 @@ func TestAPITransportsServerAndClient(t *testing.T) {
 	}
 	if len(empty.Listeners) != 0 {
 		t.Fatalf("client want empty listeners, got %#v", empty.Listeners)
+	}
+	if len(empty.Clients) != 1 {
+		t.Fatalf("client want 1 client transport row, got %#v", empty.Clients)
+	}
+	if empty.Clients[0].ID != "primary" || !empty.Clients[0].Accepting {
+		t.Fatalf("unexpected client row: %+v", empty.Clients[0])
+	}
+	reqPause, _ := http.NewRequest(http.MethodPost, ts2.URL+"/api/v1/transports", strings.NewReader(`{"clients":[{"id":"primary","accepting":false}]}`))
+	reqPause.Header.Set("Content-Type", "application/json")
+	resPause, err := ts2.Client().Do(reqPause)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resPause.Body.Close()
+	if resPause.StatusCode != http.StatusOK {
+		t.Fatalf("POST transports client pause: %s", resPause.Status)
+	}
+	var paused transportsGetResponse
+	if err := json.NewDecoder(resPause.Body).Decode(&paused); err != nil {
+		t.Fatal(err)
+	}
+	if len(paused.Clients) != 1 || paused.Clients[0].Accepting {
+		t.Fatalf("want paused client row: %#v", paused.Clients)
+	}
+	if !engCli.Paused() {
+		t.Fatal("engine should be paused")
+	}
+	reqResume, _ := http.NewRequest(http.MethodPost, ts2.URL+"/api/v1/transports", strings.NewReader(`{"clients":[{"id":"primary","accepting":true}]}`))
+	reqResume.Header.Set("Content-Type", "application/json")
+	resResume, err := ts2.Client().Do(reqResume)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resResume.Body.Close()
+	if resResume.StatusCode != http.StatusOK {
+		t.Fatalf("POST transports client resume: %s", resResume.Status)
+	}
+	if engCli.Paused() {
+		t.Fatal("engine should be resumed")
+	}
+
+	reqUnknown, _ := http.NewRequest(http.MethodPost, ts2.URL+"/api/v1/transports", strings.NewReader(`{"clients":[{"id":"does-not-exist","accepting":false}]}`))
+	reqUnknown.Header.Set("Content-Type", "application/json")
+	resUnk, err := ts2.Client().Do(reqUnknown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resUnk.Body.Close()
+	if resUnk.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown client id want 400, got %d", resUnk.StatusCode)
 	}
 	reqBad, _ := http.NewRequest(http.MethodPost, ts2.URL+"/api/v1/transports", strings.NewReader(`{"index":0,"enabled":true}`))
 	reqBad.Header.Set("Content-Type", "application/json")
