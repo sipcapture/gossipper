@@ -52,6 +52,21 @@ type Props = {
 
 const defaultCaps = { can_post: false, can_delete: false }
 
+const LISTENER_PROFILE_HINT = `Example (composite JSON): add or extend "server.listeners", then restart gossipper.
+
+{
+  "server": {
+    "role": "management",
+    "scenario_name": "management",
+    "listeners": [
+      { "transport": "u1", "local_ip": "0.0.0.0", "local_port": 5060 },
+      { "transport": "t1", "local_ip": "0.0.0.0", "local_port": 5061 }
+    ]
+  }
+}`
+
+type ServerAddTab = 'listener' | 'client'
+
 export function TransportsView({
   section,
   bearer,
@@ -64,6 +79,9 @@ export function TransportsView({
   onClientsMutated,
 }: Props) {
   const [rest, setRest] = useState<TransportsResponse | null>(null)
+  const [serverAddOpen, setServerAddOpen] = useState(false)
+  const [serverAddTab, setServerAddTab] = useState<ServerAddTab>('listener')
+  const [clientAddOpen, setClientAddOpen] = useState(false)
 
   const load = useCallback(() => {
     void run(async () => {
@@ -80,6 +98,23 @@ export function TransportsView({
   useEffect(() => {
     if (!liveWs) void load()
   }, [liveWs, load])
+
+  useEffect(() => {
+    setServerAddOpen(false)
+    setClientAddOpen(false)
+  }, [section])
+
+  useEffect(() => {
+    if (!serverAddOpen && !clientAddOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setServerAddOpen(false)
+        setClientAddOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [serverAddOpen, clientAddOpen])
 
   const effective: TransportsResponse | null =
     liveWs && liveTransports != null ? liveTransports : rest
@@ -110,7 +145,7 @@ export function TransportsView({
     })
   }
 
-  const startDynamicClient = () => {
+  const submitNewClient = () => {
     const d = sipClientDraft
     if (!d) return
     void run(async () => {
@@ -122,6 +157,8 @@ export function TransportsView({
       const t = await getTransports(bearer)
       setRest(t)
       onClientsMutated?.()
+      setServerAddOpen(false)
+      setClientAddOpen(false)
       return t
     })
   }
@@ -158,8 +195,22 @@ export function TransportsView({
       {isServers ? (
         <>
           <div className="border-border overflow-hidden border">
-            <div className="bg-muted/40 border-border text-muted-foreground border-b px-3 py-1.5 text-[11px] font-medium tracking-wide uppercase">
-              Server listeners (UAS)
+            <div className="bg-muted/40 border-border text-muted-foreground flex items-center justify-between gap-2 border-b px-3 py-1.5">
+              <span className="text-[11px] font-medium tracking-wide uppercase">Server listeners (UAS)</span>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="outline"
+                className="shrink-0 font-mono"
+                aria-label="Add listener or engine"
+                title="Add listener or engine"
+                onClick={() => {
+                  setServerAddTab((effective?.dynamic_client_api ?? defaultCaps).can_post ? 'client' : 'listener')
+                  setServerAddOpen(true)
+                }}
+              >
+                +
+              </Button>
             </div>
             <table className="w-full border-collapse text-left text-xs">
               <thead>
@@ -302,8 +353,21 @@ export function TransportsView({
       ) : (
         <>
           <div className="border-border overflow-hidden border">
-            <div className="bg-muted/40 border-border text-muted-foreground border-b px-3 py-1.5 text-[11px] font-medium tracking-wide uppercase">
-              Client engines (UAC / load)
+            <div className="bg-muted/40 border-border text-muted-foreground flex items-center justify-between gap-2 border-b px-3 py-1.5">
+              <span className="text-[11px] font-medium tracking-wide uppercase">Client engines (UAC / load)</span>
+              {showSipClientChrome ? (
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="outline"
+                  className="shrink-0 font-mono"
+                  aria-label="Add client engine"
+                  title="Add client engine"
+                  onClick={() => setClientAddOpen(true)}
+                >
+                  +
+                </Button>
+              ) : null}
             </div>
             <table className="w-full border-collapse text-left text-xs">
               <thead>
@@ -323,11 +387,7 @@ export function TransportsView({
                     <td colSpan={7} className="text-muted-foreground px-3 py-6">
                       No client engines (server-only process or data not loaded yet).
                       {caps.can_post ? (
-                        <>
-                          {' '}
-                          Add a dynamic engine below when <code className="text-foreground/80">api_addr</code> and
-                          POST /clients are enabled.
-                        </>
+                        <> Use the + button to start a dynamic UAC via POST /clients.</>
                       ) : null}
                     </td>
                   </tr>
@@ -379,45 +439,175 @@ export function TransportsView({
               </tbody>
             </table>
           </div>
-
-          {showSipClientChrome && sipClientDraft && caps.can_post ? (
-            <div className="border-border flex max-w-xl flex-col gap-3 border p-3">
-              <p className="text-muted-foreground text-[11px] leading-relaxed">
-                <code className="text-foreground/80">POST /clients</code> starts another UAC engine from a JSON snippet
-                (same as the Dynamic clients view). Static engines from the run profile are listed above; only dynamic
-                rows can be stopped here.
-              </p>
-              <div className="grid gap-2">
-                <Label htmlFor="sip-cid">Desired id (optional)</Label>
-                <Input
-                  id="sip-cid"
-                  className="font-mono text-xs"
-                  value={sipClientDraft.wantId}
-                  onChange={(e) => sipClientDraft.onWantId(e.target.value)}
-                  placeholder="e.g. load-2"
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="sip-snippet">Client JSON snippet</Label>
-                <Textarea
-                  id="sip-snippet"
-                  className="font-mono min-h-[120px] text-xs"
-                  value={sipClientDraft.snippet}
-                  onChange={(e) => sipClientDraft.onSnippet(e.target.value)}
-                  placeholder='{"transport":"udp", ...}'
-                />
-              </div>
-              <Button type="button" size="sm" disabled={busy} onClick={() => void startDynamicClient()}>
-                Start client engine
-              </Button>
-            </div>
-          ) : showSipClientChrome && sipClientDraft && !caps.can_post ? (
-            <p className="text-muted-foreground text-[11px]">
-              Dynamic client POST is not enabled for this process (needs management <code className="text-foreground/80">api_addr</code> with client hooks).
-            </p>
-          ) : null}
         </>
       )}
+
+      {serverAddOpen ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-3"
+          role="presentation"
+          onMouseDown={() => setServerAddOpen(false)}
+        >
+          <div
+            className="border-border bg-background max-h-[88vh] w-full max-w-lg overflow-y-auto border shadow-lg"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="srv-add-title"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="border-border flex items-center justify-between gap-2 border-b px-3 py-2">
+              <h2 id="srv-add-title" className="text-sm font-semibold tracking-tight">
+                Add listener or engine
+              </h2>
+              <Button type="button" variant="ghost" size="icon-sm" aria-label="Close" onClick={() => setServerAddOpen(false)}>
+                ×
+              </Button>
+            </div>
+            <div className="flex flex-col gap-3 p-3">
+              {caps.can_post ? (
+                <div className="flex flex-wrap gap-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={serverAddTab === 'client' ? 'secondary' : 'outline'}
+                    onClick={() => setServerAddTab('client')}
+                  >
+                    UAC engine (API)
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={serverAddTab === 'listener' ? 'secondary' : 'outline'}
+                    onClick={() => setServerAddTab('listener')}
+                  >
+                    Server listener (profile)
+                  </Button>
+                </div>
+              ) : null}
+
+              {!caps.can_post || serverAddTab === 'listener' ? (
+                <div className="flex flex-col gap-2">
+                  <p className="text-muted-foreground text-[11px] leading-relaxed">
+                    Extra SIP server sockets are not opened at runtime. Add binds under{' '}
+                    <code className="text-foreground/80">server.listeners</code> in the JSON profile (or flat{' '}
+                    <code className="text-foreground/80">listeners</code> on the server object), then restart gossipper.
+                  </p>
+                  <pre className="border-border bg-muted/30 max-h-52 overflow-auto border p-2 font-mono text-[10px] leading-snug whitespace-pre-wrap">
+                    {LISTENER_PROFILE_HINT}
+                  </pre>
+                </div>
+              ) : sipClientDraft ? (
+                <div className="flex flex-col gap-3">
+                  <p className="text-muted-foreground text-[11px] leading-relaxed">
+                    Starts another UAC via <code className="text-foreground/80">POST /api/v1/clients</code> (same as Dynamic clients).
+                  </p>
+                  <div className="grid gap-2">
+                    <Label htmlFor="srv-add-cid">Desired id (optional)</Label>
+                    <Input
+                      id="srv-add-cid"
+                      className="font-mono text-xs"
+                      value={sipClientDraft.wantId}
+                      onChange={(e) => sipClientDraft.onWantId(e.target.value)}
+                      placeholder="e.g. load-2"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="srv-add-snippet">Client JSON snippet</Label>
+                    <Textarea
+                      id="srv-add-snippet"
+                      className="font-mono min-h-[140px] text-xs"
+                      value={sipClientDraft.snippet}
+                      onChange={(e) => sipClientDraft.onSnippet(e.target.value)}
+                      placeholder='{"transport":"udp", ...}'
+                    />
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setServerAddOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="button" size="sm" disabled={busy} onClick={() => void submitNewClient()}>
+                      Start engine
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-[11px]">Client draft is not wired.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {clientAddOpen && showSipClientChrome ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-3"
+          role="presentation"
+          onMouseDown={() => setClientAddOpen(false)}
+        >
+          <div
+            className="border-border bg-background max-h-[88vh] w-full max-w-lg overflow-y-auto border shadow-lg"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cli-add-title"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="border-border flex items-center justify-between gap-2 border-b px-3 py-2">
+              <h2 id="cli-add-title" className="text-sm font-semibold tracking-tight">
+                Add client engine
+              </h2>
+              <Button type="button" variant="ghost" size="icon-sm" aria-label="Close" onClick={() => setClientAddOpen(false)}>
+                ×
+              </Button>
+            </div>
+            <div className="flex flex-col gap-3 p-3">
+              {!caps.can_post ? (
+                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                  Dynamic <code className="text-foreground/80">POST /clients</code> is not enabled (needs management{' '}
+                  <code className="text-foreground/80">api_addr</code> with load coordinator). Static client engines still appear in the table when
+                  defined in the run profile.
+                </p>
+              ) : sipClientDraft ? (
+                <>
+                  <p className="text-muted-foreground text-[11px] leading-relaxed">
+                    <code className="text-foreground/80">POST /api/v1/clients</code> with a JSON snippet. Only dynamic rows can be stopped from this
+                    UI.
+                  </p>
+                  <div className="grid gap-2">
+                    <Label htmlFor="cli-add-cid">Desired id (optional)</Label>
+                    <Input
+                      id="cli-add-cid"
+                      className="font-mono text-xs"
+                      value={sipClientDraft.wantId}
+                      onChange={(e) => sipClientDraft.onWantId(e.target.value)}
+                      placeholder="e.g. load-2"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="cli-add-snippet">Client JSON snippet</Label>
+                    <Textarea
+                      id="cli-add-snippet"
+                      className="font-mono min-h-[140px] text-xs"
+                      value={sipClientDraft.snippet}
+                      onChange={(e) => sipClientDraft.onSnippet(e.target.value)}
+                      placeholder='{"transport":"udp", ...}'
+                    />
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setClientAddOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="button" size="sm" disabled={busy} onClick={() => void submitNewClient()}>
+                      Start engine
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-[11px]">Client draft is not wired.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
