@@ -53,6 +53,6 @@ If the SDP hints SRTP but you pass **neither** `-media_reject_srtp` **nor** `-me
 ## Roadmap
 
 1. Richer SRTP profiles; tighter ICE/TURN behaviour (e.g. realm discovery, TCP TURN) if deployments need it.
-2. Extend **HEP / QoS** for encrypted streams (metadata without raw payload).
+2. Extend **HEP / QoS** metadata for encrypted streams further if collectors need fields beyond today’s SR counters and Homer-Lake JSON (see **`docs/qos-reporting.md`**).
 
-A full **video pipeline** and richer **RTCP analytics** stay partially scoped; see `docs/media-roadmap.md`.
+Engine **summary JSON** already includes **RTCP-derived QoS** (loss/jitter aggregates from reception reports and local RTP estimates) for cleartext and SRTP; **periodic `-trace_stat` CSV** does not yet mirror those columns — see **`docs/media-roadmap.md`**.
