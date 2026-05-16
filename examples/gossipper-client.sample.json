@@ -1,0 +1,10 @@
+{
+  "_comment": "UAC/load toward remote_addr. Run: gossipper server -config /path/to/this/file.json (single flat object, no top-level server — client/load preset). Omit local_ip/local_port to use binary defaults.",
+  "role": "load",
+  "scenario_name": "uac",
+  "transport": "u1",
+  "remote_addr": "127.0.0.1:5060",
+  "total_calls": 0,
+  "rate": 5,
+  "max_concurrent": 32
+}

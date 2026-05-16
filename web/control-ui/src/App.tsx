@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, startTransition } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, startTransition } from 'react'
 
 import {
   deleteDynamicClient,
@@ -21,26 +21,32 @@ import {
   type StatsGetResponse,
   type StatsSummary,
 } from '@/api/gossipper'
-import { PRESET_OPTIONS_CLIENT, PRESET_OPTIONS_SERVER } from '@/api/presets'
-import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
+import { ThemeToggle, type ThemeMode } from '@/components/ThemeToggle'
 import { useGossipperLive } from '@/hooks/useGossipperLive'
 import { cn } from '@/lib/utils'
+import { ClientsView } from '@/views/ClientsView'
+import { DashboardView } from '@/views/DashboardView'
+import { LoadControlView } from '@/views/LoadControlView'
+import { ScenarioView } from '@/views/ScenarioView'
+import { SessionView } from '@/views/SessionView'
+import { TransportsView } from '@/views/TransportsView'
 
 const LS_TOKEN = 'gossipper_control_api_token'
 const LS_JWT = 'gossipper_internal_jwt'
+/** Current key: `light` | `dark`. Legacy `gossipper_control_dark` is still read once for migration. */
+const LS_THEME = 'gossipper_control_theme'
+const LS_THEME_LEGACY = 'gossipper_control_dark'
+
+type NavId = 'dashboard' | 'scenario' | 'load' | 'transports' | 'clients' | 'session'
+
+const NAV: { id: NavId; label: string; hint: string }[] = [
+  { id: 'dashboard', label: 'Dashboard', hint: 'engine summary and stats' },
+  { id: 'scenario', label: 'Scenario', hint: 'XML, save, hot reload' },
+  { id: 'load', label: 'Load control', hint: 'pause, rate, live / poll' },
+  { id: 'transports', label: 'SIP transports', hint: 'UAS listeners' },
+  { id: 'clients', label: 'Clients', hint: 'dynamic UAC' },
+  { id: 'session', label: 'Session', hint: 'token, theme, health' },
+]
 
 function readStoredToken(): string {
   try {
@@ -56,6 +62,19 @@ function readStoredJwt(): string {
   } catch {
     return ''
   }
+}
+
+function readTheme(): ThemeMode {
+  try {
+    const t = localStorage.getItem(LS_THEME)?.trim().toLowerCase()
+    if (t === 'light' || t === 'dark') return t
+    const leg = localStorage.getItem(LS_THEME_LEGACY)
+    if (leg === '0') return 'light'
+    if (leg === '1') return 'dark'
+  } catch {
+    /* ignore */
+  }
+  return 'dark'
 }
 
 function isApiError(e: unknown): e is ApiErrorShape {
@@ -149,6 +168,18 @@ function applyLiveToState(frame: LiveFrame | null, setStats: (v: StatsGetRespons
 }
 
 export default function App() {
+  const [nav, setNav] = useState<NavId>('dashboard')
+  const [theme, setTheme] = useState<ThemeMode>(readTheme)
+
+  useLayoutEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    try {
+      localStorage.setItem(LS_THEME, theme)
+    } catch {
+      /* ignore */
+    }
+  }, [theme])
+
   const [bearerDraft, setBearerDraft] = useState(readStoredToken)
   const [bearer, setBearer] = useState<string | undefined>(() => {
     const t = readStoredToken().trim()
@@ -181,13 +212,9 @@ export default function App() {
   const [stats, setStats] = useState<StatsGetResponse | null>(null)
   const [pollStats, setPollStats] = useState(false)
 
-  const [uiMode, setUiMode] = useState<'server' | 'client'>('server')
   const [liveWs, setLiveWs] = useState(true)
 
-  const { status: liveStatus, last: liveFrame, lastError: liveWsError } = useGossipperLive(
-    uiMode === 'server' && liveWs,
-    effectiveBearer,
-  )
+  const { status: liveStatus, last: liveFrame, lastError: liveWsError } = useGossipperLive(liveWs, effectiveBearer)
 
   const [clientSnippet, setClientSnippet] = useState(`{
   "transport": "udp",
@@ -291,7 +318,7 @@ export default function App() {
   }, [authKind, jwt, refreshHealth, refreshControl, loadScenario, refreshStats, refreshDynamicList])
 
   useEffect(() => {
-    if (uiMode === 'server' && liveWs) {
+    if (liveWs) {
       startTransition(() => {
         applyLiveToState(liveFrame, setStats, setControl)
         if (liveFrame?.control) {
@@ -299,25 +326,17 @@ export default function App() {
         }
       })
     }
-  }, [liveFrame, liveWs, uiMode])
+  }, [liveFrame, liveWs])
 
   useEffect(() => {
-    if (!pollStats || (uiMode === 'server' && liveWs)) return
+    if (!pollStats || liveWs) return
     const id = window.setInterval(() => {
       void refreshStats()
     }, 2000)
     return () => window.clearInterval(id)
-  }, [pollStats, refreshStats, uiMode, liveWs])
+  }, [pollStats, refreshStats, liveWs])
 
-  const statsJson = useMemo(
-    () => (stats ? JSON.stringify(stats, null, 2) : ''),
-    [stats],
-  )
-
-  const transportsJson = useMemo(
-    () => (liveFrame?.transports ? JSON.stringify(liveFrame.transports, null, 2) : ''),
-    [liveFrame],
-  )
+  const statsJson = useMemo(() => (stats ? JSON.stringify(stats, null, 2) : ''), [stats])
 
   const builtin = scenarioMeta?.builtin === true
   const engineRows = useMemo(() => engineStatsRows(stats), [stats])
@@ -335,6 +354,8 @@ export default function App() {
     })
   }, [loginUser, loginPass, run])
 
+  const multiEngines = isMultiControl(control) ? control.engines : []
+
   if (authKind === null) {
     return (
       <div className="bg-background text-foreground flex min-h-screen items-center justify-center p-4">
@@ -346,62 +367,111 @@ export default function App() {
   if (authKind === 'internal' && !jwt.trim()) {
     return (
       <div className="bg-background text-foreground min-h-screen p-4">
-        <div className="mx-auto mt-20 w-full max-w-md">
-          <Card>
-            <CardHeader>
-              <CardTitle>Sign in</CardTitle>
-              <CardDescription>
-                This server uses <code className="text-foreground/90">auth.type: internal</code> — accounts live in
-                SQLite (<code>auth.sqlite_path</code>). Create a user with{' '}
-                <code className="text-foreground/90">gossipper auth user-add -config …</code>
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              {lastError ? (
-                <div className="border-destructive/50 bg-destructive/10 text-destructive px-3 py-2 text-xs" role="alert">
-                  {lastError}
-                </div>
-              ) : null}
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="lu">Username</Label>
-                <Input id="lu" autoComplete="username" value={loginUser} onChange={(e) => setLoginUser(e.target.value)} />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="lp">Password</Label>
-                <Input
-                  id="lp"
-                  type="password"
-                  autoComplete="current-password"
-                  value={loginPass}
-                  onChange={(e) => setLoginPass(e.target.value)}
-                />
-              </div>
-              <Button type="button" disabled={busy} onClick={submitInternalLogin}>
-                Sign in
-              </Button>
-            </CardContent>
-          </Card>
+        <div className="mx-auto mt-16 w-full max-w-md border border-border p-6">
+          <h1 className="mb-1 text-base font-semibold tracking-tight">Sign in</h1>
+          <p className="text-muted-foreground mb-4 text-xs leading-relaxed">
+            <code className="text-foreground/90">auth.type: internal</code> is enabled. Create users with{' '}
+            <code className="text-foreground/90">gossipper auth user-add -config …</code>
+          </p>
+          {lastError ? (
+            <div className="border-destructive/50 bg-destructive/10 text-destructive mb-3 px-3 py-2 text-xs" role="alert">
+              {lastError}
+            </div>
+          ) : null}
+          <div className="mb-3 flex flex-col gap-1.5">
+            <label className="text-muted-foreground text-xs" htmlFor="lu">
+              Username
+            </label>
+            <input
+              id="lu"
+              autoComplete="username"
+              value={loginUser}
+              onChange={(e) => setLoginUser(e.target.value)}
+              className="border-input bg-background focus-visible:ring-ring rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2"
+            />
+          </div>
+          <div className="mb-4 flex flex-col gap-1.5">
+            <label className="text-muted-foreground text-xs" htmlFor="lp">
+              Password
+            </label>
+            <input
+              id="lp"
+              type="password"
+              autoComplete="current-password"
+              value={loginPass}
+              onChange={(e) => setLoginPass(e.target.value)}
+              className="border-input bg-background focus-visible:ring-ring rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2"
+            />
+          </div>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={submitInternalLogin}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50"
+          >
+            Sign in
+          </button>
+          <ThemeToggle value={theme} onChange={setTheme} className="mt-4" />
         </div>
       </div>
     )
   }
 
   return (
-    <div className="bg-background text-foreground min-h-screen">
-      <div className="mx-auto flex max-w-6xl flex-col gap-4 p-4">
-        <header className="flex flex-col gap-1 border-b pb-4">
-          <h1 className="font-heading text-lg font-medium">Gossipper — Control</h1>
-          <p className="text-muted-foreground max-w-3xl text-xs/relaxed">
-            Panel for <code className="text-foreground/80">/api/v1</code>: <strong>Server</strong> mode —{' '}
-            <code className="text-foreground/80">WebSocket /api/v1/live</code> stream (stats, control, transports).{' '}
-            <strong>Clients</strong> mode — dynamic UAC (<code>POST/DELETE /api/v1/clients</code>) and scenario. In dev,
-            Vite proxies <code className="text-foreground/80">/api</code> to <code className="text-foreground/80">VITE_API_TARGET</code> (including WS).
-          </p>
+    <div className="bg-background text-foreground flex min-h-screen">
+      <aside className="border-border bg-sidebar text-sidebar-foreground flex w-56 shrink-0 flex-col border-r">
+        <div className="border-border border-b px-3 py-3">
+          <div className="text-sidebar-primary text-xs font-semibold tracking-wide">GOSSIPPER</div>
+          <div className="text-muted-foreground mt-0.5 text-[10px] leading-tight">control & scenarios</div>
+        </div>
+        <nav className="flex flex-1 flex-col gap-0.5 p-2">
+          {NAV.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setNav(item.id)}
+              title={item.hint}
+              className={cn(
+                'rounded-md px-2.5 py-2 text-left text-sm transition-colors',
+                nav === item.id
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                  : 'text-sidebar-foreground/90 hover:bg-sidebar-accent/50',
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="text-muted-foreground border-border mt-auto flex flex-col gap-2 border-t p-2">
+          <ThemeToggle value={theme} onChange={setTheme} />
+          <div className="text-[10px] leading-snug">
+            API <code className="text-sidebar-foreground/80">/api/v1</code>
+          </div>
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="border-border bg-card/50 flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+          <h1 className="text-sm font-semibold tracking-tight">
+            {NAV.find((n) => n.id === nav)?.label ?? nav}
+          </h1>
+          <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-[11px]">
+            <span>
+              health:{' '}
+              <span className={cn(health === 'ok' ? 'text-success' : 'text-foreground')}>{health ?? '—'}</span>
+            </span>
+            {liveWs ? (
+              <span className="font-mono">
+                live: <span className="text-foreground/90">{liveStatus}</span>
+              </span>
+            ) : null}
+            {busy ? <span className="text-warning">request…</span> : null}
+          </div>
         </header>
 
         {(lastError || liveWsError) && (
           <div
-            className="border-destructive/50 bg-destructive/10 text-destructive px-3 py-2 text-xs ring-1 ring-destructive/20"
+            className="border-destructive/40 bg-destructive/10 text-destructive shrink-0 px-4 py-2 text-xs"
             role="alert"
           >
             {lastError}
@@ -410,467 +480,142 @@ export default function App() {
           </div>
         )}
 
-        {authKind === 'internal' ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Session</CardTitle>
-              <CardDescription>
-                <code className="text-foreground/90">auth.type: internal</code> is enabled — access is via JWT after
-                sign-in. The static <code>api_token</code> from JSON is not used for API in this mode.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap items-center gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => {
-                  try {
-                    localStorage.removeItem(LS_JWT)
-                  } catch {
-                    /* ignore */
-                  }
-                  setJwt('')
-                }}
-              >
-                Sign out
-              </Button>
-              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={refreshHealth}>
-                Health
-              </Button>
-              <span className="text-muted-foreground text-xs">
-                status:{' '}
-                <span className={cn(health === 'ok' ? 'text-success' : 'text-foreground')}>
-                  {health ?? '—'}
-                </span>
-              </span>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle>Connection</CardTitle>
-              <CardDescription>
-                With <code>-api_token</code>, the token is sent as Bearer and in the WebSocket query string{' '}
-                <code>?token=</code>.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <Label htmlFor="token">API token (optional)</Label>
-                <Input
-                  id="token"
-                  type="password"
-                  autoComplete="off"
-                  placeholder="Bearer secret"
-                  value={bearerDraft}
-                  onChange={(e) => setBearerDraft(e.target.value)}
-                />
-              </div>
-              <Button type="button" variant="secondary" disabled={busy} onClick={saveToken}>
-                Save token
-              </Button>
-            </CardContent>
-            <CardFooter className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={refreshHealth}>
-                Health
-              </Button>
-              <span className="text-muted-foreground self-center text-xs">
-                status:{' '}
-                <span className={cn(health === 'ok' ? 'text-success' : 'text-foreground')}>
-                  {health ?? '—'}
-                </span>
-              </span>
-            </CardFooter>
-          </Card>
-        )}
-
-        <Tabs value={uiMode} onValueChange={(v) => setUiMode(v as 'server' | 'client')} className="w-full">
-          <TabsList variant="line" className="w-full max-w-lg">
-            <TabsTrigger value="server">Server (live)</TabsTrigger>
-            <TabsTrigger value="client">Clients / load</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="server" className="mt-4 flex flex-col gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>WebSocket stream</CardTitle>
-                <CardDescription>
-                  Frames ~750&nbsp;ms: stats, control, transports (primary). Token is passed in the query string{' '}
-                  <code>?token=</code> on connect.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <Switch id="liveon" checked={liveWs} onCheckedChange={setLiveWs} />
-                  <Label htmlFor="liveon">Live WebSocket</Label>
-                  <span className="text-muted-foreground text-xs">
-                    channel:{' '}
-                    <span className="text-foreground/90">
-                      {liveWs ? liveStatus : 'off'}
-                      {liveFrame?.ts ? ` · ts ${liveFrame.ts}` : ''}
-                    </span>
-                  </span>
-                </div>
-                {!liveWs ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Switch id="poll2" checked={pollStats} onCheckedChange={setPollStats} />
-                    <Label htmlFor="poll2">Poll GET /stats every 2s</Label>
-                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={refreshStats}>
-                      Stats now
-                    </Button>
-                    <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={refreshControl}>
-                      Control
-                    </Button>
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Engines</CardTitle>
-                  <CardDescription>Summary from the latest stats frame (or polling).</CardDescription>
-                </CardHeader>
-                <CardContent className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-xs">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="py-1.5 pr-2 font-medium">id</th>
-                        <th className="py-1.5 pr-2 font-medium">active</th>
-                        <th className="py-1.5 pr-2 font-medium">total</th>
-                        <th className="py-1.5 font-medium">cps</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {engineRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="text-muted-foreground py-2">
-                            No data
-                          </td>
-                        </tr>
-                      ) : (
-                        engineRows.map((row) => (
-                          <tr key={row.id} className="border-b border-border/60">
-                            <td className="py-1.5 pr-2 font-mono">{row.id}</td>
-                            <td className="py-1.5 pr-2">{row.active}</td>
-                            <td className="py-1.5 pr-2">{row.total}</td>
-                            <td className="py-1.5">{row.cps.toFixed(2)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                  {dynFromStats.length > 0 ? (
-                    <p className="text-muted-foreground mt-2 text-[11px]">
-                      Dynamic client ids:{' '}
-                      <code className="text-foreground/90">{dynFromStats.join(', ')}</code>
-                    </p>
-                  ) : null}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Control</CardTitle>
-                  <CardDescription>
-                    <code>POST /api/v1/control</code> applies to all engines. In multi mode, the table below shows the
-                    actual per-engine state (from live).
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4">
-                  {control ? (
-                    <div className="flex flex-col gap-3">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Label htmlFor="paused" className="shrink-0">
-                          Pause (all)
-                        </Label>
-                        <Switch
-                          id="paused"
-                          checked={primaryPaused(control)}
-                          onCheckedChange={(v) => {
-                            void run(async () => {
-                              const next = await postControl({ paused: v }, effectiveBearer)
-                              setControl(next)
-                              setRateDraft(String(primaryRate(next)))
-                            })
-                          }}
-                        />
-                      </div>
-                      <div className="flex flex-wrap items-end gap-2">
-                        <div className="flex min-w-[120px] flex-col gap-1.5">
-                          <Label htmlFor="rate">Rate primary (calls/s)</Label>
-                          <Input
-                            id="rate"
-                            type="number"
-                            step="any"
-                            value={rateDraft}
-                            onChange={(e) => setRateDraft(e.target.value)}
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          disabled={busy}
-                          onClick={() => {
-                            const n = Number(rateDraft)
-                            if (Number.isNaN(n)) return
-                            void run(async () => {
-                              const next = await postControl({ rate: n }, effectiveBearer)
-                              setControl(next)
-                              setRateDraft(String(primaryRate(next)))
-                            })
-                          }}
-                        >
-                          Apply rate (all)
-                        </Button>
-                        <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={refreshControl}>
-                          Refresh
-                        </Button>
-                      </div>
-                      {isMultiControl(control) ? (
-                        <div className="border-input bg-muted/20 max-h-40 overflow-auto border p-2 text-[11px]">
-                          <p className="text-muted-foreground mb-1">Per engine (read-only from API):</p>
-                          <ul className="font-mono leading-snug">
-                            {control.engines.map((e) => (
-                              <li key={e.id}>
-                                {e.id}: rate {e.rate.toFixed(2)}, paused {e.paused ? 'yes' : 'no'}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground text-xs">control: no data</p>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Transports (primary)</CardTitle>
-                <CardDescription>From the latest live frame (empty when WS is off).</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <pre className="border-input bg-muted/20 max-h-48 overflow-auto border p-2 font-mono text-[10px] leading-snug">
-                  {transportsJson || '—'}
-                </pre>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Raw stats JSON</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <pre className="border-input bg-muted/20 max-h-56 overflow-auto border p-2 font-mono text-[10px] leading-snug">
-                  {statsJson || '—'}
-                </pre>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="client" className="mt-4 flex flex-col gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Dynamic clients</CardTitle>
-                <CardDescription>
-                  <code>POST /api/v1/clients</code> — UAC JSON snippet; <code>DELETE ?id=</code> — stop. List:{' '}
-                  <code>GET /api/v1/clients</code>.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={refreshDynamicList}>
-                    Refresh list
-                  </Button>
-                </div>
-                <ul className="text-sm">
-                  {(dynamicList.length ? dynamicList : dynFromStats).length === 0 ? (
-                    <li className="text-muted-foreground text-xs">No dynamic clients</li>
-                  ) : (
-                    (dynamicList.length ? dynamicList : dynFromStats).map((id) => (
-                      <li key={id} className="flex items-center justify-between gap-2 border-b border-border/50 py-1">
-                        <code className="text-xs">{id}</code>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="destructive"
-                          disabled={busy}
-                          onClick={() =>
-                            run(async () => {
-                              await deleteDynamicClient(id, effectiveBearer)
-                              await refreshDynamicList()
-                              await refreshStats()
-                            })
-                          }
-                        >
-                          Remove
-                        </Button>
-                      </li>
-                    ))
-                  )}
-                </ul>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="cid">Desired id (optional)</Label>
-                    <Input
-                      id="cid"
-                      className="font-mono text-xs"
-                      value={clientWantId}
-                      onChange={(e) => setClientWantId(e.target.value)}
-                      placeholder="e.g. extra-1"
-                    />
-                  </div>
-                </div>
-                <Label htmlFor="snippet">Client JSON snippet</Label>
-                <Textarea
-                  id="snippet"
-                  className="font-mono min-h-[200px] text-[11px] leading-snug"
-                  spellCheck={false}
-                  value={clientSnippet}
-                  onChange={(e) => setClientSnippet(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  disabled={busy}
-                  onClick={() =>
-                    run(async () => {
-                      const wid = clientWantId.trim()
-                      await postDynamicClient(clientSnippet, {
-                        id: wid === '' ? undefined : wid,
-                        bearer: effectiveBearer,
-                      })
-                      await refreshDynamicList()
-                      await refreshStats()
-                    })
-                  }
-                >
-                  Start client
-                </Button>
-                <p className="text-muted-foreground text-[11px]">
-                  To change the scenario for a running client: remove its id and create again with the same id (stop +
-                  add).
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="min-h-[320px]">
-              <CardHeader>
-                <CardTitle>Scenario XML (primary)</CardTitle>
-                <CardDescription>
-                  <code>GET/PUT /api/v1/scenario</code>, <code>POST …/apply</code> — same as before.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-2">
-                {scenarioMeta ? (
-                  <p className="text-muted-foreground text-xs">
-                    file: <code>{scenarioMeta.scenario_file || '—'}</code>, name:{' '}
-                    <code>{scenarioMeta.scenario_name || '—'}</code>
-                    {builtin ? (
-                      <span className="text-warning ml-2">(built-in — PUT disabled)</span>
-                    ) : null}
-                  </p>
-                ) : null}
-                <Tabs defaultValue="editor">
-                  <TabsList variant="line" className="w-full max-w-md">
-                    <TabsTrigger value="editor">Editor</TabsTrigger>
-                    <TabsTrigger value="preset-uac">UAC preset</TabsTrigger>
-                    <TabsTrigger value="preset-uas">UAS preset</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="editor" className="mt-2">
-                    <Textarea
-                      className="font-mono min-h-[220px] text-[11px] leading-snug"
-                      spellCheck={false}
-                      value={scenarioXml}
-                      onChange={(e) => setScenarioXml(e.target.value)}
-                    />
-                  </TabsContent>
-                  <TabsContent value="preset-uac" className="mt-2">
-                    <pre className="border-input bg-muted/30 max-h-48 overflow-auto border p-2 font-mono text-[11px] leading-snug whitespace-pre-wrap">
-                      {PRESET_OPTIONS_CLIENT}
-                    </pre>
-                    <Button
-                      type="button"
-                      className="mt-2"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setScenarioXml(PRESET_OPTIONS_CLIENT)}
-                    >
-                      Insert into editor
-                    </Button>
-                  </TabsContent>
-                  <TabsContent value="preset-uas" className="mt-2">
-                    <pre className="border-input bg-muted/30 max-h-48 overflow-auto border p-2 font-mono text-[11px] leading-snug whitespace-pre-wrap">
-                      {PRESET_OPTIONS_SERVER}
-                    </pre>
-                    <Button
-                      type="button"
-                      className="mt-2"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setScenarioXml(PRESET_OPTIONS_SERVER)}
-                    >
-                      Insert into editor
-                    </Button>
-                  </TabsContent>
-                </Tabs>
-              </CardContent>
-              <CardFooter className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={loadScenario}>
-                  Fetch from server
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy || builtin}
-                  onClick={() =>
-                    run(async () => {
-                      await putScenario(scenarioXml, { apply: false, bearer: effectiveBearer })
-                      await loadScenario()
-                    })
-                  }
-                >
-                  Save to file
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={busy || builtin}
-                  onClick={() =>
-                    run(async () => {
-                      await putScenario(scenarioXml, { apply: true, bearer: effectiveBearer })
-                      await loadScenario()
-                      await refreshControl()
-                    })
-                  }
-                >
-                  Save + apply
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() =>
-                    run(async () => {
-                      await postScenarioApply(scenarioXml, effectiveBearer)
-                      await refreshControl()
-                    })
-                  }
-                >
-                  Apply
-                </Button>
-              </CardFooter>
-            </Card>
-          </TabsContent>
-        </Tabs>
+        <main className="min-h-0 flex-1 overflow-auto p-4">
+          {nav === 'dashboard' && (
+            <DashboardView
+              stats={stats}
+              engineRows={engineRows}
+              dynamicIds={dynFromStats}
+              liveWs={liveWs}
+              liveStatus={liveStatus}
+              liveTs={liveFrame?.ts}
+              statsJson={statsJson}
+            />
+          )}
+          {nav === 'scenario' && (
+            <ScenarioView
+              busy={busy}
+              scenarioMeta={scenarioMeta}
+              scenarioXml={scenarioXml}
+              onScenarioXml={setScenarioXml}
+              builtin={builtin}
+              onLoad={() => void loadScenario()}
+              onSaveFile={() =>
+                void run(async () => {
+                  await putScenario(scenarioXml, { apply: false, bearer: effectiveBearer })
+                  await loadScenario()
+                })
+              }
+              onSaveApply={() =>
+                void run(async () => {
+                  await putScenario(scenarioXml, { apply: true, bearer: effectiveBearer })
+                  await loadScenario()
+                  await refreshControl()
+                })
+              }
+              onApply={() =>
+                void run(async () => {
+                  await postScenarioApply(scenarioXml, effectiveBearer)
+                  await refreshControl()
+                })
+              }
+            />
+          )}
+          {nav === 'load' && (
+            <LoadControlView
+              busy={busy}
+              liveWs={liveWs}
+              onLiveWs={setLiveWs}
+              pollStats={pollStats}
+              onPollStats={setPollStats}
+              liveStatus={liveStatus}
+              control={control}
+              primaryPaused={primaryPaused(control)}
+              rateDraft={rateDraft}
+              onRateDraft={setRateDraft}
+              onTogglePause={(v) =>
+                void run(async () => {
+                  const next = await postControl({ paused: v }, effectiveBearer)
+                  setControl(next)
+                  setRateDraft(String(primaryRate(next)))
+                })
+              }
+              onApplyRate={() => {
+                const n = Number(rateDraft)
+                if (Number.isNaN(n)) return
+                void run(async () => {
+                  const next = await postControl({ rate: n }, effectiveBearer)
+                  setControl(next)
+                  setRateDraft(String(primaryRate(next)))
+                })
+              }}
+              onRefreshControl={() => void refreshControl()}
+              onRefreshStats={() => void refreshStats()}
+              isMulti={isMultiControl(control)}
+              multiEngines={multiEngines}
+            />
+          )}
+          {nav === 'transports' && (
+            <TransportsView
+              bearer={effectiveBearer}
+              busy={busy}
+              liveTransports={liveFrame?.transports}
+              liveWs={liveWs}
+              run={run}
+            />
+          )}
+          {nav === 'clients' && (
+            <ClientsView
+              busy={busy}
+              clientSnippet={clientSnippet}
+              onClientSnippet={setClientSnippet}
+              clientWantId={clientWantId}
+              onClientWantId={setClientWantId}
+              dynamicList={dynamicList}
+              dynFromStats={dynFromStats}
+              onRefreshList={() => void refreshDynamicList()}
+              onStartClient={() =>
+                void run(async () => {
+                  const wid = clientWantId.trim()
+                  await postDynamicClient(clientSnippet, {
+                    id: wid === '' ? undefined : wid,
+                    bearer: effectiveBearer,
+                  })
+                  await refreshDynamicList()
+                  await refreshStats()
+                })
+              }
+              onRemoveClient={(id) =>
+                void run(async () => {
+                  await deleteDynamicClient(id, effectiveBearer)
+                  await refreshDynamicList()
+                  await refreshStats()
+                })
+              }
+            />
+          )}
+          {nav === 'session' && (
+            <SessionView
+              authKind={authKind}
+              busy={busy}
+              health={health}
+              bearerDraft={bearerDraft}
+              onBearerDraft={setBearerDraft}
+              onSaveToken={saveToken}
+              onRefreshHealth={() => void refreshHealth()}
+              onSignOut={() => {
+                try {
+                  localStorage.removeItem(LS_JWT)
+                } catch {
+                  /* ignore */
+                }
+                setJwt('')
+              }}
+              theme={theme}
+              onThemeChange={setTheme}
+            />
+          )}
+        </main>
       </div>
     </div>
   )

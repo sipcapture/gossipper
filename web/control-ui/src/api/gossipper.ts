@@ -111,7 +111,33 @@ export type StatsGetResponse =
   | { multi: true; engines: StatsEngineRow[]; dynamic_client_ids?: string[] }
   | { multi: false; stats: StatsSummary; dynamic_client_ids?: string[] }
 
-export type TransportsResponse = { listeners: unknown[] }
+export type TransportListenerRow = {
+  index: number
+  transport: string
+  local_ip: string
+  local_port: number
+  enabled: boolean
+}
+
+export type TransportsResponse = { listeners: TransportListenerRow[] }
+
+export function getTransports(bearer?: string) {
+  return apiRequest<TransportsResponse>('/transports', { method: 'GET', bearer })
+}
+
+export function postTransports(
+  body:
+    | { listeners: { index: number; enabled: boolean }[] }
+    | { index: number; enabled: boolean },
+  bearer?: string,
+) {
+  return apiRequest<TransportsResponse>('/transports', {
+    method: 'POST',
+    bearer,
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify(body),
+  })
+}
 
 /** Payload pushed over GET /api/v1/live (WebSocket). */
 export type LiveFrame = {
