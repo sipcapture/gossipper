@@ -21,6 +21,7 @@ import {
   type StatsGetResponse,
   type StatsSummary,
 } from '@/api/gossipper'
+import { getHealthV2 } from '@/api/v2'
 import { ThemeToggle, type ThemeMode } from '@/components/ThemeToggle'
 import { useGossipperLive } from '@/hooks/useGossipperLive'
 import { cn } from '@/lib/utils'
@@ -30,9 +31,12 @@ import { LoadControlView } from '@/views/LoadControlView'
 import { ScenarioView } from '@/views/ScenarioView'
 import { SessionView } from '@/views/SessionView'
 import { TransportsView } from '@/views/TransportsView'
+import { AdminApp } from '@/views/v2/AdminApp'
 
 const LS_TOKEN = 'gossipper_control_api_token'
 const LS_JWT = 'gossipper_internal_jwt'
+/** Persisted choice between admin (api v2) and legacy (api v1) UI. */
+const LS_UI_MODE = 'gossipper_ui_mode'
 /** Current key: `light` | `dark`. Legacy `gossipper_control_dark` is still read once for migration. */
 const LS_THEME = 'gossipper_control_theme'
 const LS_THEME_LEGACY = 'gossipper_control_dark'
@@ -168,7 +172,83 @@ function applyLiveToState(frame: LiveFrame | null, setStats: (v: StatsGetRespons
   }
 }
 
+type UIMode = 'admin' | 'legacy'
+
+function readUIMode(): UIMode | null {
+  try {
+    const v = localStorage.getItem(LS_UI_MODE)?.trim().toLowerCase()
+    if (v === 'admin' || v === 'legacy') return v
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function writeUIMode(m: UIMode) {
+  try {
+    localStorage.setItem(LS_UI_MODE, m)
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function App() {
+  const [uiMode, setUIMode] = useState<UIMode | 'detecting'>(() => readUIMode() ?? 'detecting')
+
+  // Detect whether the backend has the admin console enabled (gossipper ui)
+  // by probing /api/v2/health. Persist the result for snappy reloads.
+  useEffect(() => {
+    if (uiMode !== 'detecting') return
+    let cancelled = false
+    void (async () => {
+      try {
+        await getHealthV2()
+        if (!cancelled) {
+          setUIMode('admin')
+          writeUIMode('admin')
+        }
+      } catch {
+        if (!cancelled) {
+          setUIMode('legacy')
+          writeUIMode('legacy')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [uiMode])
+
+  if (uiMode === 'detecting') {
+    return (
+      <div className="bg-background text-foreground flex min-h-screen items-center justify-center">
+        <p className="text-muted-foreground text-sm">Detecting UI mode…</p>
+      </div>
+    )
+  }
+
+  if (uiMode === 'admin') {
+    return (
+      <AdminApp
+        onSwitchToLegacy={() => {
+          writeUIMode('legacy')
+          setUIMode('legacy')
+        }}
+      />
+    )
+  }
+
+  return (
+    <LegacyApp
+      onSwitchToAdmin={() => {
+        writeUIMode('admin')
+        setUIMode('admin')
+      }}
+    />
+  )
+}
+
+function LegacyApp({ onSwitchToAdmin }: { onSwitchToAdmin?: () => void }) {
   const [nav, setNav] = useState<NavId>('dashboard')
   const [theme, setTheme] = useState<ThemeMode>(readTheme)
 
@@ -472,6 +552,16 @@ export default function App() {
         </nav>
         <div className="text-muted-foreground border-border mt-auto flex flex-col gap-2 border-t p-2">
           <ThemeToggle value={theme} onChange={setTheme} />
+          {onSwitchToAdmin ? (
+            <button
+              type="button"
+              onClick={onSwitchToAdmin}
+              className="text-sidebar-foreground/80 hover:text-foreground rounded-md px-1 py-1 text-left text-[11px] underline-offset-2 hover:underline"
+              title="Switch to the admin console (requires gossipper ui)"
+            >
+              → admin console (v2)
+            </button>
+          ) : null}
           <div className="text-[10px] leading-snug">
             API <code className="text-sidebar-foreground/80">/api/v1</code>
           </div>

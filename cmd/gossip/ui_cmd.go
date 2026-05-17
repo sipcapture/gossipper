@@ -1,0 +1,129 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	apiv2 "github.com/sipcapture/gossipper/internal/api/v2"
+	"github.com/sipcapture/gossipper/internal/settingsauth"
+	"github.com/sipcapture/gossipper/internal/supervisor"
+	"github.com/sipcapture/gossipper/internal/uistore"
+)
+
+// runUICommand implements `gossipper ui` — the supervisor / UI control plane.
+// It does NOT start any SIP engine itself: workers are launched on demand via
+// the /api/v2/jobs endpoint. Phase 0 wires the StubRunner; Phase 2 replaces it
+// with a real fork/exec implementation.
+func runUICommand(args []string) error {
+	fs := flag.NewFlagSet("ui", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	dataDir := fs.String("data-dir", "./data", "data directory for profiles, scenarios, media, jobs")
+	listen := fs.String("listen", ":8080", "HTTP listen address (Control UI + /api/v2)")
+	authSqlite := fs.String("auth-sqlite", "", "path to SQLite settings DB (defaults to <data-dir>/settings.sqlite); empty disables internal auth when --jwt-secret is empty too")
+	jwtSecret := fs.String("jwt-secret", "", "JWT signing secret (>=16 chars); empty disables internal auth")
+	noAuth := fs.Bool("no-auth", false, "explicitly disable internal auth (auth=none, all endpoints public)")
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), `gossipper ui — supervisor + Control UI
+
+Phase 0 wires a stub worker runner: /api/v2/jobs records lifecycle in the
+settings DB but does not yet fork real workers (that lands in Phase 2).
+
+Usage:
+  gossipper ui [flags]
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+
+	store, err := uistore.Open(*dataDir)
+	if err != nil {
+		return fmt.Errorf("ui: open data dir: %w", err)
+	}
+
+	dbPath := strings.TrimSpace(*authSqlite)
+	if dbPath == "" {
+		dbPath = store.Layout().SettingsDBPath()
+	}
+	db, err := settingsauth.OpenStore(dbPath)
+	if err != nil {
+		return fmt.Errorf("ui: open settings DB: %w", err)
+	}
+	defer db.Close()
+
+	jobsStore := supervisor.NewJobsStore(db)
+	runner := supervisor.NewExecRunner(store.Layout().Root, jobsStore, nil)
+	reg := supervisor.NewRegistry(jobsStore, runner)
+
+	var auth *settingsauth.Auth
+	switch {
+	case *noAuth:
+		auth = nil
+	case strings.TrimSpace(*jwtSecret) != "":
+		a, err := settingsauth.Open(dbPath, *jwtSecret)
+		if err != nil {
+			return fmt.Errorf("ui: enable auth: %w", err)
+		}
+		defer a.Close()
+		auth = a
+	default:
+		fmt.Fprintln(os.Stderr, "ui: warning — internal auth disabled (set --jwt-secret to enable, or pass --no-auth to silence this warning)")
+	}
+
+	mux := http.NewServeMux()
+	apiv2.New(apiv2.Config{
+		Store:    store,
+		Registry: reg,
+		Auth:     auth,
+		Version:  GetShortVersionString(),
+	}).Register(mux)
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("ok\n"))
+	})
+
+	srv := &http.Server{Addr: *listen, Handler: mux}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() {
+		fmt.Fprintf(os.Stderr, "gossipper ui: data-dir=%s listen=%s auth=%s\n",
+			store.Layout().Root, *listen, authLabel(auth))
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+		close(errCh)
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+		<-errCh
+		return nil
+	case err := <-errCh:
+		return err
+	}
+}
+
+func authLabel(a *settingsauth.Auth) string {
+	if a != nil && a.Enabled() {
+		return "internal(jwt+sqlite)"
+	}
+	return "none"
+}

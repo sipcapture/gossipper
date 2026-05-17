@@ -55,6 +55,12 @@ func runMain(args []string) error {
 	if len(args) > 0 && args[0] == "auth" {
 		return runAuthCommand(args[1:])
 	}
+	if len(args) > 0 && args[0] == "ui" {
+		return runUICommand(args[1:])
+	}
+	if len(args) > 0 && args[0] == "worker" {
+		return runWorkerCommand(args[1:])
+	}
 	if len(args) > 0 && args[0] == "tui" {
 		if wantsSubcommandHelp(args[1:]) {
 			printTUIHelp(os.Stdout)

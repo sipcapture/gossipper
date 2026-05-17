@@ -116,6 +116,12 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		TLSKeyFile:       cfg.TLSKeyFile,
 		TLSCAFile:        cfg.TLSCAFile,
 		TLSSkipVerify:    cfg.TLSSkipVerify,
+		WSPath:           cfg.WSPath,
+
+		WebRTCICEServers:    cfg.WebRTCICEServers,
+		WebRTCICEUsername:   cfg.WebRTCICEUsername,
+		WebRTCICECredential: cfg.WebRTCICECredential,
+		WebRTCPrefersPCMA:   cfg.WebRTCPrefersPCMA,
 		CommandName:      cfg.CommandName,
 		CommandPeers:     cfg.CommandPeers,
 		UISourceIPs:      append([]string(nil), cfg.UISourceIPs...),
@@ -202,11 +208,11 @@ func serverListenersForEngine(cfg *cli.Config) ([]engine.ServerListener, error) 
 			t = "l1"
 		}
 		switch t {
-		case "u1", "un", "t1", "tn", "l1", "ln":
+		case "u1", "un", "t1", "tn", "l1", "ln", "w1", "wn", "ws1", "wsn":
 		default:
-			return nil, fmt.Errorf("listeners[%d]: transport %q is not supported (use u1, un, t1, tn, l1, ln)", i, ln.Transport)
+			return nil, fmt.Errorf("listeners[%d]: transport %q is not supported (use u1, un, t1, tn, l1, ln, w1, wn, ws1, wsn)", i, ln.Transport)
 		}
-		if t == "l1" || t == "ln" {
+		if t == "l1" || t == "ln" || t == "ws1" || t == "wsn" {
 			if strings.TrimSpace(cfg.TLSCertFile) == "" || strings.TrimSpace(cfg.TLSKeyFile) == "" {
 				return nil, fmt.Errorf("listeners[%d]: transport %s requires tls_cert and tls_key in config or on the command line", i, t)
 			}

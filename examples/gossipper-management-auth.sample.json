@@ -1,10 +1,10 @@
 {
-  "comment": "Sample management profile with internal API/Control UI auth (SQLite users + JWT). For .deb/.rpm installs, sqlite_path matches the packaged data directory (/usr/local/gossipper/data). For local dev you may use e.g. ./data/gossipper-settings.sqlite. Copy, set jwt_secret, run gossipper auth user-add, then point server -config at this file.",
+  "comment": "Sample management profile with internal API/Control UI auth (SQLite users + JWT). For .deb/.rpm installs, sqlite_path matches the packaged data directory (/usr/local/gossipper/data). For local dev you may use e.g. ./data/gossipper-settings.sqlite. Copy, set jwt_secret, run gossipper auth user-add, then point server -config at this file. NOTE: starting with the admin console, the jwt_secret in this file is only used as the *initial* bootstrap value — once the server persists it (or you call POST /api/v2/settings/rotate-jwt-secret from the UI), the secret stored in the SQLite kv_settings table takes precedence on subsequent restarts. To force a rotation, either click 'Rotate now' in Settings or delete the row WHERE key='jwt_secret' from kv_settings.",
   "api_addr": ":8080",
   "auth": {
     "type": "internal",
     "sqlite_path": "/usr/local/gossipper/data/gossipper-settings.sqlite",
-    "jwt_secret": "CHANGE_ME__min_16_chars__"
+    "jwt_secret": "CHANGE_ME__min_16_chars__ (only used until first persisted/rotated)"
   },
   "server": {
     "role": "management",

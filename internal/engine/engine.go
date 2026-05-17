@@ -140,6 +140,17 @@ type Config struct {
 	TLSKeyFile       string
 	TLSCAFile        string
 	TLSSkipVerify    bool
+	// WSPath is the HTTP path for SIP-over-WebSocket transports (w1/wn/ws1/wsn).
+	// When empty the default "/" is used. RFC 7118 recommends "/".
+	WSPath string
+	// WebRTC media options. Consumed by internal/webrtc.NewBridge when the
+	// engine attaches a Bridge to a call (Phase 4.2; see docs/webrtc.md).
+	// They are threaded end-to-end now so the runtime wiring patch only needs
+	// to read them out of engine.Config.
+	WebRTCICEServers    []string
+	WebRTCICEUsername   string
+	WebRTCICECredential string
+	WebRTCPrefersPCMA   bool
 	CommandName      string
 	CommandPeers     map[string]string
 	UISourceIPs      []string
@@ -549,6 +560,14 @@ func (e *Engine) runClient(ctx context.Context) error {
 		return e.runClientSharedTLS(ctx)
 	case "ln":
 		return e.runClientPerCallTLS(ctx)
+	case "w1":
+		return e.runClientSharedWS(ctx)
+	case "wn":
+		return e.runClientPerCallWS(ctx)
+	case "ws1":
+		return e.runClientSharedWSS(ctx)
+	case "wsn":
+		return e.runClientPerCallWSS(ctx)
 	default:
 		return fmt.Errorf("unsupported transport mode %q", e.cfg.Transport)
 	}
@@ -1076,6 +1095,14 @@ func (e *Engine) runServer(ctx context.Context) error {
 		return e.runServerTLSShared(ctx)
 	case "ln":
 		return e.runServerTLSPerConn(ctx)
+	case "w1":
+		return e.runServerWSShared(ctx)
+	case "wn":
+		return e.runServerWSPerConn(ctx)
+	case "ws1":
+		return e.runServerWSSShared(ctx)
+	case "wsn":
+		return e.runServerWSSPerConn(ctx)
 	default:
 		return fmt.Errorf("unsupported server transport mode %q", e.cfg.Transport)
 	}
@@ -1273,6 +1300,10 @@ func (e *Engine) runOneServerListener(ctx context.Context, co *serverMultiCoordi
 		return e.runServerTLSSharedOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex, listenerIdx)
 	case "ln":
 		return e.runServerTLSPerConnOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex, listenerIdx)
+	case "w1", "ws1":
+		return e.runServerWSSharedOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex, listenerIdx)
+	case "wn", "wsn":
+		return e.runServerWSPerConnOn(ctx, co, localAddr, ln.LocalIP, ln.Transport, firstRecvIndex, listenerIdx)
 	default:
 		return fmt.Errorf("unsupported listener transport %q", ln.Transport)
 	}
@@ -3637,6 +3668,10 @@ func normalizeTransportForSetDest(transport string) string {
 		return "tcp"
 	case "l1", "ln", "tls":
 		return "tls"
+	case "w1", "wn", "ws":
+		return "ws"
+	case "ws1", "wsn", "wss":
+		return "wss"
 	default:
 		return strings.ToLower(strings.TrimSpace(transport))
 	}

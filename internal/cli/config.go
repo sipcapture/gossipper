@@ -99,6 +99,17 @@ type Config struct {
 	TLSKeyFile              string
 	TLSCAFile               string
 	TLSSkipVerify           bool
+	// WSPath is the HTTP path used by SIP-over-WebSocket transports (w1/wn/ws1/wsn).
+	WSPath                  string
+	// WebRTC media settings. WebRTCICEServers is a list of STUN/TURN URLs
+	// (e.g. "stun:stun.l.google.com:19302"). WebRTCICEUsername /
+	// WebRTCICECredential are sent on every server URL that asks for auth.
+	// WebRTCPrefersPCMA picks PCMA (G.711 a-law) over PCMU when both are
+	// offered.
+	WebRTCICEServers    []string
+	WebRTCICEUsername   string
+	WebRTCICECredential string
+	WebRTCPrefersPCMA   bool
 	CommandName             string
 	CommandPeers            map[string]string
 	CommandRole             string

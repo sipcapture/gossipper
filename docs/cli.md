@@ -1,5 +1,13 @@
 # Command-line interface (CLI)
 
+> **Legacy reference.** This page documents the *load-generator* CLI surface
+> (`gossipper sipp …`, `gossipper server …`, `gossipper tui`, …). For day-to-day
+> operations the new **admin console** (`gossipper ui …` + `gossipper worker …`)
+> is the supported path — see [`ui-mode.md`](ui-mode.md). The CLI flags below
+> still work and are not going away (they back the worker process and the
+> compatibility test suite), but new features land in the admin console first
+> and only graduate to flags when an obvious CLI use-case emerges.
+
 Gossipper is a single binary (`cmd/gossip`) with:
 
 1. **Reserved first-token subcommands** — fixed verbs (`tui`, `shell`, …) handled before the main `flag` parser.
