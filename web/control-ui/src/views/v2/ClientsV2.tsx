@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Modal } from '@/components/ui/modal'
 import { Textarea } from '@/components/ui/textarea'
+import { RuntimeBadge } from '@/components/v2/RuntimeBadge'
 import { TransportListEditor } from '@/components/v2/TransportListEditor'
 
 const emptyDraft = (): ClientProfile => ({
@@ -89,24 +90,13 @@ export function ClientsV2({ bearer, busy, run, errorText }: ClientsV2Props) {
 
   const columns: Column<ClientProfile>[] = useMemo(
     () => [
-      {
-        key: 'id',
-        header: 'ID',
-        render: (r) => (
-          <span className="flex items-center gap-1.5">
-            <code className="text-xs">{r.id}</code>
-            {r.source === 'built-in' && (
-              <span
-                title={r.notes ?? 'Owned by the management process. Edit the management JSON and restart to change.'}
-                className="bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider"
-              >
-                built-in
-              </span>
-            )}
-          </span>
-        ),
-      },
+      { key: 'id', header: 'ID', render: (r) => <code className="text-xs">{r.id}</code> },
       { key: 'name', header: 'Name', render: (r) => r.name },
+      {
+        key: 'status',
+        header: 'Status',
+        render: (r) => <RuntimeBadge runtime={r.runtime} />,
+      },
       {
         key: 'target',
         header: 'Target',

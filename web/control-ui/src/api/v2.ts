@@ -73,6 +73,24 @@ export type TransportSpec = {
 
 export type ProfileSource = 'built-in' | string
 
+export type ProfileRuntimeStatus =
+  | 'built-in'
+  | 'running'
+  | 'pending'
+  | 'idle'
+  | 'succeeded'
+  | 'failed'
+  | 'stopped'
+
+export type ProfileRuntime = {
+  status: ProfileRuntimeStatus
+  job_id?: string
+  pid?: number
+  started_at?: string
+  finished_at?: string
+  exit_code?: number
+}
+
 export type ServerProfile = {
   id: string
   name: string
@@ -82,6 +100,7 @@ export type ServerProfile = {
   max_concurrent?: number
   notes?: string
   source?: ProfileSource
+  runtime?: ProfileRuntime
   created_at?: string
   updated_at?: string
 }
@@ -99,6 +118,7 @@ export type ClientProfile = {
   duration_ms?: number
   notes?: string
   source?: ProfileSource
+  runtime?: ProfileRuntime
   created_at?: string
   updated_at?: string
 }
