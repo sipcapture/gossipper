@@ -49,9 +49,28 @@ export function ClientsV2({ bearer, busy, run, errorText }: ClientsV2Props) {
     setScenarios(s.scenarios ?? [])
   }, [bearer])
 
+  // Refresh only the rows (cheap) without touching the run/busy spinner.
+  // Used by the auto-poll loop so the status column stays live without
+  // grey-ing out the table every 3 s.
+  const refreshRowsOnly = useCallback(async () => {
+    try {
+      const r = await listClients({ bearer })
+      setRows(r.clients ?? [])
+    } catch (err) {
+      console.warn('refresh clients:', err)
+    }
+  }, [bearer])
+
   useEffect(() => {
     void run(() => refresh())
   }, [run, refresh])
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void refreshRowsOnly()
+    }, 3000)
+    return () => window.clearInterval(id)
+  }, [refreshRowsOnly])
 
   const onSave = () => {
     if (!draft) return
@@ -75,7 +94,13 @@ export function ClientsV2({ bearer, busy, run, errorText }: ClientsV2Props) {
   }
   const onStart = (row: ClientProfile) => {
     void run(async () => {
-      await startClientProfile(row.id, { bearer })
+      try {
+        await startClientProfile(row.id, { bearer })
+      } catch (err) {
+        console.warn('start:', err)
+      } finally {
+        await refresh()
+      }
     })
   }
   const onStop = (row: ClientProfile) => {
@@ -84,6 +109,8 @@ export function ClientsV2({ bearer, busy, run, errorText }: ClientsV2Props) {
         await stopClientProfile(row.id, { bearer })
       } catch (err) {
         console.warn('stop:', err)
+      } finally {
+        await refresh()
       }
     })
   }

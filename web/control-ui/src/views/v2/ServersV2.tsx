@@ -47,9 +47,28 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
     setScenarios(s.scenarios ?? [])
   }, [bearer])
 
+  // Refresh only the rows (cheap) without touching the run/busy spinner.
+  // Used by the auto-poll loop so the status column stays live without
+  // grey-ing out the table every 3 s.
+  const refreshRowsOnly = useCallback(async () => {
+    try {
+      const r = await listServers({ bearer })
+      setRows(r.servers ?? [])
+    } catch (err) {
+      console.warn('refresh servers:', err)
+    }
+  }, [bearer])
+
   useEffect(() => {
     void run(() => refresh())
   }, [run, refresh])
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void refreshRowsOnly()
+    }, 3000)
+    return () => window.clearInterval(id)
+  }, [refreshRowsOnly])
 
   const onCreate = () => {
     setDraft(emptyDraft())
@@ -86,7 +105,13 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
 
   const onStart = (row: ServerProfile) => {
     void run(async () => {
-      await startServerProfile(row.id, { bearer })
+      try {
+        await startServerProfile(row.id, { bearer })
+      } catch (err) {
+        console.warn('start:', err)
+      } finally {
+        await refresh()
+      }
     })
   }
   const onStop = (row: ServerProfile) => {
@@ -94,8 +119,10 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
       try {
         await stopServerProfile(row.id, { bearer })
       } catch (err) {
-        // "no running job" is fine — surface but don't break refresh.
+        // "no running job" / 409 built-in is fine — surface but don't break refresh.
         console.warn('stop:', err)
+      } finally {
+        await refresh()
       }
     })
   }
