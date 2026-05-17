@@ -125,6 +125,25 @@ func (s *Server) handleStopProfileShortcut(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	if target == nil {
+		// Distinguish "no such profile" (real 404) from "profile exists but
+		// has no running supervisor job" (409 Conflict) so the UI can surface
+		// the right hint — most often the profile is the built-in management
+		// server/clients seeded from the management JSON, which is owned by
+		// the primary process and cannot be stopped via /jobs.
+		if s.cfg.Store != nil {
+			var lookupErr error
+			switch kind {
+			case "server":
+				_, lookupErr = s.cfg.Store.GetServerProfile(id)
+			case "client":
+				_, lookupErr = s.cfg.Store.GetClientProfile(id)
+			}
+			if lookupErr == nil {
+				s.writeError(w, http.StatusConflict,
+					"profile is not running as a supervisor job (it may be owned by the management process — restart the service to stop)")
+				return
+			}
+		}
 		s.writeError(w, http.StatusNotFound, "no running job for profile")
 		return
 	}
