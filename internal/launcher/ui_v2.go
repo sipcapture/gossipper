@@ -1,6 +1,7 @@
 package launcher
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -96,9 +97,137 @@ func openUIBundle(cfg cli.Config) (*UIBundle, error) {
 	jobsStore := supervisor.NewJobsStore(db)
 	runner := supervisor.NewExecRunner(store.Layout().Root, jobsStore, nil)
 	reg := supervisor.NewRegistry(jobsStore, runner)
+	if err := seedProfilesFromConfig(store, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "api: warn: seed profiles from management config failed: %v\n", err)
+	}
 	return &UIBundle{
 		Store:    store,
 		Registry: reg,
 		closer:   db.Close,
 	}, nil
+}
+
+// seedProfilesFromConfig populates the empty UI store with the server bind
+// and any joined-clients defined in the management JSON, so freshly-installed
+// operators see what they configured already in the admin console instead of
+// an empty Servers / Clients page. Seeding is one-shot: any existing profile
+// suppresses it (so manual edits / additions never get clobbered on restart).
+func seedProfilesFromConfig(store *uistore.Store, cfg cli.Config) error {
+	if store == nil {
+		return nil
+	}
+	servers, err := store.ListServerProfiles()
+	if err != nil {
+		return fmt.Errorf("list servers: %w", err)
+	}
+	clients, err := store.ListClientProfiles()
+	if err != nil {
+		return fmt.Errorf("list clients: %w", err)
+	}
+	if len(servers) > 0 || len(clients) > 0 {
+		return nil
+	}
+
+	var seeded int
+
+	if srv := serverProfileFromConfig(cfg); srv != nil {
+		if _, err := store.PutServerProfile(*srv, true); err == nil {
+			seeded++
+		} else if !errors.Is(err, uistore.ErrConflict) {
+			fmt.Fprintf(os.Stderr, "api: warn: seed server profile %q: %v\n", srv.ID, err)
+		}
+	}
+
+	used := map[string]struct{}{}
+	for i, jc := range cfg.JoinedClients {
+		id := strings.TrimSpace(jc.ID)
+		if id == "" {
+			id = fmt.Sprintf("client-%d", i+1)
+		}
+		if _, dup := used[id]; dup {
+			id = fmt.Sprintf("%s-%d", id, i+1)
+		}
+		used[id] = struct{}{}
+		cp := clientProfileFromConfig(id, jc.Config)
+		if cp == nil {
+			continue
+		}
+		if _, err := store.PutClientProfile(*cp, true); err == nil {
+			seeded++
+		} else if !errors.Is(err, uistore.ErrConflict) {
+			fmt.Fprintf(os.Stderr, "api: warn: seed client profile %q: %v\n", cp.ID, err)
+		}
+	}
+
+	if seeded > 0 {
+		fmt.Fprintf(os.Stderr, "api: seeded %d profile(s) from management config into %s\n", seeded, store.Layout().Root)
+	}
+	return nil
+}
+
+func serverProfileFromConfig(cfg cli.Config) *uistore.ServerProfile {
+	transports := serverTransportsFromConfig(cfg)
+	if len(transports) == 0 {
+		return nil
+	}
+	id := strings.TrimSpace(cfg.ServerProfileID)
+	if id == "" {
+		id = "management"
+	}
+	return &uistore.ServerProfile{
+		ID:            id,
+		Name:          id,
+		Description:   "Imported from management config on first start.",
+		ScenarioRef:   strings.TrimSpace(cfg.ScenarioName),
+		Transports:    transports,
+		MaxConcurrent: cfg.MaxConcurrent,
+	}
+}
+
+func serverTransportsFromConfig(cfg cli.Config) []uistore.TransportSpec {
+	var out []uistore.TransportSpec
+	for _, l := range cfg.ServerListeners {
+		if strings.TrimSpace(l.Transport) == "" {
+			continue
+		}
+		out = append(out, uistore.TransportSpec{
+			Transport: l.Transport,
+			LocalIP:   l.LocalIP,
+			LocalPort: l.LocalPort,
+			Enabled:   true,
+		})
+	}
+	if len(out) == 0 && strings.TrimSpace(cfg.Transport) != "" && cfg.LocalPort > 0 {
+		out = append(out, uistore.TransportSpec{
+			Transport: cfg.Transport,
+			LocalIP:   cfg.LocalIP,
+			LocalPort: cfg.LocalPort,
+			Enabled:   true,
+		})
+	}
+	return out
+}
+
+func clientProfileFromConfig(id string, cfg cli.Config) *uistore.ClientProfile {
+	transport := strings.TrimSpace(cfg.Transport)
+	if transport == "" {
+		return nil
+	}
+	cp := &uistore.ClientProfile{
+		ID:          id,
+		Name:        id,
+		Description: "Imported from management config on first start.",
+		ScenarioRef: strings.TrimSpace(cfg.ScenarioName),
+		Transports: []uistore.TransportSpec{{
+			Transport: transport,
+			LocalIP:   cfg.LocalIP,
+			LocalPort: cfg.LocalPort,
+			Enabled:   true,
+		}},
+		RemoteIP:      cfg.RemoteHost,
+		RemotePort:    cfg.RemotePort,
+		Rate:          cfg.Rate,
+		MaxConcurrent: cfg.MaxConcurrent,
+	}
+	return cp
 }
