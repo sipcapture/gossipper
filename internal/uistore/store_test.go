@@ -175,7 +175,7 @@ func minimalWAV() []byte {
 
 func TestInvalidIDs(t *testing.T) {
 	s := newTestStore(t)
-	for _, bad := range []string{"", "../etc", "with space", "слишком/глубоко", strings.Repeat("x", 200)} {
+	for _, bad := range []string{"", "../etc", "with space", "nested/deep", strings.Repeat("x", 200)} {
 		if _, err := s.PutServerProfile(ServerProfile{ID: bad}, true); !errors.Is(err, ErrInvalidID) {
 			t.Fatalf("expected ErrInvalidID for %q, got %v", bad, err)
 		}
