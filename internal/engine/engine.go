@@ -2833,10 +2833,10 @@ func (e *Engine) sourceIPForCall(callNumber int) string {
 	return e.cfg.UISourceIPs[index]
 }
 
-// sipMailboxCap is the per-call buffer for demuxed UDP/TCP SIP messages. Too
-// small a value combined with non-blocking enqueue caused silent drops of
-// in-dialog responses (e.g. 200 OK to BYE) under provisional bursts.
-const sipMailboxCap = 128
+// sipMailboxCap is the per-call buffer for demuxed UDP/TCP SIP messages.
+// Sized to absorb bursts (retransmissions, provisional floods) under high CPS
+// without dropping messages on the dispatch hot path.
+const sipMailboxCap = 512
 
 // mailboxRegistry routes incoming SIP packets to per-call channels using
 // sync.Map for lock-free reads on the dispatch hot path.
