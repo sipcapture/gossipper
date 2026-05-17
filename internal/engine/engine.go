@@ -191,7 +191,8 @@ type Engine struct {
 	cmdNet   *commandNetwork
 	trace    *traceLogger
 	hep      *hep.Client
-	log      eventlog.Logger
+	log       eventlog.Logger
+	logActive bool // true when log is not a no-op (avoids hot-path work)
 
 	// liveScenario is the SIP scenario used for new calls (executeCall snapshots it at call start).
 	// It starts as a copy of cfg.Scenario and can be replaced at runtime via TryReplaceLiveScenario
@@ -221,6 +222,7 @@ type Engine struct {
 
 func New(cfg Config) *Engine {
 	log := cfg.Log
+	logActive := log != nil
 	if log == nil {
 		log = eventlog.Noop()
 	}
@@ -237,6 +239,7 @@ func New(cfg Config) *Engine {
 		scopes:       newScopedVars(),
 		commands:     newCommandBroker(),
 		log:          log,
+		logActive:    logActive,
 		liveScenario: cfg.Scenario,
 		startTime:    time.Now(),
 		sem:          newDynSemaphore(limit),

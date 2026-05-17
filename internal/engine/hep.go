@@ -39,6 +39,10 @@ func (e *Engine) stopHEP() {
 }
 
 func (e *Engine) observeSIP(direction string, callNumber int, callID string, localIP string, localPort int, remoteIP string, remotePort int, raw []byte) {
+	// Fast path: skip all work when no tracing, HEP, or event logging is active.
+	if !e.cfg.TraceMessages && !e.cfg.TraceShortMsg && e.hep == nil && !e.logActive {
+		return
+	}
 	if e.cfg.TraceMessages || e.cfg.TraceShortMsg {
 		e.traceEvent(direction, callNumber, string(raw))
 	}
@@ -57,8 +61,9 @@ func (e *Engine) observeSIP(direction string, callNumber int, callID string, loc
 }
 
 // emitSIPEvent pushes a structured eventlog Event for one SIP message.
+// Short-circuits when no real logger is configured to avoid re-parsing overhead.
 func (e *Engine) emitSIPEvent(direction string, callNumber int, callID string, srcIP string, srcPort int, dstIP string, dstPort int, raw []byte) {
-	if e.log == nil {
+	if !e.logActive {
 		return
 	}
 	kind := eventlog.KindSIPSend
