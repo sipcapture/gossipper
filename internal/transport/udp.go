@@ -31,6 +31,21 @@ const (
 type Packet struct {
 	Data []byte
 	Addr *net.UDPAddr
+	pool *sync.Pool // non-nil when Data is from a pool; call Release() after use
+}
+
+// Release returns the underlying buffer to the pool. Safe to call on zero-value.
+func (p *Packet) Release() {
+	if p.pool != nil && p.Data != nil {
+		p.pool.Put(p.Data[:cap(p.Data)])
+		p.Data = nil
+		p.pool = nil
+	}
+}
+
+// udpBufPool reuses read buffers to reduce GC pressure under high packet rates.
+var udpBufPool = sync.Pool{
+	New: func() any { return make([]byte, maxUDPDatagram) },
 }
 
 // SharedUDP is a UDP socket shared by multiple logical SIP flows (gossipper UAC/UAS).
@@ -133,28 +148,30 @@ func tuneUDPConn(c *net.UDPConn) {
 }
 
 func (s *SharedUDP) readLoop(conn *net.UDPConn) {
-	buffer := make([]byte, maxUDPDatagram)
 	for {
+		buffer := udpBufPool.Get().([]byte)
 		n, addr, err := conn.ReadFromUDP(buffer)
 		if err != nil {
+			udpBufPool.Put(buffer)
 			s.shutdownIncoming()
 			return
 		}
 		if n <= 0 || n > maxUDPDatagram {
+			udpBufPool.Put(buffer)
 			continue
 		}
 		if addr == nil {
+			udpBufPool.Put(buffer)
 			continue
 		}
-		payload := make([]byte, n)
-		copy(payload, buffer[:n])
-		p := Packet{Data: payload, Addr: addr}
+		p := Packet{Data: buffer[:n], Addr: addr, pool: &udpBufPool}
 		select {
 		case s.incoming <- p:
 		default:
 			select {
 			case s.incoming <- p:
 			default:
+				udpBufPool.Put(buffer)
 			}
 		}
 	}

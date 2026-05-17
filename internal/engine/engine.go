@@ -729,8 +729,10 @@ func (e *Engine) runClientPerCall(ctx context.Context) error {
 				msg := sip.GetMessage()
 				defer sip.PutMessage(msg)
 				if err := sip.ParseInto(msg, packet.Data); err != nil {
+					packet.Release()
 					return sip.Message{}, err
 				}
+				packet.Release()
 				return msg.Copy(), nil
 			})
 			send := func(payload []byte) error {
@@ -1474,9 +1476,11 @@ func (e *Engine) udpServerReceivePump(
 	for packet := range shared.Receive() {
 		msg := sip.GetMessage()
 		if err := sip.ParseInto(msg, packet.Data); err != nil {
+			packet.Release()
 			sip.PutMessage(msg)
 			continue
 		}
+		packet.Release()
 
 		callID, ok := sip.Header(msg.Headers, "Call-ID")
 		if !ok {
@@ -1598,9 +1602,11 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 			for packet := range socket.Receive() {
 				msg := sip.GetMessage()
 				if err := sip.ParseInto(msg, packet.Data); err != nil {
+					packet.Release()
 					sip.PutMessage(msg)
 					continue
 				}
+				packet.Release()
 				callID, ok := sip.Header(msg.Headers, "Call-ID")
 				if !ok {
 					sip.PutMessage(msg)
@@ -2871,9 +2877,11 @@ func (r *mailboxRegistry) dispatch(incoming <-chan transport.Packet) {
 	for packet := range incoming {
 		msg := sip.GetMessage()
 		if err := sip.ParseInto(msg, packet.Data); err != nil {
+			packet.Release()
 			sip.PutMessage(msg)
 			continue
 		}
+		packet.Release() // buffer copied into msg.Raw by ParseInto
 		callID, ok := sip.Header(msg.Headers, "Call-ID")
 		if !ok {
 			sip.PutMessage(msg)
