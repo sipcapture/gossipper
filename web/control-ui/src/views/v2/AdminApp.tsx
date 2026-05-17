@@ -52,12 +52,9 @@ function readTheme(): ThemeMode {
   return t === 'light' ? 'light' : 'dark'
 }
 
-export type AdminAppProps = {
-  /** Optional callback to flip back to legacy /api/v1 UI. */
-  onSwitchToLegacy?: () => void
-}
+export type AdminAppProps = Record<string, never>
 
-export function AdminApp({ onSwitchToLegacy }: AdminAppProps) {
+export function AdminApp(_: AdminAppProps = {}) {
   const [nav, setNav] = useState<NavId>('dashboard')
   const [theme, setTheme] = useState<ThemeMode>(readTheme)
   const [authKind, setAuthKind] = useState<'none' | 'internal' | null>(null)
@@ -207,16 +204,6 @@ export function AdminApp({ onSwitchToLegacy }: AdminAppProps) {
           ))}
         </nav>
         <div className="text-muted-foreground border-border mt-auto flex flex-col gap-2 border-t p-2">
-          {onSwitchToLegacy ? (
-            <button
-              type="button"
-              onClick={onSwitchToLegacy}
-              className="text-sidebar-foreground/80 hover:text-foreground rounded-md px-2 py-1 text-left text-[11px] underline-offset-2 hover:underline"
-              title="Switch to the legacy single-engine /api/v1 UI"
-            >
-              ← legacy engine UI
-            </button>
-          ) : null}
           <div className="text-[10px] leading-snug">
             API <code className="text-sidebar-foreground/80">/api/v2</code>
           </div>
