@@ -82,6 +82,7 @@ type runSpec struct {
 	ApiAddr                        *string           `json:"api_addr,omitempty"`
 	ApiToken                       *string           `json:"api_token,omitempty"`
 	UIDataDir                      *string           `json:"ui_data_dir,omitempty"`
+	LegacyAPIV1                    *bool             `json:"legacy_api_v1,omitempty"`
 	Auth                           *authRunSpec      `json:"auth,omitempty"`
 	Server                         *bool             `json:"server,omitempty"`
 	ExtraArgs                      []string          `json:"extra_args,omitempty"`
@@ -510,6 +511,10 @@ func applyRunSpec(cfg *Config, spec *runSpec, configDir string) error {
 	}
 	if spec.UIDataDir != nil {
 		cfg.UIDataDir = strings.TrimSpace(*spec.UIDataDir)
+	}
+	if spec.LegacyAPIV1 != nil {
+		cfg.LegacyAPIV1 = *spec.LegacyAPIV1
+		cfg.LegacyAPIV1Set = true
 	}
 	if spec.ApiToken != nil {
 		cfg.ApiToken = *spec.ApiToken

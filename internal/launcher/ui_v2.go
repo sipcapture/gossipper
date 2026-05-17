@@ -4,11 +4,29 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sipcapture/gossipper/internal/api"
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/settingsauth"
 	"github.com/sipcapture/gossipper/internal/supervisor"
 	"github.com/sipcapture/gossipper/internal/uistore"
 )
+
+// apiMountSummary describes which API surfaces the given server has mounted.
+// Returned strings are intentionally compact so they fit in a single startup
+// log line ("/api/v1/* + /api/v2/*").
+func apiMountSummary(s *api.Server) string {
+	parts := []string{}
+	if s.V1Enabled() {
+		parts = append(parts, "/api/v1/*")
+	}
+	if s.V2Enabled() {
+		parts = append(parts, "/api/v2/* (admin console)")
+	}
+	if len(parts) == 0 {
+		return "(none — only embedded UI)"
+	}
+	return strings.Join(parts, " + ")
+}
 
 // UIBundle groups the optional admin-console resources mounted under
 // /api/v2/* on the management HTTP server. All three fields are populated
@@ -27,6 +45,21 @@ func (b *UIBundle) Close() error {
 		return nil
 	}
 	return b.closer()
+}
+
+// LegacyV1Enabled returns the effective on/off state of the /api/v1/*
+// surface for cfg. Honours an explicit LegacyAPIV1Set flag, otherwise
+// auto-disables v1 whenever the admin console (UIDataDir) is mounted —
+// the assumption being that a deployment opting into v2 doesn't want the
+// older client API quietly tagging along.
+func LegacyV1Enabled(cfg cli.Config) bool {
+	if cfg.LegacyAPIV1Set {
+		return cfg.LegacyAPIV1
+	}
+	if strings.TrimSpace(cfg.UIDataDir) != "" {
+		return false
+	}
+	return true
 }
 
 // openUIBundle opens the on-disk admin console state (profiles / scenarios /

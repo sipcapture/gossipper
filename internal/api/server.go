@@ -58,6 +58,11 @@ type ServerConfig struct {
 	JobsRegistry *supervisor.Registry
 	// Version is reported by /api/v2/health when v2 is enabled.
 	Version string
+	// EnableLegacyV1 controls whether the legacy /api/v1/* routes are
+	// registered. Defaults to true for back-compat; admin-console-only
+	// deployments should set this to false to keep only /api/v2/* on the
+	// management surface.
+	EnableLegacyV1 bool
 }
 
 // Server exposes REST-style endpoints under /api/v1/.
@@ -67,10 +72,19 @@ type Server struct {
 }
 
 // New returns an API server wrapper (handlers are registered on construction).
+//
+// Back-compat: callers that build a ServerConfig with zero value for
+// EnableLegacyV1 *and* no admin-console wiring (UIStore + JobsRegistry both
+// nil) opt into the historical behaviour where /api/v1/* is served. The
+// launcher always sets EnableLegacyV1 explicitly so this only affects ad-hoc
+// constructors (tests, external embedders).
 func New(cfg ServerConfig) *Server {
 	log := cfg.Logger
 	if log == nil {
 		log = slog.Default()
+	}
+	if !cfg.EnableLegacyV1 && cfg.UIStore == nil && cfg.JobsRegistry == nil {
+		cfg.EnableLegacyV1 = true
 	}
 	return &Server{cfg: cfg, logger: log}
 }
@@ -78,21 +92,23 @@ func New(cfg ServerConfig) *Server {
 // Handler returns the root HTTP handler (mux with routes).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/auth/status", s.handleAuthStatus)
-	mux.HandleFunc("POST /api/v1/auth/login", s.handleAuthLogin)
-	mux.HandleFunc("GET /api/v1/health", s.wrap(s.handleHealth))
-	mux.HandleFunc("GET /api/v1/stats", s.wrap(s.handleStats))
-	mux.HandleFunc("GET /api/v1/scenario", s.wrap(s.handleScenarioGet))
-	mux.HandleFunc("PUT /api/v1/scenario", s.wrap(s.handleScenarioPut))
-	mux.HandleFunc("POST /api/v1/scenario/apply", s.wrap(s.handleScenarioApply))
-	mux.HandleFunc("GET /api/v1/control", s.wrap(s.handleControlGet))
-	mux.HandleFunc("POST /api/v1/control", s.wrap(s.handleControlPost))
-	mux.HandleFunc("GET /api/v1/transports", s.wrap(s.handleTransportsGet))
-	mux.HandleFunc("POST /api/v1/transports", s.wrap(s.handleTransportsPost))
-	mux.HandleFunc("GET /api/v1/clients", s.wrap(s.handleClientsGet))
-	mux.HandleFunc("POST /api/v1/clients", s.wrap(s.handleClientsPost))
-	mux.HandleFunc("DELETE /api/v1/clients", s.wrap(s.handleClientsDelete))
-	mux.HandleFunc("GET /api/v1/live", s.handleLiveWS)
+	if s.cfg.EnableLegacyV1 {
+		mux.HandleFunc("GET /api/v1/auth/status", s.handleAuthStatus)
+		mux.HandleFunc("POST /api/v1/auth/login", s.handleAuthLogin)
+		mux.HandleFunc("GET /api/v1/health", s.wrap(s.handleHealth))
+		mux.HandleFunc("GET /api/v1/stats", s.wrap(s.handleStats))
+		mux.HandleFunc("GET /api/v1/scenario", s.wrap(s.handleScenarioGet))
+		mux.HandleFunc("PUT /api/v1/scenario", s.wrap(s.handleScenarioPut))
+		mux.HandleFunc("POST /api/v1/scenario/apply", s.wrap(s.handleScenarioApply))
+		mux.HandleFunc("GET /api/v1/control", s.wrap(s.handleControlGet))
+		mux.HandleFunc("POST /api/v1/control", s.wrap(s.handleControlPost))
+		mux.HandleFunc("GET /api/v1/transports", s.wrap(s.handleTransportsGet))
+		mux.HandleFunc("POST /api/v1/transports", s.wrap(s.handleTransportsPost))
+		mux.HandleFunc("GET /api/v1/clients", s.wrap(s.handleClientsGet))
+		mux.HandleFunc("POST /api/v1/clients", s.wrap(s.handleClientsPost))
+		mux.HandleFunc("DELETE /api/v1/clients", s.wrap(s.handleClientsDelete))
+		mux.HandleFunc("GET /api/v1/live", s.handleLiveWS)
+	}
 	if s.cfg.UIStore != nil && s.cfg.JobsRegistry != nil {
 		apiv2.New(apiv2.Config{
 			Store:    s.cfg.UIStore,
@@ -110,6 +126,9 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) V2Enabled() bool {
 	return s.cfg.UIStore != nil && s.cfg.JobsRegistry != nil
 }
+
+// V1Enabled reports whether the legacy /api/v1/* routes are registered.
+func (s *Server) V1Enabled() bool { return s.cfg.EnableLegacyV1 }
 
 func (s *Server) checkLegacyAPIToken(r *http.Request) bool {
 	if s.cfg.Token == "" {

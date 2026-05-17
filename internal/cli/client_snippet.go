@@ -14,7 +14,7 @@ const maxClientSnippetBytes = 1 << 20
 // (they belong to composite layout or management HTTP listener).
 var forbiddenClientSnippetKeys = map[string]struct{}{
 	"aliases": {}, "workloads": {}, "server": {}, "clients": {}, "client": {},
-	"listeners": {}, "api_addr": {}, "api_token": {}, "ui_data_dir": {}, "auth": {},
+	"listeners": {}, "api_addr": {}, "api_token": {}, "ui_data_dir": {}, "legacy_api_v1": {}, "auth": {},
 }
 
 // ApplyClientSnippetFromJSON builds a load (UAC) Config from a JSON object (same snake_case keys as flat

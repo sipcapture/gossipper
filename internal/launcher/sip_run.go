@@ -62,9 +62,10 @@ func runSIPScenarioSingle(ctx context.Context, cfg cli.Config) error {
 	}
 	if prepared.CLIConfig.ApiAddr != "" {
 		apiCfg := api.ServerConfig{
-			Engine: app,
-			CLI:    prepared.CLIConfig,
-			Token:  prepared.CLIConfig.ApiToken,
+			Engine:         app,
+			CLI:            prepared.CLIConfig,
+			Token:          prepared.CLIConfig.ApiToken,
+			EnableLegacyV1: LegacyV1Enabled(prepared.CLIConfig),
 			ValidateScenario: func(sc scenario.Scenario) error {
 				return ValidateScenario(prepared.CLIConfig, sc)
 			},
@@ -99,14 +100,11 @@ func runSIPScenarioSingle(ctx context.Context, cfg cli.Config) error {
 		}
 		apSrv := api.New(apiCfg)
 		go func() {
-			suffix := "/api/v1/health"
-			if apSrv.V2Enabled() {
-				suffix = "/api/v1/health + /api/v2/* (admin console)"
-			}
+			mounted := apiMountSummary(apSrv)
 			if api.HasEmbeddedControlUI() {
-				fmt.Fprintf(os.Stderr, "api: listening on http://%s/ (Control UI) and http://%s/%s\n", prepared.CLIConfig.ApiAddr, prepared.CLIConfig.ApiAddr, suffix)
+				fmt.Fprintf(os.Stderr, "api: listening on http://%s/ (Control UI), mounts: %s\n", prepared.CLIConfig.ApiAddr, mounted)
 			} else {
-				fmt.Fprintf(os.Stderr, "api: listening on http://%s/%s (run `make frontend` to embed Control UI at /)\n", prepared.CLIConfig.ApiAddr, suffix)
+				fmt.Fprintf(os.Stderr, "api: listening on http://%s/, mounts: %s (run `make frontend` to embed Control UI at /)\n", prepared.CLIConfig.ApiAddr, mounted)
 			}
 			if err := api.StartListenAndServe(runCtx, prepared.CLIConfig.ApiAddr, apSrv.Handler()); err != nil {
 				fmt.Fprintf(os.Stderr, "api: %v\n", err)
