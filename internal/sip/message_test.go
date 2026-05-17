@@ -328,3 +328,76 @@ func BenchmarkNewUDPDispatchParallel(b *testing.B) {
 		}
 	})
 }
+
+func TestResponseMatchesTransaction(t *testing.T) {
+t.Parallel()
+
+invite200 := []byte("SIP/2.0 200 OK\r\nVia: SIP/2.0/UDP 192.168.25.21:60470;received=192.168.25.21;branch=z9hG4bK-gossip-18-0;rport=60470\r\nFrom: test <sip:test@x>;tag=t1\r\nTo: callee <sip:callee@y>;tag=t2\r\nCall-ID: gossip-18-abc\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n")
+byeMsg := []byte("BYE sip:callee@y SIP/2.0\r\nVia: SIP/2.0/UDP 192.168.25.21:60470;branch=z9hG4bK-gossip-18-5\r\nFrom: test <sip:test@x>;tag=t1\r\nTo: callee <sip:callee@y>;tag=t2\r\nCall-ID: gossip-18-abc\r\nCSeq: 2 BYE\r\nContent-Length: 0\r\n\r\n")
+inviteMsg := []byte("INVITE sip:callee@y SIP/2.0\r\nVia: SIP/2.0/UDP 192.168.25.21:60470;branch=z9hG4bK-gossip-18-0\r\nFrom: test <sip:test@x>;tag=t1\r\nTo: callee <sip:callee@y>\r\nCall-ID: gossip-18-abc\r\nCSeq: 1 INVITE\r\nContent-Length: 0\r\n\r\n")
+
+msg := GetMessage()
+defer PutMessage(msg)
+if err := ParseInto(msg, invite200); err != nil {
+t.Fatalf("ParseInto: %v", err)
+}
+
+// INVITE 200 should NOT match BYE transaction (different branch)
+if ResponseMatchesTransaction(*msg, byeMsg) {
+t.Error("INVITE 200 should not match BYE transaction")
+}
+
+// INVITE 200 should match INVITE transaction (same branch)
+if !ResponseMatchesTransaction(*msg, inviteMsg) {
+t.Error("INVITE 200 should match INVITE transaction")
+}
+
+// Empty lastSent → true (safe default)
+if !ResponseMatchesTransaction(*msg, nil) {
+t.Error("nil lastSent should return true")
+}
+}
+
+func TestViaBranch(t *testing.T) {
+t.Parallel()
+
+cases := []struct {
+name    string
+headers map[string][]string
+want    string
+ok      bool
+}{
+{
+name:    "standard via",
+headers: map[string][]string{"Via": {"SIP/2.0/UDP 10.0.0.1:5060;branch=z9hG4bK-abc123"}},
+want:    "z9hG4bK-abc123",
+ok:      true,
+},
+{
+name:    "via with extra params",
+headers: map[string][]string{"Via": {"SIP/2.0/UDP 10.0.0.1:5060;received=10.0.0.2;branch=z9hG4bK-xyz;rport=5060"}},
+want:    "z9hG4bK-xyz",
+ok:      true,
+},
+{
+name:    "no branch",
+headers: map[string][]string{"Via": {"SIP/2.0/UDP 10.0.0.1:5060"}},
+want:    "",
+ok:      false,
+},
+{
+name:    "no via",
+headers: map[string][]string{},
+want:    "",
+ok:      false,
+},
+}
+for _, tc := range cases {
+t.Run(tc.name, func(t *testing.T) {
+got, ok := ViaBranch(tc.headers)
+if got != tc.want || ok != tc.ok {
+t.Errorf("ViaBranch() = (%q, %v), want (%q, %v)", got, ok, tc.want, tc.ok)
+}
+})
+}
+}

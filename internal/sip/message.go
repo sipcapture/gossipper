@@ -290,6 +290,57 @@ func MatchRecv(msg Message, request, response string, lastSent []byte) bool {
 	return reqNum == respNum && strings.EqualFold(strings.TrimSpace(reqMeth), strings.TrimSpace(respMeth))
 }
 
+// ViaBranch extracts the branch parameter from the topmost Via header.
+// RFC 3261 §17.1.3: responses are matched to client transactions by the
+// branch parameter in the top Via header field.
+func ViaBranch(headers map[string][]string) (string, bool) {
+	val, ok := Header(headers, "Via")
+	if !ok || val == "" {
+		return "", false
+	}
+	// Via params are semicolon-delimited after the sent-by.
+	for _, param := range strings.Split(val, ";") {
+		param = strings.TrimSpace(param)
+		if strings.HasPrefix(strings.ToLower(param), "branch=") {
+			return param[len("branch="):], true
+		}
+	}
+	return "", false
+}
+
+// ResponseMatchesTransaction returns true if the response belongs to the
+// same transaction as lastSent per RFC 3261 §17.1.3: the Via branch of the
+// response must equal the Via branch of the request, and the CSeq method
+// must match. Returns true (safe default) if either side cannot be parsed.
+func ResponseMatchesTransaction(msg Message, lastSent []byte) bool {
+	if len(lastSent) == 0 {
+		return true
+	}
+	req := GetMessage()
+	defer PutMessage(req)
+	if err := ParseInto(req, lastSent); err != nil {
+		return true
+	}
+	if req.StatusCode != 0 || req.Method == "" {
+		return true
+	}
+	reqBranch, ok1 := ViaBranch(req.Headers)
+	respBranch, ok2 := ViaBranch(msg.Headers)
+	if !ok1 || !ok2 {
+		return true
+	}
+	if !strings.EqualFold(reqBranch, respBranch) {
+		return false
+	}
+	// §17.1.3 also requires the CSeq method to match.
+	_, reqMeth, ok1 := ParseCSeq(req.Headers)
+	_, respMeth, ok2 := ParseCSeq(msg.Headers)
+	if !ok1 || !ok2 {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(reqMeth), strings.TrimSpace(respMeth))
+}
+
 // ViaSentBy parses the topmost Via header and extracts sent-by (host and port).
 // Format: Via: SIP/2.0/UDP host:port;branch=... or Via: SIP/2.0/UDP host;branch=...
 // Default port is 5060 when omitted.

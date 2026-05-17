@@ -2037,6 +2037,11 @@ func (e *Engine) executeCall(
 		pending          []*sip.Message
 		commandCallKey   = renderCtx.CallID
 		rtdStarts        = make(map[string]time.Time)
+		// RFC 3261 §13.2.2.4: store the last ACK for the INVITE
+		// transaction so it can be retransmitted when a retransmitted
+		// INVITE 200 OK arrives (indicating our ACK was lost).
+		inviteACK       []byte
+		inviteBranch    string
 	)
 	currentUserID := userID(callNumber, e.cfg.Users)
 	renderCtx.Users = e.cfg.Users
@@ -2157,8 +2162,18 @@ func (e *Engine) executeCall(
 
 			parsed := sip.GetMessage()
 			defer sip.PutMessage(parsed)
-			if err := sip.ParseInto(parsed, lastSent); err == nil && strings.EqualFold(parsed.Method, "INVITE") {
-				inviteStartedAt = time.Now()
+			if err := sip.ParseInto(parsed, lastSent); err == nil {
+				if strings.EqualFold(parsed.Method, "INVITE") {
+					inviteStartedAt = time.Now()
+					if branch, ok := sip.ViaBranch(parsed.Headers); ok {
+						inviteBranch = branch
+					}
+				} else if strings.EqualFold(parsed.Method, "ACK") && inviteBranch != "" {
+					// Store ACK for automatic retransmission on INVITE 200
+					// retransmits (RFC 3261 §13.2.2.4).
+					inviteACK = make([]byte, len(lastSent))
+					copy(inviteACK, lastSent)
+				}
 			}
 		case scenario.CommandSendCmd:
 			rawCmd := normalizeSIPScenarioLineIndent(cmd.SendText)
@@ -2241,10 +2256,24 @@ func (e *Engine) executeCall(
 						pending = append(pending, m)
 						return nil
 					}
+					// RFC 3261 §13.2.2.4: resend ACK for retransmitted INVITE
+					// 200 from a prior transaction, then discard.
+					if m.StatusCode > 0 && !sip.ResponseMatchesTransaction(*m, lastSent) {
+						if m.StatusCode == 200 && len(inviteACK) > 0 && inviteBranch != "" {
+							if branch, ok := sip.ViaBranch(m.Headers); ok && strings.EqualFold(branch, inviteBranch) {
+								_ = send(inviteACK)
+							}
+						}
+						sip.PutMessage(m)
+						return nil
+					}
 					// For mandatory recv, a stashed final response (>= 200) with
 					// no _unexp.main handler means the transaction already ended;
 					// abort rather than wait for a response that can never arrive.
-					if m.StatusCode >= 200 && unexpMainIndex < 0 {
+					// Only abort if the response belongs to the current transaction
+					// (RFC 3261 §17.1.3 branch match); stale retransmissions from
+					// prior transactions are simply discarded.
+					if m.StatusCode >= 200 && unexpMainIndex < 0 && sip.ResponseMatchesTransaction(*m, lastSent) {
 						e.traceUnexpectedSIP(callNumber, cmd, *m)
 						e.traceCountUnexpected(cmd.Index)
 						sawUnexpectedSIP = true
@@ -2255,6 +2284,20 @@ func (e *Engine) executeCall(
 				}
 				if cmd.RecvResp != "" && sip.ResponseStatusMatches(*m, cmd.RecvResp) && !sip.MatchRecv(*m, cmd.RecvReq, cmd.RecvResp, lastSent) {
 					e.emitRecvCSeqReject(callNumber, renderCtx.CallID, cmd, m, lastSent)
+				}
+				// Responses from prior transactions (RFC 3261 §17.1.3 branch
+				// mismatch) are normal retransmissions under load — silently
+				// discard them rather than logging as unexpected.
+				// If it's a retransmitted INVITE 200 and we have a stored ACK,
+				// resend the ACK per RFC 3261 §13.2.2.4.
+				if m.StatusCode > 0 && !sip.ResponseMatchesTransaction(*m, lastSent) {
+					if m.StatusCode == 200 && len(inviteACK) > 0 && inviteBranch != "" {
+						if branch, ok := sip.ViaBranch(m.Headers); ok && strings.EqualFold(branch, inviteBranch) {
+							_ = send(inviteACK)
+						}
+					}
+					sip.PutMessage(m)
+					return nil
 				}
 				if !cmd.Optional {
 					// For optional recvs, a mismatched message is just being
@@ -2271,7 +2314,10 @@ func (e *Engine) executeCall(
 				// Abort immediately on unexpected final response (>= 200) for
 				// mandatory recv with no _unexp.main handler (RFC 3261: the
 				// transaction is complete, continuing would only retransmit).
-				if !cmd.Optional && m.StatusCode >= 200 {
+				// Only abort if the response belongs to the current transaction
+				// (branch match per §17.1.3); stale retransmissions from prior
+				// transactions are silently discarded.
+				if !cmd.Optional && m.StatusCode >= 200 && sip.ResponseMatchesTransaction(*m, lastSent) {
 					pending = append(pending, m)
 					return fmt.Errorf("received unexpected %d response (expected %s): %w",
 						m.StatusCode, strings.TrimSpace(cmd.RecvResp), errUnexpectedFinalAbort)
@@ -2328,6 +2374,10 @@ func (e *Engine) executeCall(
 			if actionResult.hasJump {
 				recordCommandStats(cmd)
 				finishRTD(cmd.StopRTD)
+				if !inviteLatencySet && msg.StatusCode == 200 && !inviteStartedAt.IsZero() {
+					e.stats.AddInviteLatency(time.Since(inviteStartedAt))
+					inviteLatencySet = true
+				}
 				index = actionResult.jumpIndex
 				continue
 			}
@@ -2602,8 +2652,11 @@ func (e *Engine) waitForMatch(
 					return nil, stashErr
 				}
 			}
-			// Track final responses to stop retransmitting per RFC 3261.
-			if msg.StatusCode >= 200 {
+			// Track final responses to stop retransmitting per RFC 3261
+			// §17.1.1.2, but only for the current transaction (branch match
+			// per §17.1.3) — stale retransmissions must not suppress
+			// retransmissions for the active transaction.
+			if msg.StatusCode >= 200 && sip.ResponseMatchesTransaction(*msg, lastSent) {
 				finalResponseSeen = true
 			}
 			if cmd.Optional {
