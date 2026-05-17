@@ -87,12 +87,26 @@ func runSIPScenarioSingle(ctx context.Context, cfg cli.Config) error {
 			settingsAuth = sa
 			apiCfg.SettingsAuth = sa
 		}
+		uiBundle, err := openUIBundle(prepared.CLIConfig)
+		if err != nil {
+			return err
+		}
+		if uiBundle != nil {
+			defer func() { _ = uiBundle.Close() }()
+			apiCfg.UIStore = uiBundle.Store
+			apiCfg.JobsRegistry = uiBundle.Registry
+			apiCfg.Version = prepared.CLIConfig.ToolVersion
+		}
 		apSrv := api.New(apiCfg)
 		go func() {
+			suffix := "/api/v1/health"
+			if apSrv.V2Enabled() {
+				suffix = "/api/v1/health + /api/v2/* (admin console)"
+			}
 			if api.HasEmbeddedControlUI() {
-				fmt.Fprintf(os.Stderr, "api: listening on http://%s/ (Control UI) and http://%s/api/v1/health\n", prepared.CLIConfig.ApiAddr, prepared.CLIConfig.ApiAddr)
+				fmt.Fprintf(os.Stderr, "api: listening on http://%s/ (Control UI) and http://%s/%s\n", prepared.CLIConfig.ApiAddr, prepared.CLIConfig.ApiAddr, suffix)
 			} else {
-				fmt.Fprintf(os.Stderr, "api: listening on http://%s/api/v1/health (run `make frontend` to embed Control UI at /)\n", prepared.CLIConfig.ApiAddr)
+				fmt.Fprintf(os.Stderr, "api: listening on http://%s/%s (run `make frontend` to embed Control UI at /)\n", prepared.CLIConfig.ApiAddr, suffix)
 			}
 			if err := api.StartListenAndServe(runCtx, prepared.CLIConfig.ApiAddr, apSrv.Handler()); err != nil {
 				fmt.Fprintf(os.Stderr, "api: %v\n", err)

@@ -122,6 +122,11 @@ type Config struct {
 	PprofAddr               string
 	ApiAddr                 string // e.g. :8080 — HTTP API for stats / scenario / control
 	ApiToken                string // optional Bearer token for /api/v1
+	// UIDataDir, when set, enables the admin-console REST surface (/api/v2/*)
+	// on the same management ApiAddr. The directory holds profiles,
+	// scenarios, media and the SQLite settings DB; same layout as `gossipper
+	// ui --data-dir`. Empty disables /api/v2 (only legacy /api/v1 is served).
+	UIDataDir string
 	// ServerMode runs a minimal SIP UAS plus the management HTTP API for systemd / Control UI.
 	ServerMode bool
 	// JoinedClients runs extra SIP engines in parallel when flat JSON uses top-level "clients" / "client" (gossipper server -config).
@@ -410,6 +415,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.PprofAddr, "pprof", "", "pprof HTTP address (e.g. :6060) for live CPU/memory/goroutine profiling")
 	fs.StringVar(&cfg.ApiAddr, "api_addr", cfg.ApiAddr, "HTTP listen address for management API (e.g. :8080); GET / serves embedded Control UI when built with Makefile target frontend; API under /api/v1/")
 	fs.StringVar(&cfg.ApiToken, "api_token", cfg.ApiToken, "optional Bearer token required for all /api/v1 requests when set")
+	fs.StringVar(&cfg.UIDataDir, "ui_data_dir", cfg.UIDataDir, "enables /api/v2/* admin-console REST surface on -api_addr; directory holds profiles, scenarios, media, jobs (same layout as `gossipper ui --data-dir`)")
 	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "write CPU profile to file at exit")
 	fs.StringVar(&cfg.MemProfile, "memprofile", "", "write memory profile to file at exit")
 

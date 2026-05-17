@@ -14,11 +14,14 @@ import (
 	"strings"
 	"time"
 
+	apiv2 "github.com/sipcapture/gossipper/internal/api/v2"
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/engine"
 	"github.com/sipcapture/gossipper/internal/scenario"
 	"github.com/sipcapture/gossipper/internal/settingsauth"
 	"github.com/sipcapture/gossipper/internal/stats"
+	"github.com/sipcapture/gossipper/internal/supervisor"
+	"github.com/sipcapture/gossipper/internal/uistore"
 )
 
 const maxScenarioBodyBytes = 16 << 20
@@ -47,6 +50,14 @@ type ServerConfig struct {
 	Logger           *slog.Logger
 	// SettingsAuth enables internal SQLite user auth + JWT for the API (when non-nil and Enabled).
 	SettingsAuth *settingsauth.Auth
+	// UIStore + JobsRegistry, when both non-nil, expose the admin-console
+	// REST surface (/api/v2/*) on the same mux as legacy /api/v1/*.
+	// Wired by launcher when cli.Config.UIDataDir is set; nil keeps the
+	// management API legacy-only.
+	UIStore      *uistore.Store
+	JobsRegistry *supervisor.Registry
+	// Version is reported by /api/v2/health when v2 is enabled.
+	Version string
 }
 
 // Server exposes REST-style endpoints under /api/v1/.
@@ -82,8 +93,22 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/clients", s.wrap(s.handleClientsPost))
 	mux.HandleFunc("DELETE /api/v1/clients", s.wrap(s.handleClientsDelete))
 	mux.HandleFunc("GET /api/v1/live", s.handleLiveWS)
+	if s.cfg.UIStore != nil && s.cfg.JobsRegistry != nil {
+		apiv2.New(apiv2.Config{
+			Store:    s.cfg.UIStore,
+			Registry: s.cfg.JobsRegistry,
+			Auth:     s.cfg.SettingsAuth,
+			Version:  s.cfg.Version,
+		}).Register(mux)
+	}
 	registerEmbeddedControlUI(mux)
 	return mux
+}
+
+// V2Enabled reports whether the /api/v2/* admin-console surface is mounted on
+// this server (i.e. ServerConfig.UIStore and JobsRegistry are both set).
+func (s *Server) V2Enabled() bool {
+	return s.cfg.UIStore != nil && s.cfg.JobsRegistry != nil
 }
 
 func (s *Server) checkLegacyAPIToken(r *http.Request) bool {
