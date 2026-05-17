@@ -136,6 +136,9 @@ func firstNonEmptyLine(raw string) string {
 }
 
 func (e *Engine) wrapSIPSend(callNumber int, callID string, localIP string, localPort int, remoteIP string, remotePort int, send func([]byte) error) func([]byte) error {
+	if !e.observeActive() {
+		return send
+	}
 	return func(payload []byte) error {
 		if err := send(payload); err != nil {
 			return err
@@ -146,6 +149,18 @@ func (e *Engine) wrapSIPSend(callNumber int, callID string, localIP string, loca
 }
 
 func (e *Engine) wrapSIPReceive(callNumber int, callID string, localIP string, localPort int, remoteIP string, remotePort int, receive func(waitCtx context.Context) (*sip.Message, error)) func(context.Context) (*sip.Message, error) {
+	if !e.observeActive() {
+		return func(waitCtx context.Context) (*sip.Message, error) {
+			msg, err := receive(waitCtx)
+			if err != nil {
+				return nil, err
+			}
+			if msg == nil || (msg.Raw == "" && msg.StatusCode == 0 && msg.Method == "") {
+				return nil, errSIPMailboxClosed
+			}
+			return msg, nil
+		}
+	}
 	return func(waitCtx context.Context) (*sip.Message, error) {
 		msg, err := receive(waitCtx)
 		if err != nil {
@@ -157,4 +172,9 @@ func (e *Engine) wrapSIPReceive(callNumber int, callID string, localIP string, l
 		e.observeSIP("recv", callNumber, callID, localIP, localPort, remoteIP, remotePort, []byte(msg.Raw))
 		return msg, nil
 	}
+}
+
+// observeActive reports whether any SIP observation is configured (tracing, HEP, or event logging).
+func (e *Engine) observeActive() bool {
+	return e.cfg.TraceMessages || e.cfg.TraceShortMsg || e.hep != nil || e.logActive
 }
