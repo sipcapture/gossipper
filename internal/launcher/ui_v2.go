@@ -2,6 +2,7 @@ package launcher
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/sipcapture/gossipper/internal/api"
@@ -10,6 +11,20 @@ import (
 	"github.com/sipcapture/gossipper/internal/supervisor"
 	"github.com/sipcapture/gossipper/internal/uistore"
 )
+
+// warnIfNoV2 prints a friendly hint when management API is up but the admin
+// console (/api/v2/*) is not — this is the #1 reason new operators hit 404
+// on /api/v2/health or /api/v2/servers after enabling api_addr.
+func warnIfNoV2(cfg cli.Config, s *api.Server) {
+	if s == nil || s.V2Enabled() {
+		return
+	}
+	if strings.TrimSpace(cfg.ApiAddr) == "" {
+		return
+	}
+	fmt.Fprintln(os.Stderr,
+		`api: admin console (/api/v2/*) NOT mounted — set "ui_data_dir" in the management config (or pass -ui_data_dir) to enable it. /api/v1/* is the only API on this listener.`)
+}
 
 // apiMountSummary describes which API surfaces the given server has mounted.
 // Returned strings are intentionally compact so they fit in a single startup

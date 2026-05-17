@@ -99,6 +99,7 @@ func runSIPScenarioSingle(ctx context.Context, cfg cli.Config) error {
 			apiCfg.Version = prepared.CLIConfig.ToolVersion
 		}
 		apSrv := api.New(apiCfg)
+		warnIfNoV2(prepared.CLIConfig, apSrv)
 		go func() {
 			mounted := apiMountSummary(apSrv)
 			if api.HasEmbeddedControlUI() {
