@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ThemeToggle, type ThemeMode } from '@/components/ThemeToggle'
 import { cn } from '@/lib/utils'
+import { AboutV2 } from '@/views/v2/AboutV2'
 import { ClientsV2 } from '@/views/v2/ClientsV2'
 import { DashboardV2 } from '@/views/v2/DashboardV2'
 import { JobsV2 } from '@/views/v2/JobsV2'
@@ -27,6 +28,7 @@ type NavId =
   | 'media'
   | 'users'
   | 'settings'
+  | 'about'
 
 const NAV: { id: NavId; label: string; hint: string }[] = [
   { id: 'dashboard', label: 'Dashboard', hint: 'overview and recent jobs' },
@@ -37,6 +39,7 @@ const NAV: { id: NavId; label: string; hint: string }[] = [
   { id: 'media', label: 'Media', hint: 'WAV and PCAP upload library' },
   { id: 'users', label: 'Users', hint: 'admin users (Phase 5)' },
   { id: 'settings', label: 'Settings', hint: 'system info, theme, sign out' },
+  { id: 'about', label: 'About', hint: 'version, capabilities, links' },
 ]
 
 function readStored(key: string): string {
@@ -247,6 +250,7 @@ export function AdminApp(_: AdminAppProps = {}) {
               authKind={authKind}
             />
           )}
+          {nav === 'about' && <AboutV2 bearer={bearer} />}
         </main>
       </div>
     </div>
