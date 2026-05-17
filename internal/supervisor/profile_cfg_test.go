@@ -112,3 +112,82 @@ func TestBuildConfigFromSpecWebRTCOnlyDoesNotBecomeSIPTransport(t *testing.T) {
 		t.Fatalf("expected ICE servers preserved, got %v", cfg.WebRTCICEServers)
 	}
 }
+
+// TestBuildConfigFromSpecFallsBackToBuiltinScenario asserts that a profile
+// referencing an engine-baked scenario name (e.g. "management") works even
+// when no scenario XML lives in uistore — the worker uses cfg.ScenarioName
+// and lets scenario.LoadNamed resolve it.
+func TestBuildConfigFromSpecFallsBackToBuiltinScenario(t *testing.T) {
+	dir := t.TempDir()
+	store, err := uistore.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := uistore.ServerProfile{
+		ID:          "management",
+		Name:        "management",
+		ScenarioRef: "management",
+		Transports: []uistore.TransportSpec{
+			{Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 5070, Enabled: true},
+		},
+	}
+	if _, err := store.PutServerProfile(p, true); err != nil {
+		t.Fatal(err)
+	}
+	spec := Spec{
+		JobID:        "j3",
+		DataDir:      dir,
+		ProfileID:    "management",
+		ProfileKind:  string(uistore.KindServer),
+		ArtifactsDir: filepath.Join(dir, "artifacts", "j3"),
+	}
+	cfg, cleanup, err := BuildConfigFromSpec(spec)
+	if cleanup != nil {
+		t.Cleanup(cleanup)
+	}
+	if err != nil {
+		t.Fatalf("BuildConfigFromSpec: %v", err)
+	}
+	if cfg.ScenarioFile != "" {
+		t.Fatalf("expected no scenario file for built-in scenario, got %q", cfg.ScenarioFile)
+	}
+	if cfg.ScenarioName != "management" {
+		t.Fatalf("expected ScenarioName=management, got %q", cfg.ScenarioName)
+	}
+}
+
+// TestBuildConfigFromSpecUnknownScenarioStillErrors guards the fallback so
+// that profiles referencing a typo or missing custom scenario fail loud
+// rather than silently running the default UAC.
+func TestBuildConfigFromSpecUnknownScenarioStillErrors(t *testing.T) {
+	dir := t.TempDir()
+	store, err := uistore.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := uistore.ServerProfile{
+		ID:          "bogus",
+		Name:        "bogus",
+		ScenarioRef: "does-not-exist-anywhere",
+		Transports: []uistore.TransportSpec{
+			{Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 5071, Enabled: true},
+		},
+	}
+	if _, err := store.PutServerProfile(p, true); err != nil {
+		t.Fatal(err)
+	}
+	spec := Spec{
+		JobID:        "j4",
+		DataDir:      dir,
+		ProfileID:    "bogus",
+		ProfileKind:  string(uistore.KindServer),
+		ArtifactsDir: filepath.Join(dir, "artifacts", "j4"),
+	}
+	_, cleanup, err := BuildConfigFromSpec(spec)
+	if cleanup != nil {
+		t.Cleanup(cleanup)
+	}
+	if err == nil {
+		t.Fatalf("expected error for unknown scenario, got nil")
+	}
+}

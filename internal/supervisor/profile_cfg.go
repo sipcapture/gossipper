@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sipcapture/gossipper/internal/cli"
+	"github.com/sipcapture/gossipper/internal/scenario"
 	"github.com/sipcapture/gossipper/internal/uistore"
 )
 
@@ -58,36 +60,52 @@ func BuildConfigFromSpec(spec Spec) (cli.Config, func(), error) {
 
 	if scenarioID != "" {
 		body, err := store.GetScenario(scenarioID)
-		if err != nil {
+		switch {
+		case err == nil:
+			// materialise the XML below.
+		case errors.Is(err, uistore.ErrNotFound):
+			// Fallback to engine-baked scenarios ("uac", "uas", "management",
+			// "invite_media*", …). These ship in scenario.LoadNamed and don't
+			// need to live on disk in uistore; profiles can reference them by
+			// name (typical for built-in seeded profiles).
+			if _, lerr := scenario.LoadNamed(scenarioID); lerr != nil {
+				return cli.Config{}, cleanup, fmt.Errorf("scenario %q: %w", scenarioID, err)
+			}
+			cfg.ScenarioName = scenarioID
+			body = uistore.ScenarioBody{}
+		default:
 			return cli.Config{}, cleanup, fmt.Errorf("scenario %q: %w", scenarioID, err)
 		}
-		// Expand [[media:wav/<id>]] / [[media:pcap/<id>]] aliases to absolute
-		// on-disk paths so SIPp-style play_pcap_audio / play_pcap_image work
-		// without scenario authors having to know the data-dir layout.
-		processed, mediaErrs := store.PreprocessScenarioXML(body.XML)
-		if len(mediaErrs) > 0 {
-			return cli.Config{}, cleanup, fmt.Errorf("scenario %q media refs: %v", scenarioID, mediaErrs)
+		if strings.TrimSpace(body.XML) != "" {
+			// Expand [[media:wav/<id>]] / [[media:pcap/<id>]] aliases to
+			// absolute on-disk paths so SIPp-style play_pcap_audio /
+			// play_pcap_image work without scenario authors having to know
+			// the data-dir layout.
+			processed, mediaErrs := store.PreprocessScenarioXML(body.XML)
+			if len(mediaErrs) > 0 {
+				return cli.Config{}, cleanup, fmt.Errorf("scenario %q media refs: %v", scenarioID, mediaErrs)
+			}
+			tmpDir := filepath.Join(spec.DataDir, "tmp")
+			if err := os.MkdirAll(tmpDir, 0o750); err != nil {
+				return cli.Config{}, cleanup, fmt.Errorf("scenario tmp dir: %w", err)
+			}
+			f, err := os.CreateTemp(tmpDir, "scenario-*.xml")
+			if err != nil {
+				return cli.Config{}, cleanup, fmt.Errorf("scenario tmp file: %w", err)
+			}
+			path := f.Name()
+			if _, err := f.WriteString(processed); err != nil {
+				_ = f.Close()
+				_ = os.Remove(path)
+				return cli.Config{}, cleanup, err
+			}
+			if err := f.Close(); err != nil {
+				_ = os.Remove(path)
+				return cli.Config{}, cleanup, err
+			}
+			cfg.ScenarioFile = path
+			cleanup = func() { _ = os.Remove(path) }
 		}
-		tmpDir := filepath.Join(spec.DataDir, "tmp")
-		if err := os.MkdirAll(tmpDir, 0o750); err != nil {
-			return cli.Config{}, cleanup, fmt.Errorf("scenario tmp dir: %w", err)
-		}
-		f, err := os.CreateTemp(tmpDir, "scenario-*.xml")
-		if err != nil {
-			return cli.Config{}, cleanup, fmt.Errorf("scenario tmp file: %w", err)
-		}
-		path := f.Name()
-		if _, err := f.WriteString(processed); err != nil {
-			_ = f.Close()
-			_ = os.Remove(path)
-			return cli.Config{}, cleanup, err
-		}
-		if err := f.Close(); err != nil {
-			_ = os.Remove(path)
-			return cli.Config{}, cleanup, err
-		}
-		cfg.ScenarioFile = path
-		cleanup = func() { _ = os.Remove(path) }
 	}
 
 	if strings.TrimSpace(cfg.SummaryJSON) == "" && strings.TrimSpace(spec.ArtifactsDir) != "" {
