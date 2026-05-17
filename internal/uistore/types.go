@@ -43,17 +43,27 @@ type TransportSpec struct {
 	PrefersPCMA bool `json:"prefers_pcma,omitempty"`
 }
 
+// SourceBuiltIn marks profiles that were seeded by the management process
+// from cfg.Server / cfg.JoinedClients on first start. The UI should disable
+// Start/Stop controls for these and the v2 shortcut handlers refuse to fork
+// a supervisor worker, since the bind is already owned by the master.
+const SourceBuiltIn = "built-in"
+
 // ServerProfile is the editable representation of a SIP server (UAS) profile.
 type ServerProfile struct {
-	ID           string          `json:"id"`
-	Name         string          `json:"name"`
-	Description  string          `json:"description,omitempty"`
-	ScenarioRef  string          `json:"scenario_ref,omitempty"`
-	Transports   []TransportSpec `json:"transports"`
-	MaxConcurrent int            `json:"max_concurrent,omitempty"`
-	Notes        string          `json:"notes,omitempty"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	ID            string          `json:"id"`
+	Name          string          `json:"name"`
+	Description   string          `json:"description,omitempty"`
+	ScenarioRef   string          `json:"scenario_ref,omitempty"`
+	Transports    []TransportSpec `json:"transports"`
+	MaxConcurrent int             `json:"max_concurrent,omitempty"`
+	Notes         string          `json:"notes,omitempty"`
+	// Source flags how this profile arrived. Empty == user-created from UI.
+	// SourceBuiltIn == seeded from management JSON; static, cannot be started
+	// as a supervisor job (would collide on bind).
+	Source    string    `json:"source,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // ClientProfile is the editable representation of a SIP client (UAC) profile
@@ -70,8 +80,10 @@ type ClientProfile struct {
 	MaxConcurrent int             `json:"max_concurrent,omitempty"`
 	DurationMs    int             `json:"duration_ms,omitempty"`
 	Notes         string          `json:"notes,omitempty"`
-	CreatedAt     time.Time       `json:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at"`
+	// Source: see ServerProfile.Source.
+	Source    string    `json:"source,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // ScenarioMeta is the sidecar JSON for a scenario XML file. The XML body is

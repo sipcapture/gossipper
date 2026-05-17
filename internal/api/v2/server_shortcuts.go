@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sipcapture/gossipper/internal/supervisor"
+	"github.com/sipcapture/gossipper/internal/uistore"
 )
 
 // handleStartServerShortcut is a convenience over POST /jobs:
@@ -29,21 +30,31 @@ func (s *Server) handleStartProfileShortcut(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	id := pathID(r)
+	var source string
 	switch kind {
 	case "server":
-		if _, err := s.cfg.Store.GetServerProfile(id); err != nil {
+		p, err := s.cfg.Store.GetServerProfile(id)
+		if err != nil {
 			code, msg := mapStoreError(err)
 			s.writeError(w, code, msg)
 			return
 		}
+		source = p.Source
 	case "client":
-		if _, err := s.cfg.Store.GetClientProfile(id); err != nil {
+		p, err := s.cfg.Store.GetClientProfile(id)
+		if err != nil {
 			code, msg := mapStoreError(err)
 			s.writeError(w, code, msg)
 			return
 		}
+		source = p.Source
 	default:
 		s.writeError(w, http.StatusBadRequest, "kind must be server|client")
+		return
+	}
+	if source == uistore.SourceBuiltIn {
+		s.writeError(w, http.StatusConflict,
+			"profile is built-in (seeded from management config) and cannot be started as a supervisor job — it already runs inside the master process; create a new profile via the UI to launch additional engines")
 		return
 	}
 

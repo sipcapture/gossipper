@@ -71,6 +71,8 @@ export type TransportSpec = {
   prefers_pcma?: boolean
 }
 
+export type ProfileSource = 'built-in' | string
+
 export type ServerProfile = {
   id: string
   name: string
@@ -79,6 +81,7 @@ export type ServerProfile = {
   transports?: TransportSpec[]
   max_concurrent?: number
   notes?: string
+  source?: ProfileSource
   created_at?: string
   updated_at?: string
 }
@@ -95,6 +98,7 @@ export type ClientProfile = {
   max_concurrent?: number
   duration_ms?: number
   notes?: string
+  source?: ProfileSource
   created_at?: string
   updated_at?: string
 }

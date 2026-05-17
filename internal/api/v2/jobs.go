@@ -87,21 +87,31 @@ func (s *Server) handleStartJob(w http.ResponseWriter, r *http.Request) {
 	}
 	body.ProfileKind = strings.ToLower(strings.TrimSpace(body.ProfileKind))
 	body.ProfileID = strings.TrimSpace(body.ProfileID)
+	var profileSource string
 	switch body.ProfileKind {
 	case string(uistore.KindServer):
-		if _, err := s.cfg.Store.GetServerProfile(body.ProfileID); err != nil {
+		p, err := s.cfg.Store.GetServerProfile(body.ProfileID)
+		if err != nil {
 			code, msg := mapStoreError(err)
 			s.writeError(w, code, "profile: "+msg)
 			return
 		}
+		profileSource = p.Source
 	case string(uistore.KindClient):
-		if _, err := s.cfg.Store.GetClientProfile(body.ProfileID); err != nil {
+		p, err := s.cfg.Store.GetClientProfile(body.ProfileID)
+		if err != nil {
 			code, msg := mapStoreError(err)
 			s.writeError(w, code, "profile: "+msg)
 			return
 		}
+		profileSource = p.Source
 	default:
 		s.writeError(w, http.StatusBadRequest, `profile_kind must be "server" or "client"`)
+		return
+	}
+	if profileSource == uistore.SourceBuiltIn {
+		s.writeError(w, http.StatusConflict,
+			"profile is built-in (seeded from management config) and cannot be started as a supervisor job — it already runs inside the master process; create a new profile via the UI to launch additional engines")
 		return
 	}
 	if body.ScenarioID != "" {

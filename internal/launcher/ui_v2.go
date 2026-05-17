@@ -181,7 +181,8 @@ func serverProfileFromConfig(cfg cli.Config) *uistore.ServerProfile {
 		ScenarioRef:   strings.TrimSpace(cfg.ScenarioName),
 		Transports:    transports,
 		MaxConcurrent: cfg.MaxConcurrent,
-		Notes:         "built-in: owned by the management process (cfg.Server). Edit the management JSON and restart the service to change bindings; Start/Stop from the UI does not apply.",
+		Source:        uistore.SourceBuiltIn,
+		Notes:         "Owned by the management process (cfg.Server). Edit the management JSON and restart the service to change bindings; Start/Stop from the UI does not apply (would collide on bind).",
 	}
 }
 
@@ -229,7 +230,8 @@ func clientProfileFromConfig(id string, cfg cli.Config) *uistore.ClientProfile {
 		RemotePort:    cfg.RemotePort,
 		Rate:          cfg.Rate,
 		MaxConcurrent: cfg.MaxConcurrent,
-		Notes:         "built-in: owned by the management process (cfg.JoinedClients). Edit the management JSON and restart the service to change settings; Start/Stop from the UI does not apply.",
+		Source:        uistore.SourceBuiltIn,
+		Notes:         "Owned by the management process (cfg.JoinedClients). Edit the management JSON and restart the service to change settings; Start/Stop from the UI does not apply (would collide on bind).",
 	}
 	return cp
 }

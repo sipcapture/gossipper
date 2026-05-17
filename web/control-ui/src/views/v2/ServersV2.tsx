@@ -101,7 +101,23 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
 
   const columns: Column<ServerProfile>[] = useMemo(
     () => [
-      { key: 'id', header: 'ID', render: (r) => <code className="text-xs">{r.id}</code> },
+      {
+        key: 'id',
+        header: 'ID',
+        render: (r) => (
+          <span className="flex items-center gap-1.5">
+            <code className="text-xs">{r.id}</code>
+            {r.source === 'built-in' && (
+              <span
+                title={r.notes ?? 'Owned by the management process. Edit the management JSON and restart to change.'}
+                className="bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider"
+              >
+                built-in
+              </span>
+            )}
+          </span>
+        ),
+      },
       { key: 'name', header: 'Name', render: (r) => r.name },
       {
         key: 'transports',
@@ -127,22 +143,49 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
         key: 'actions',
         header: '',
         align: 'right',
-        render: (r) => (
-          <div className="flex justify-end gap-1">
-            <Button type="button" variant="outline" size="xs" onClick={() => onStart(r)} disabled={busy}>
-              Start
-            </Button>
-            <Button type="button" variant="outline" size="xs" onClick={() => onStop(r)} disabled={busy}>
-              Stop
-            </Button>
-            <Button type="button" variant="outline" size="xs" onClick={() => onEdit(r)}>
-              Edit
-            </Button>
-            <Button type="button" variant="destructive" size="xs" onClick={() => onDelete(r)}>
-              Delete
-            </Button>
-          </div>
-        ),
+        render: (r) => {
+          const builtin = r.source === 'built-in'
+          const title = builtin
+            ? 'Built-in profile (seeded from management config) — runs inside the master process. Restart the service to change bindings.'
+            : undefined
+          return (
+            <div className="flex justify-end gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={() => onStart(r)}
+                disabled={busy || builtin}
+                title={title}
+              >
+                Start
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={() => onStop(r)}
+                disabled={busy || builtin}
+                title={title}
+              >
+                Stop
+              </Button>
+              <Button type="button" variant="outline" size="xs" onClick={() => onEdit(r)}>
+                Edit
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="xs"
+                onClick={() => onDelete(r)}
+                disabled={builtin}
+                title={title}
+              >
+                Delete
+              </Button>
+            </div>
+          )
+        },
       },
     ],
     [busy, onDelete, onEdit, onStart, onStop],
