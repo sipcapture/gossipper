@@ -2838,34 +2838,33 @@ func (e *Engine) sourceIPForCall(callNumber int) string {
 // in-dialog responses (e.g. 200 OK to BYE) under provisional bursts.
 const sipMailboxCap = 128
 
+// mailboxRegistry routes incoming SIP packets to per-call channels using
+// sync.Map for lock-free reads on the dispatch hot path.
 type mailboxRegistry struct {
-	mu        sync.RWMutex
-	mailboxes map[string]chan *sip.Message
+	mailboxes sync.Map // map[string]chan *sip.Message (key = normalized Call-ID)
 	log       eventlog.Logger
+	logActive bool
 }
 
 func newMailboxRegistry(log eventlog.Logger) *mailboxRegistry {
+	logActive := log != nil
 	if log == nil {
 		log = eventlog.Noop()
 	}
 	return &mailboxRegistry{
-		mailboxes: make(map[string]chan *sip.Message),
 		log:       log,
+		logActive: logActive,
 	}
 }
 
 func (r *mailboxRegistry) register(callID string) chan *sip.Message {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	ch := make(chan *sip.Message, sipMailboxCap)
-	r.mailboxes[sip.NormalizeCallID(callID)] = ch
+	r.mailboxes.Store(sip.NormalizeCallID(callID), ch)
 	return ch
 }
 
 func (r *mailboxRegistry) unregister(callID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.mailboxes, sip.NormalizeCallID(callID))
+	r.mailboxes.Delete(sip.NormalizeCallID(callID))
 }
 
 func (r *mailboxRegistry) dispatch(incoming <-chan transport.Packet) {
@@ -2881,23 +2880,24 @@ func (r *mailboxRegistry) dispatch(incoming <-chan transport.Packet) {
 			continue
 		}
 		callID = sip.NormalizeCallID(callID)
-		r.mu.RLock()
-		ch, exists := r.mailboxes[callID]
-		r.mu.RUnlock()
+		v, exists := r.mailboxes.Load(callID)
 		if !exists {
 			sip.PutMessage(msg)
 			continue
 		}
+		ch := v.(chan *sip.Message)
 		select {
 		case ch <- msg:
 		default:
-			r.log.Emit(eventlog.Event{
-				Time:  time.Now(),
-				Level: eventlog.LevelWarn,
-				Kind:  eventlog.KindSIPMailboxDrop,
-				Msg:   "SIP message dropped (per-call mailbox full)",
-				Attrs: map[string]any{"call_id": callID},
-			})
+			if r.logActive {
+				r.log.Emit(eventlog.Event{
+					Time:  time.Now(),
+					Level: eventlog.LevelWarn,
+					Kind:  eventlog.KindSIPMailboxDrop,
+					Msg:   "SIP message dropped (per-call mailbox full)",
+					Attrs: map[string]any{"call_id": callID},
+				})
+			}
 			sip.PutMessage(msg)
 		}
 	}
@@ -2918,23 +2918,24 @@ func (r *mailboxRegistry) dispatchMessagePtr(m *sip.Message) {
 		return
 	}
 	callID = sip.NormalizeCallID(callID)
-	r.mu.RLock()
-	ch, exists := r.mailboxes[callID]
-	r.mu.RUnlock()
+	v, exists := r.mailboxes.Load(callID)
 	if !exists {
 		sip.PutMessage(m)
 		return
 	}
+	ch := v.(chan *sip.Message)
 	select {
 	case ch <- m:
 	default:
-		r.log.Emit(eventlog.Event{
-			Time:  time.Now(),
-			Level: eventlog.LevelWarn,
-			Kind:  eventlog.KindSIPMailboxDrop,
-			Msg:   "SIP message dropped (per-call mailbox full)",
-			Attrs: map[string]any{"call_id": callID},
-		})
+		if r.logActive {
+			r.log.Emit(eventlog.Event{
+				Time:  time.Now(),
+				Level: eventlog.LevelWarn,
+				Kind:  eventlog.KindSIPMailboxDrop,
+				Msg:   "SIP message dropped (per-call mailbox full)",
+				Attrs: map[string]any{"call_id": callID},
+			})
+		}
 		sip.PutMessage(m)
 	}
 }
@@ -2970,13 +2971,12 @@ func (r *mailboxRegistry) _dispatchMessageOld(msg sip.Message) {
 		sip.PutMessage(m)
 		return
 	}
-	r.mu.RLock()
-	ch, exists := r.mailboxes[callID]
-	r.mu.RUnlock()
+	v, exists := r.mailboxes.Load(callID)
 	if !exists {
 		sip.PutMessage(m)
 		return
 	}
+	ch := v.(chan *sip.Message)
 	select {
 	case ch <- m:
 	default:
