@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   deleteJobV2,
   getJob,
+  listBuiltinScenarios,
   listClients,
   listJobs,
   listRecordings,
@@ -12,6 +13,7 @@ import {
   recordingURL,
   startJob,
   stopJob,
+  type BuiltinScenarioMeta,
   type ClientProfile,
   type Job,
   type JobArtifact,
@@ -20,11 +22,16 @@ import {
   type ScenarioMeta,
   type ServerProfile,
 } from '@/api/v2'
+import { JobStatsChart } from '@/components/v2/JobStatsChart'
+import { ScenarioPreview, ScenarioSelect } from '@/components/v2/ScenarioSelect'
 import { Button } from '@/components/ui/button'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Modal } from '@/components/ui/modal'
+import { isProfilePortBlocked, profileHasWebRTC } from '@/lib/profileHelpers'
+import { mergeLiveJobs, parseStatsLines, useLiveJobs } from '@/lib/jobsLive'
+import { useToast } from '@/lib/toast'
 
 const STATUS_BADGE: Record<JobStatus, string> = {
   pending: 'bg-muted text-foreground/80',
@@ -42,10 +49,13 @@ export type JobsV2Props = {
 }
 
 export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
+  const { toast } = useToast()
+  const { liveJobs, connected } = useLiveJobs(bearer)
   const [rows, setRows] = useState<Job[]>([])
   const [servers, setServers] = useState<ServerProfile[]>([])
   const [clients, setClients] = useState<ClientProfile[]>([])
   const [scenarios, setScenarios] = useState<ScenarioMeta[]>([])
+  const [builtins, setBuiltins] = useState<BuiltinScenarioMeta[]>([])
   const [startOpen, setStartOpen] = useState(false)
   const [draft, setDraft] = useState<{
     profile_kind: 'server' | 'client'
@@ -67,38 +77,41 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
   const [query, setQuery] = useState('')
 
   const refresh = useCallback(async () => {
-    const [r, s, c, sc] = await Promise.all([
+    const [r, s, c, sc, bi] = await Promise.all([
       listJobs({ bearer }, 200),
       listServers({ bearer }),
       listClients({ bearer }),
       listScenarios({ bearer }),
+      listBuiltinScenarios({ bearer }).catch(() => ({ scenarios: [] as BuiltinScenarioMeta[] })),
     ])
     setRows(r.jobs ?? [])
     setServers(s.servers ?? [])
     setClients(c.clients ?? [])
     setScenarios(sc.scenarios ?? [])
+    setBuiltins(bi.scenarios ?? [])
   }, [bearer])
 
   useEffect(() => {
     void run(() => refresh())
   }, [run, refresh])
 
-  // Poll while there are running jobs (Phase 2 will switch this to a live WS).
-  useEffect(() => {
-    const anyActive = rows.some((j) => j.status === 'pending' || j.status === 'running')
-    if (!anyActive) return
-    const id = window.setInterval(() => void run(() => refresh()), 3000)
-    return () => window.clearInterval(id)
-  }, [rows, run, refresh])
+  const mergedRows = useMemo(() => mergeLiveJobs(rows, liveJobs), [rows, liveJobs])
 
   const candidateProfiles = useMemo(
     () => (draft.profile_kind === 'server' ? servers : clients),
     [draft.profile_kind, servers, clients],
   )
 
+  const startBlocked = useMemo(() => {
+    if (!draft.profile_id) return { blocked: false, details: [] as string[] }
+    return isProfilePortBlocked(draft.profile_kind, draft.profile_id, servers, clients)
+  }, [draft.profile_id, draft.profile_kind, servers, clients])
+
+  const scenarioRoleFilter = draft.profile_kind === 'server' ? 'uas' : 'uac'
+
   const visibleRows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return rows.filter((j) => {
+    return mergedRows.filter((j) => {
       if (statusFilter !== 'all' && j.status !== statusFilter) return false
       if (!q) return true
       return (
@@ -108,16 +121,28 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
         (j.profile_kind ?? '').toLowerCase().includes(q)
       )
     })
-  }, [rows, statusFilter, query])
+  }, [mergedRows, statusFilter, query])
 
   const statusCounts = useMemo(() => {
-    const out: Record<string, number> = { all: rows.length }
-    for (const j of rows) out[j.status] = (out[j.status] ?? 0) + 1
+    const out: Record<string, number> = { all: mergedRows.length }
+    for (const j of mergedRows) out[j.status] = (out[j.status] ?? 0) + 1
     return out
-  }, [rows])
+  }, [mergedRows])
+
+  const openStartModal = (prefill?: Partial<typeof draft>) => {
+    setDraft({
+      profile_kind: 'server',
+      profile_id: '',
+      scenario_id: '',
+      record_wav: false,
+      record_wav_duplex: false,
+      ...prefill,
+    })
+    setStartOpen(true)
+  }
 
   const onStart = () => {
-    if (!draft.profile_id) return
+    if (!draft.profile_id || startBlocked.blocked) return
     void run(async () => {
       await startJob(
         {
@@ -130,13 +155,24 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
         { bearer },
       )
       setStartOpen(false)
+      toast('Job started', 'success')
       await refresh()
+    })
+  }
+
+  const onRestart = (job: Job) => {
+    if (!job.profile_id || !job.profile_kind) return
+    openStartModal({
+      profile_kind: job.profile_kind as 'server' | 'client',
+      profile_id: job.profile_id,
+      scenario_id: job.scenario_id ?? '',
     })
   }
 
   const onStop = (id: string) => {
     void run(async () => {
       await stopJob(id, { bearer })
+      toast('Stop requested', 'info')
       await refresh()
     })
   }
@@ -144,6 +180,7 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
     if (!window.confirm(`Delete job ${id}?`)) return
     void run(async () => {
       await deleteJobV2(id, { bearer })
+      toast('Job deleted', 'success')
       await refresh()
     })
   }
@@ -190,10 +227,21 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
         key: 'status',
         header: 'Status',
         render: (r) => (
-          <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_BADGE[r.status] ?? ''}`}
-          >
-            {r.status}
+          <span className="inline-flex items-center gap-1">
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_BADGE[r.status] ?? ''}`}
+            >
+              {r.status}
+            </span>
+            {(() => {
+              const prof =
+                r.profile_kind === 'server'
+                  ? servers.find((s) => s.id === r.profile_id)
+                  : clients.find((c) => c.id === r.profile_id)
+              return profileHasWebRTC(prof?.transports) ? (
+                <span className="bg-warning/15 text-warning rounded px-1 py-0.5 text-[9px]">WebRTC</span>
+              ) : null
+            })()}
           </span>
         ),
       },
@@ -208,6 +256,11 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
         align: 'right',
         render: (r) => (
           <div className="flex justify-end gap-1">
+            {r.status === 'failed' || r.status === 'stopped' ? (
+              <Button type="button" variant="outline" size="xs" onClick={() => onRestart(r)}>
+                Restart
+              </Button>
+            ) : null}
             {r.status === 'running' || r.status === 'pending' ? (
               <Button type="button" variant="outline" size="xs" onClick={() => onStop(r.id)}>
                 Stop
@@ -220,7 +273,7 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
         ),
       },
     ],
-    [onDelete, onInspect, onStop],
+    [clients, onDelete, onInspect, onRestart, onStop, servers],
   )
 
   return (
@@ -229,14 +282,15 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
         <div>
           <h2 className="text-sm font-semibold">Jobs</h2>
           <p className="text-muted-foreground text-xs">
-            Worker runs launched from server/client profiles. Phase 0 uses a stub runner — Phase 2 forks real workers.
+            Isolated <code>gossipper worker</code> runs forked from server/client profiles. Status updates
+            via live WebSocket{connected ? ' (connected)' : ' (reconnecting…)'}.
           </p>
         </div>
         <div className="flex gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => void run(() => refresh())}>
             Refresh
           </Button>
-          <Button type="button" size="sm" onClick={() => setStartOpen(true)}>
+          <Button type="button" size="sm" onClick={() => openStartModal()}>
             + Start job
           </Button>
         </div>
@@ -272,7 +326,7 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
           className="h-7 max-w-xs text-xs"
         />
         <span className="text-muted-foreground text-[11px]">
-          {visibleRows.length}/{rows.length}
+          {visibleRows.length}/{mergedRows.length}
         </span>
       </div>
 
@@ -281,11 +335,7 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
         columns={columns}
         rowKey={(r) => r.id}
         loading={busy && rows.length === 0}
-        empty={
-          rows.length === 0
-            ? 'No jobs yet.'
-            : 'No jobs match the current filter.'
-        }
+        empty={rows.length === 0 ? 'No jobs yet.' : 'No jobs match the current filter.'}
       />
 
       <Modal
@@ -298,13 +348,24 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
             <Button type="button" variant="outline" size="sm" onClick={() => setStartOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" size="sm" onClick={onStart} disabled={!draft.profile_id || busy}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={onStart}
+              disabled={!draft.profile_id || busy || startBlocked.blocked}
+            >
               Start
             </Button>
           </>
         }
       >
         <div className="flex flex-col gap-3">
+          {startBlocked.blocked ? (
+            <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-2 py-1.5 text-[11px]">
+              Port conflict — resolve overlapping binds before starting:{' '}
+              {startBlocked.details.join(', ')}
+            </div>
+          ) : null}
           <div>
             <Label className="text-xs">Profile kind</Label>
             <div className="mt-1 flex gap-2">
@@ -314,7 +375,9 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
                   type="button"
                   onClick={() => setDraft({ ...draft, profile_kind: k, profile_id: '' })}
                   className={`rounded-md px-3 py-1.5 text-xs ${
-                    draft.profile_kind === k ? 'bg-primary text-primary-foreground' : 'border-border bg-background hover:bg-muted border'
+                    draft.profile_kind === k
+                      ? 'bg-primary text-primary-foreground'
+                      : 'border-border bg-background hover:bg-muted border'
                   }`}
                 >
                   {k}
@@ -339,37 +402,20 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
           </div>
           <div>
             <Label className="text-xs">Scenario override (optional)</Label>
-            <select
+            <ScenarioSelect
               value={draft.scenario_id}
-              onChange={(e) => setDraft({ ...draft, scenario_id: e.target.value })}
-              className="border-input bg-background mt-1 w-full rounded-md border px-2 py-1.5 text-sm"
-            >
-              <option value="">(use profile default)</option>
-              {scenarios.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.id} — {s.name}
-                  {s.role ? ` [${s.role}]` : ''}
-                </option>
-              ))}
-            </select>
-            {(() => {
-              if (!draft.scenario_id) return null
-              const sc = scenarios.find((x) => x.id === draft.scenario_id)
-              if (!sc) return null
-              return (
-                <div className="text-muted-foreground mt-1 rounded-md border px-2 py-1 text-[11px]">
-                  <div>
-                    <span className="text-foreground/70">role:</span>{' '}
-                    <code>{sc.role ?? 'either'}</code>
-                  </div>
-                  {sc.description ? (
-                    <div className="mt-0.5">
-                      <span className="text-foreground/70">desc:</span> {sc.description}
-                    </div>
-                  ) : null}
-                </div>
-              )
-            })()}
+              onChange={(scenario_id) => setDraft({ ...draft, scenario_id })}
+              scenarios={scenarios}
+              builtins={builtins}
+              roleFilter={scenarioRoleFilter}
+              allowEmpty
+              emptyLabel="(use profile default)"
+            />
+            <ScenarioPreview
+              scenarioId={draft.scenario_id}
+              scenarios={scenarios}
+              builtins={builtins}
+            />
           </div>
           <div className="flex flex-col gap-1 pt-1">
             <label className="text-foreground flex items-center gap-2 text-xs">
@@ -444,7 +490,7 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
               </div>
               {detail.recordings.length === 0 ? (
                 <p className="text-muted-foreground">
-                  No WAV files yet. Enable per-call recording in your engine config.
+                  No WAV files yet. Enable per-call recording when starting a job.
                 </p>
               ) : (
                 <ul className="space-y-2">
@@ -469,6 +515,11 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
                 </ul>
               )}
             </div>
+            {detail.job.status === 'failed' || detail.job.status === 'stopped' ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => onRestart(detail.job)}>
+                Restart with same profile
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </Modal>
@@ -476,10 +527,6 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
   )
 }
 
-// JobStatsTail streams the worker's stats.jsonl into a compact "live" view.
-// When the job is still running it follows the file; when it has finished it
-// fetches the last `tail` lines once. The stream is plain JSONL so the UI
-// just splits on newlines and shows the most recent N lines verbatim.
 function JobStatsTail({
   jobId,
   bearer,
@@ -530,12 +577,16 @@ function JobStatsTail({
       ctrl.abort()
     }
   }, [jobId, bearer, status])
+
+  const chartPoints = useMemo(() => parseStatsLines(lines), [lines])
+
   return (
     <div>
-      <div className="text-muted-foreground mb-1 font-medium">Worker stats (last {lines.length})</div>
-      {error ? <p className="text-destructive text-[11px]">{error}</p> : null}
-      <pre className="bg-muted/40 max-h-48 overflow-auto rounded p-2 font-mono text-[10px] whitespace-pre-wrap">
-        {lines.length === 0 ? 'waiting for worker…' : lines.join('\n')}
+      <div className="text-muted-foreground mb-1 font-medium">Worker stats</div>
+      <JobStatsChart points={chartPoints} />
+      {error ? <p className="text-destructive mt-1 text-[11px]">{error}</p> : null}
+      <pre className="bg-muted/40 mt-2 max-h-48 overflow-auto rounded p-2 font-mono text-[10px] whitespace-pre-wrap">
+        {lines.length === 0 ? 'waiting for worker…' : lines.slice(-tailN).join('\n')}
       </pre>
     </div>
   )

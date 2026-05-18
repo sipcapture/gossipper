@@ -5,15 +5,20 @@ import {
   deleteScenarioHistory,
   deleteScenarioV2,
   forkScenarioHistory,
+  getBuiltinScenario,
   getScenarioHistory,
   getScenarioV2,
+  listBuiltinScenarios,
+  listMedia,
   listScenarioHistory,
   listScenarios,
   updateScenarioV2,
+  type BuiltinScenarioMeta,
   type ScenarioHistoryEntry,
   type ScenarioMeta,
 } from '@/api/v2'
-import { lineDiff, summariseDiff, type DiffLine } from '@/lib/lineDiff'
+import { lineDiff, sideBySideDiff, summariseDiff, type DiffLine, type SideBySideRow } from '@/lib/lineDiff'
+import { validateMediaRefs } from '@/lib/mediaRefs'
 import { Button } from '@/components/ui/button'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
@@ -93,18 +98,35 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
   const [dragOver, setDragOver] = useState(false)
   const [history, setHistory] = useState<ScenarioHistoryEntry[] | null>(null)
   const [historyView, setHistoryView] = useState<{ ts: string; xml: string } | null>(null)
-  const [historyMode, setHistoryMode] = useState<'diff' | 'xml'>('diff')
+  const [historyMode, setHistoryMode] = useState<'diff' | 'side' | 'xml'>('diff')
   const [historyDiffBase, setHistoryDiffBase] = useState<'current' | string>('current')
   const [historyBaseXML, setHistoryBaseXML] = useState('')
   const [forkOpen, setForkOpen] = useState(false)
   const [forkDraft, setForkDraft] = useState({ id: '', name: '' })
+  const [builtins, setBuiltins] = useState<BuiltinScenarioMeta[]>([])
+  const [builtinPreview, setBuiltinPreview] = useState<{ id: string; xml: string } | null>(null)
+  const [wavNames, setWavNames] = useState<Set<string>>(new Set())
+  const [pcapNames, setPcapNames] = useState<Set<string>>(new Set())
+  const xmlRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const xmlError = useMemo(() => (draft ? validateScenarioXML(draft.xml) : null), [draft])
+  const mediaWarnings = useMemo(() => {
+    if (!draft) return null
+    return validateMediaRefs(draft.xml, { wav: wavNames, pcap: pcapNames })
+  }, [draft, wavNames, pcapNames])
 
   const refresh = useCallback(async () => {
-    const r = await listScenarios({ bearer })
+    const [r, bi, w, p] = await Promise.all([
+      listScenarios({ bearer }),
+      listBuiltinScenarios({ bearer }).catch(() => ({ scenarios: [] as BuiltinScenarioMeta[] })),
+      listMedia('wav', { bearer }).catch(() => ({ media: [] })),
+      listMedia('pcap', { bearer }).catch(() => ({ media: [] })),
+    ])
     setRows(r.scenarios ?? [])
+    setBuiltins(bi.scenarios ?? [])
+    setWavNames(new Set((w.media ?? []).map((m) => m.name)))
+    setPcapNames(new Set((p.media ?? []).map((m) => m.name)))
   }, [bearer])
 
   useEffect(() => {
@@ -161,6 +183,45 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
       setDraft(null)
       await refresh()
     })
+  }
+
+  const onViewBuiltin = (id: string) => {
+    void run(async () => {
+      const body = await getBuiltinScenario(id, { bearer })
+      setBuiltinPreview({ id, xml: body.xml })
+    })
+  }
+
+  const insertMediaAlias = (kind: 'wav' | 'pcap', name: string) => {
+    if (!draft) return
+    const token = `[[media:${kind}/${name}]]`
+    const ta = xmlRef.current
+    if (ta) {
+      const start = ta.selectionStart ?? draft.xml.length
+      const end = ta.selectionEnd ?? start
+      const next = draft.xml.slice(0, start) + token + draft.xml.slice(end)
+      setDraft({ ...draft, xml: next })
+      window.requestAnimationFrame(() => {
+        ta.focus()
+        const pos = start + token.length
+        ta.setSelectionRange(pos, pos)
+      })
+      return
+    }
+    setDraft({ ...draft, xml: draft.xml + token })
+  }
+
+  const onRestoreOverwrite = () => {
+    if (!draft || !historyView) return
+    if (
+      !window.confirm(
+        'Restore this snapshot into the editor and overwrite the current XML? You must Save to persist.',
+      )
+    )
+      return
+    setDraft({ ...draft, xml: historyView.xml })
+    setHistory(null)
+    setHistoryView(null)
   }
 
   const onDelete = (row: ScenarioMeta) => {
@@ -439,6 +500,22 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
         }
       />
 
+      {builtins.length > 0 ? (
+        <div className="border-border bg-card rounded-md border p-3">
+          <h3 className="mb-2 text-xs font-medium">Built-in scenarios (read-only)</h3>
+          <ul className="flex flex-wrap gap-2">
+            {builtins.map((b) => (
+              <li key={b.id}>
+                <Button type="button" variant="outline" size="xs" onClick={() => onViewBuiltin(b.id)}>
+                  {b.id}
+                  {b.role ? ` · ${b.role}` : ''}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <Modal
         open={draft !== null}
         onClose={() => setDraft(null)}
@@ -516,17 +593,37 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
               />
             </div>
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label className="text-xs">XML</Label>
-                {xmlError ? (
-                  <span className="text-destructive text-[11px]" title={xmlError}>
-                    XML error: {xmlError.length > 80 ? xmlError.slice(0, 80) + '…' : xmlError}
-                  </span>
-                ) : (
-                  <span className="text-success text-[11px]">XML well-formed</span>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {mediaWarnings && mediaWarnings.missing.length > 0 ? (
+                    <span className="text-warning text-[10px]">
+                      missing media: {mediaWarnings.missing.map((m) => `${m.kind}/${m.name}`).join(', ')}
+                    </span>
+                  ) : null}
+                  {[...wavNames].slice(0, 8).map((name) => (
+                    <Button
+                      key={`wav-${name}`}
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      className="h-6 text-[10px]"
+                      onClick={() => insertMediaAlias('wav', name)}
+                    >
+                      + wav/{name}
+                    </Button>
+                  ))}
+                </div>
               </div>
+              {xmlError ? (
+                <span className="text-destructive text-[11px]" title={xmlError}>
+                  XML error: {xmlError.length > 80 ? xmlError.slice(0, 80) + '…' : xmlError}
+                </span>
+              ) : (
+                <span className="text-success text-[11px]">XML well-formed</span>
+              )}
               <Textarea
+                ref={xmlRef}
                 value={draft.xml}
                 onChange={(e) => setDraft({ ...draft, xml: e.target.value })}
                 className={`mt-1 min-h-0 flex-1 font-mono text-xs ${
@@ -592,6 +689,15 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
             >
               Restore into editor
             </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={onRestoreOverwrite}
+              disabled={!historyView || busy}
+            >
+              Restore overwrite
+            </Button>
           </>
         }
       >
@@ -634,7 +740,7 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
                       Viewing <code>{historyView.ts}</code> · {historyView.xml.length} B
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      {historyMode === 'diff' ? (
+                      {historyMode !== 'xml' ? (
                         <label className="text-muted-foreground flex items-center gap-1">
                           Base
                           <select
@@ -659,7 +765,7 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
                         baseLabel={diffBaseLabel}
                       />
                       <div className="border-border bg-background flex overflow-hidden rounded-md border text-[10px]">
-                        {(['diff', 'xml'] as const).map((m) => (
+                        {(['diff', 'side', 'xml'] as const).map((m) => (
                           <button
                             key={m}
                             type="button"
@@ -670,7 +776,7 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
                                 : 'hover:bg-muted'
                             }`}
                           >
-                            {m === 'diff' ? 'Diff' : 'Snapshot XML'}
+                            {m === 'diff' ? 'Unified' : m === 'side' ? 'Side-by-side' : 'Snapshot XML'}
                           </button>
                         ))}
                       </div>
@@ -683,6 +789,8 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
                       className="min-h-0 flex-1 font-mono text-[11px]"
                       spellCheck={false}
                     />
+                  ) : historyMode === 'side' ? (
+                    <SideBySideDiffView oldXML={diffOldXML} newXML={diffNewXML} />
                   ) : (
                     <DiffView oldXML={diffOldXML} newXML={diffNewXML} />
                   )}
@@ -739,6 +847,22 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
           </div>
         </div>
       </Modal>
+
+      <Modal
+        open={builtinPreview !== null}
+        onClose={() => setBuiltinPreview(null)}
+        size="lg"
+        title={builtinPreview ? `Built-in · ${builtinPreview.id}` : 'Built-in'}
+      >
+        {builtinPreview ? (
+          <Textarea
+            value={builtinPreview.xml}
+            readOnly
+            className="min-h-[50vh] font-mono text-[11px]"
+            spellCheck={false}
+          />
+        ) : null}
+      </Modal>
     </section>
   )
 }
@@ -775,6 +899,42 @@ function HistoryDiffSummary({
 // draft) as "new" — so "+" lines are present in the editor and "-" lines
 // only in the snapshot. Inputs are memoised; per-line virtualisation is not
 // needed at scenario-XML sizes.
+function SideBySideDiffView({ oldXML, newXML }: { oldXML: string; newXML: string }) {
+  const rows = useMemo(() => sideBySideDiff(oldXML, newXML), [oldXML, newXML])
+  return (
+    <div className="grid min-h-0 flex-1 grid-cols-2 gap-px overflow-auto rounded-md border font-mono text-[11px] leading-snug">
+      <div className="bg-muted/20 border-border border-r">
+        <div className="text-muted-foreground bg-muted/40 px-2 py-1 text-[10px]">Base</div>
+        {rows.map((r, idx) => (
+          <SideRow key={`l-${idx}`} side="left" row={r} />
+        ))}
+      </div>
+      <div className="bg-muted/20">
+        <div className="text-muted-foreground bg-muted/40 px-2 py-1 text-[10px]">Snapshot</div>
+        {rows.map((r, idx) => (
+          <SideRow key={`r-${idx}`} side="right" row={r} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SideRow({ side, row }: { side: 'left' | 'right'; row: SideBySideRow }) {
+  const op = side === 'left' ? row.leftOp : row.rightOp
+  const text = side === 'left' ? row.leftText : row.rightText
+  const no = side === 'left' ? row.leftNo : row.rightNo
+  const rowCls =
+    op === 'add' ? 'bg-success/10' : op === 'del' ? 'bg-destructive/10' : op === 'blank' ? 'opacity-40' : ''
+  return (
+    <div className={`flex whitespace-pre ${rowCls}`}>
+      <span className="text-muted-foreground bg-muted/40 select-none px-1.5">
+        {no === -1 ? '    ' : no.toString().padStart(4, ' ')}
+      </span>
+      <span className="flex-1 px-1">{text === '' ? '\u00A0' : text}</span>
+    </div>
+  )
+}
+
 function DiffView({ oldXML, newXML }: { oldXML: string; newXML: string }) {
   const lines = useMemo(() => lineDiff(oldXML, newXML), [oldXML, newXML])
   return (

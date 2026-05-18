@@ -66,6 +66,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/clients/{id}", s.auth(s.handleDeleteClientProfile))
 
 	mux.HandleFunc("GET /api/v2/scenarios", s.auth(s.handleListScenarios))
+	mux.HandleFunc("GET /api/v2/builtin-scenarios", s.auth(s.handleListBuiltinScenarios))
+	mux.HandleFunc("GET /api/v2/builtin-scenarios/{id}", s.auth(s.handleGetBuiltinScenario))
 	mux.HandleFunc("POST /api/v2/scenarios", s.auth(s.handleCreateScenario))
 	mux.HandleFunc("GET /api/v2/scenarios/{id}", s.auth(s.handleGetScenario))
 	mux.HandleFunc("PUT /api/v2/scenarios/{id}", s.auth(s.handleUpdateScenario))
@@ -105,6 +107,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/users/{id}", s.auth(s.handleDeleteUser))
 	mux.HandleFunc("GET /api/v2/audit", s.auth(s.handleListAudit))
 
+	mux.HandleFunc("GET /api/v2/settings", s.auth(s.handleGetSettings))
 	mux.HandleFunc("POST /api/v2/settings/rotate-jwt-secret", s.auth(s.handleRotateJWTSecret))
 }
 

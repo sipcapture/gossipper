@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { getHealthV2, rotateJwtSecret, type HealthV2 } from '@/api/v2'
+import { getHealthV2, getSettingsV2, rotateJwtSecret, type HealthV2, type SettingsV2 as SettingsResp } from '@/api/v2'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ThemeToggle, type ThemeMode } from '@/components/ThemeToggle'
@@ -15,6 +15,7 @@ export type SettingsV2Props = {
 
 export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind }: SettingsV2Props) {
   const [health, setHealth] = useState<HealthV2 | null>(null)
+  const [runtime, setRuntime] = useState<SettingsResp | null>(null)
   const [rotated, setRotated] = useState<{ secret: string; warning: string } | null>(null)
   const [rotating, setRotating] = useState(false)
   const [rotateError, setRotateError] = useState<string | null>(null)
@@ -23,6 +24,11 @@ export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind }
       setHealth(await getHealthV2({ bearer }))
     } catch {
       setHealth(null)
+    }
+    try {
+      setRuntime(await getSettingsV2({ bearer }))
+    } catch {
+      setRuntime(null)
     }
   }, [bearer])
   useEffect(() => {
@@ -73,6 +79,28 @@ export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind }
           </div>
         </CardContent>
       </Card>
+
+      {runtime ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Runtime</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+              <dt className="text-muted-foreground">UI data dir</dt>
+              <dd className="font-mono break-all">{runtime.ui_data_dir}</dd>
+              <dt className="text-muted-foreground">Scenario history keep</dt>
+              <dd>{runtime.scenario_history_keep === 0 ? 'unlimited' : runtime.scenario_history_keep}</dd>
+              <dt className="text-muted-foreground">Disk usage</dt>
+              <dd>
+                {runtime.disk_usage_bytes != null
+                  ? `${(runtime.disk_usage_bytes / (1024 * 1024)).toFixed(2)} MiB`
+                  : '—'}
+              </dd>
+            </dl>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -142,10 +170,9 @@ export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind }
               wiring (<code>w1/wn/ws1/wsn</code>).
             </li>
             <li>
-              <strong className="text-foreground">Phase 4.2 ◐</strong> — WebRTC bridge
-              (<code>internal/webrtc</code>, pion/webrtc/v4) is ready and unit-tested;
-              automatic engine binding per call is the next step. See
-              <code>docs/webrtc.md</code>.
+              <strong className="text-foreground">Phase 4.2 ◐</strong> — WebRTC bridge unit-tested;
+              UI validates ICE servers; per-call engine binding + runtime diagnostics pending (
+              <code>docs/webrtc.md</code>).
             </li>
             <li>
               <strong className="text-foreground">Phase 5 ✓</strong> — users CRUD, audit log, docs/ui-mode.md.
@@ -153,6 +180,10 @@ export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind }
             <li>
               <strong className="text-foreground">Phase 5.1 ✓</strong> — live WS, JSONL events stream,
               server/client start-stop shortcuts, WAV/PCAP validation, JWT rotation.
+            </li>
+            <li>
+              <strong className="text-foreground">Phase 5.2 ✓</strong> — audit nav, built-in scenarios,
+              port-conflict blocks, jobs live feed, scenario history side-by-side diff, media refs.
             </li>
           </ul>
         </CardContent>

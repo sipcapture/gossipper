@@ -6,7 +6,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ThemeToggle, type ThemeMode } from '@/components/ThemeToggle'
 import { cn } from '@/lib/utils'
+import { ToastProvider, useToast } from '@/lib/toast'
 import { AboutV2 } from '@/views/v2/AboutV2'
+import { AuditV2 } from '@/views/v2/AuditV2'
 import { ClientsV2 } from '@/views/v2/ClientsV2'
 import { DashboardV2 } from '@/views/v2/DashboardV2'
 import { JobsV2 } from '@/views/v2/JobsV2'
@@ -26,6 +28,7 @@ type NavId =
   | 'scenarios'
   | 'jobs'
   | 'media'
+  | 'audit'
   | 'users'
   | 'settings'
   | 'about'
@@ -37,7 +40,8 @@ const NAV: { id: NavId; label: string; hint: string }[] = [
   { id: 'scenarios', label: 'Scenarios', hint: 'XML scenarios + sidecar meta' },
   { id: 'jobs', label: 'Jobs', hint: 'worker runs (start / stop / inspect)' },
   { id: 'media', label: 'Media', hint: 'WAV and PCAP upload library' },
-  { id: 'users', label: 'Users', hint: 'admin users (Phase 5)' },
+  { id: 'audit', label: 'Audit', hint: 'mutating API actions log' },
+  { id: 'users', label: 'Users', hint: 'admin users' },
   { id: 'settings', label: 'Settings', hint: 'system info, theme, sign out' },
   { id: 'about', label: 'About', hint: 'version, capabilities, links' },
 ]
@@ -58,6 +62,15 @@ function readTheme(): ThemeMode {
 export type AdminAppProps = Record<string, never>
 
 export function AdminApp(_: AdminAppProps = {}) {
+  return (
+    <ToastProvider>
+      <AdminAppInner />
+    </ToastProvider>
+  )
+}
+
+function AdminAppInner() {
+  const { toast } = useToast()
   const [nav, setNav] = useState<NavId>('dashboard')
   const [theme, setTheme] = useState<ThemeMode>(readTheme)
   const [authKind, setAuthKind] = useState<'none' | 'internal' | null>(null)
@@ -102,6 +115,7 @@ export function AdminApp(_: AdminAppProps = {}) {
           ? e.message
           : String(e)
       setLastError(msg)
+      toast(msg, 'error')
       return undefined
     } finally {
       setBusy(false)
@@ -240,6 +254,7 @@ export function AdminApp(_: AdminAppProps = {}) {
           {nav === 'scenarios' && <ScenariosV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
           {nav === 'jobs' && <JobsV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
           {nav === 'media' && <MediaV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
+          {nav === 'audit' && <AuditV2 bearer={bearer} />}
           {nav === 'users' && <UsersV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
           {nav === 'settings' && (
             <SettingsV2

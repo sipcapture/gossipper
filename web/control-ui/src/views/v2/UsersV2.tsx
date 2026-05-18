@@ -1,20 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import {
-  createUser,
-  deleteUser,
-  listAudit,
-  listUsers,
-  updateUser,
-  type AuditEntry,
-  type User,
-} from '@/api/v2'
+import { createUser, deleteUser, listUsers, updateUser, type User } from '@/api/v2'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Modal } from '@/components/ui/modal'
+import { useToast } from '@/lib/toast'
 
 export type UsersV2Props = {
   bearer?: string
@@ -27,11 +20,8 @@ type CreateDraft = { username: string; password: string; role: string }
 type EditDraft = { id: number; username: string; password: string; role: string }
 
 export function UsersV2({ bearer, busy, run, errorText }: UsersV2Props) {
+  const { toast } = useToast()
   const [users, setUsers] = useState<User[]>([])
-  const [audit, setAudit] = useState<AuditEntry[]>([])
-  const [auditOpen, setAuditOpen] = useState(false)
-  const [auditFilter, setAuditFilter] = useState('')
-  const [auditAutoRefresh, setAuditAutoRefresh] = useState(true)
   const [createDraft, setCreateDraft] = useState<CreateDraft | null>(null)
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
   const [unauthorized, setUnauthorized] = useState(false)
@@ -54,40 +44,6 @@ export function UsersV2({ bearer, busy, run, errorText }: UsersV2Props) {
     void run(() => refresh())
   }, [run, refresh])
 
-  const loadAudit = useCallback(async () => {
-    const r = await listAudit({ bearer }, 200)
-    setAudit(r.audit ?? [])
-  }, [bearer])
-
-  const openAudit = () => {
-    void run(async () => {
-      await loadAudit()
-      setAuditOpen(true)
-    })
-  }
-
-  useEffect(() => {
-    if (!auditOpen || !auditAutoRefresh) return
-    const tick = setInterval(() => {
-      void loadAudit().catch(() => {
-        // swallow — modal stays open with stale data.
-      })
-    }, 4000)
-    return () => clearInterval(tick)
-  }, [auditOpen, auditAutoRefresh, loadAudit])
-
-  const filteredAudit = useMemo(() => {
-    const q = auditFilter.trim().toLowerCase()
-    if (!q) return audit
-    return audit.filter((e) => {
-      return (
-        e.action.toLowerCase().includes(q) ||
-        (e.username ?? '').toLowerCase().includes(q) ||
-        (e.target ?? '').toLowerCase().includes(q)
-      )
-    })
-  }, [audit, auditFilter])
-
   const onCreate = () => {
     if (!createDraft) return
     void run(async () => {
@@ -96,6 +52,7 @@ export function UsersV2({ bearer, busy, run, errorText }: UsersV2Props) {
         { bearer },
       )
       setCreateDraft(null)
+      toast('User created', 'success')
       await refresh()
     })
   }
@@ -109,6 +66,7 @@ export function UsersV2({ bearer, busy, run, errorText }: UsersV2Props) {
         { bearer },
       )
       setEditDraft(null)
+      toast('User updated', 'success')
       await refresh()
     })
   }
@@ -117,6 +75,7 @@ export function UsersV2({ bearer, busy, run, errorText }: UsersV2Props) {
     if (!window.confirm(`Delete user "${u.username}"?`)) return
     void run(async () => {
       await deleteUser(u.id, { bearer })
+      toast('User deleted', 'success')
       await refresh()
     })
   }
@@ -173,14 +132,11 @@ export function UsersV2({ bearer, busy, run, errorText }: UsersV2Props) {
         <div>
           <h2 className="text-sm font-semibold">Users</h2>
           <p className="text-muted-foreground text-xs">
-            Admin accounts that can sign in to the console (<code>users</code> table in
-            <code>settings.sqlite</code>). The role column is reserved for future RBAC tiers.
+            Admin accounts that can sign in to the console (<code>users</code> table in{' '}
+            <code>settings.sqlite</code>). Audit entries are on the <strong>Audit</strong> page.
           </p>
         </div>
         <div className="flex gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={openAudit}>
-            Audit log
-          </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => void run(() => refresh())}>
             Refresh
           </Button>
@@ -294,72 +250,6 @@ export function UsersV2({ bearer, busy, run, errorText }: UsersV2Props) {
             </div>
           </div>
         ) : null}
-      </Modal>
-
-      <Modal
-        open={auditOpen}
-        onClose={() => setAuditOpen(false)}
-        size="lg"
-        title="Audit log"
-        description="Most recent mutating actions performed via /api/v2 (limit 200)."
-      >
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <Input
-            value={auditFilter}
-            onChange={(e) => setAuditFilter(e.target.value)}
-            placeholder="filter by action / user / target…"
-            className="h-7 max-w-sm text-xs"
-          />
-          <div className="flex items-center gap-2">
-            <label className="text-muted-foreground flex items-center gap-1 text-[11px]">
-              <input
-                type="checkbox"
-                checked={auditAutoRefresh}
-                onChange={(e) => setAuditAutoRefresh(e.target.checked)}
-              />
-              auto-refresh
-            </label>
-            <Button
-              type="button"
-              variant="outline"
-              size="xs"
-              onClick={() => {
-                void run(() => loadAudit())
-              }}
-            >
-              Refresh
-            </Button>
-            <span className="text-muted-foreground text-[11px]">
-              {filteredAudit.length}/{audit.length}
-            </span>
-          </div>
-        </div>
-        {filteredAudit.length === 0 ? (
-          <p className="text-muted-foreground text-xs">
-            {audit.length === 0 ? 'No entries yet.' : 'No entries match the filter.'}
-          </p>
-        ) : (
-          <table className="w-full text-xs">
-            <thead className="text-muted-foreground">
-              <tr>
-                <th className="border-border border-b px-2 py-1 text-left">Time</th>
-                <th className="border-border border-b px-2 py-1 text-left">User</th>
-                <th className="border-border border-b px-2 py-1 text-left">Action</th>
-                <th className="border-border border-b px-2 py-1 text-left">Target</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredAudit.map((e) => (
-                <tr key={e.id} className="border-border border-b">
-                  <td className="px-2 py-1 font-mono">{new Date(e.ts).toLocaleString()}</td>
-                  <td className="px-2 py-1">{e.username || '—'}</td>
-                  <td className="px-2 py-1 font-mono">{e.action}</td>
-                  <td className="px-2 py-1 font-mono">{e.target || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
       </Modal>
     </section>
   )

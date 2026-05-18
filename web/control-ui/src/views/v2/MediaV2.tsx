@@ -3,13 +3,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   deleteMedia,
   downloadMediaURL,
+  getScenarioV2,
   listMedia,
+  listScenarios,
   uploadMedia,
   type MediaAsset,
   type MediaKind,
 } from '@/api/v2'
 import { Button } from '@/components/ui/button'
 import { DataTable, type Column } from '@/components/ui/data-table'
+import { scenariosReferencingMedia } from '@/lib/mediaRefs'
+import { useToast } from '@/lib/toast'
 
 function fmtSize(n: number): string {
   if (n < 1024) return n + ' B'
@@ -25,13 +29,28 @@ export type MediaV2Props = {
 }
 
 export function MediaV2({ bearer, busy, run, errorText }: MediaV2Props) {
+  const { toast } = useToast()
   const [kind, setKind] = useState<MediaKind>('wav')
   const [rows, setRows] = useState<MediaAsset[]>([])
+  const [scenarioXML, setScenarioXML] = useState<Array<{ id: string; xml: string }>>([])
+  const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
     const r = await listMedia(kind, { bearer })
     setRows(r.media ?? [])
+    const sc = await listScenarios({ bearer })
+    const bodies = await Promise.all(
+      (sc.scenarios ?? []).map(async (m) => {
+        try {
+          const body = await getScenarioV2(m.id, { bearer })
+          return { id: m.id, xml: body.xml }
+        } catch {
+          return { id: m.id, xml: '' }
+        }
+      }),
+    )
+    setScenarioXML(bodies)
   }, [bearer, kind])
 
   useEffect(() => {
@@ -41,6 +60,7 @@ export function MediaV2({ bearer, busy, run, errorText }: MediaV2Props) {
   const onUpload = (file: File) => {
     void run(async () => {
       await uploadMedia(kind, file, { bearer })
+      toast(`${kind.toUpperCase()} uploaded`, 'success')
       await refresh()
     })
   }
@@ -49,13 +69,31 @@ export function MediaV2({ bearer, busy, run, errorText }: MediaV2Props) {
     if (!window.confirm(`Delete ${row.name}?`)) return
     void run(async () => {
       await deleteMedia(kind, row.name, { bearer })
+      toast('Media deleted', 'success')
       await refresh()
     })
   }
 
+  const refsFor = useCallback(
+    (name: string) => scenariosReferencingMedia(scenarioXML, kind, name),
+    [scenarioXML, kind],
+  )
+
   const columns: Column<MediaAsset>[] = useMemo(
     () => [
       { key: 'name', header: 'Name', render: (r) => r.name },
+      {
+        key: 'refs',
+        header: 'Used in',
+        render: (r) => {
+          const refs = refsFor(r.name)
+          return refs.length ? (
+            <span className="font-mono text-[10px]">{refs.join(', ')}</span>
+          ) : (
+            <span className="text-muted-foreground text-[10px]">—</span>
+          )
+        },
+      },
       {
         key: 'size',
         header: 'Size',
@@ -74,7 +112,7 @@ export function MediaV2({ bearer, busy, run, errorText }: MediaV2Props) {
           r.kind === 'wav' ? (
             <audio controls className="h-7" src={downloadMediaURL('wav', r.name, bearer)} />
           ) : (
-            <span className="text-muted-foreground text-xs">—</span>
+            <span className="text-muted-foreground text-xs">PCAP download only</span>
           ),
       },
       {
@@ -97,16 +135,35 @@ export function MediaV2({ bearer, busy, run, errorText }: MediaV2Props) {
         ),
       },
     ],
-    [bearer, onDelete],
+    [bearer, onDelete, refsFor],
   )
 
   return (
-    <section className="flex flex-col gap-3">
+    <section
+      className="relative flex flex-col gap-3"
+      onDragOver={(e) => {
+        e.preventDefault()
+        setDragOver(true)
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragOver(false)
+        const f = e.dataTransfer.files?.[0]
+        if (f) onUpload(f)
+      }}
+    >
+      {dragOver ? (
+        <div className="border-primary bg-primary/10 pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-md border-2 border-dashed">
+          <span className="text-primary text-sm font-medium">Drop {kind.toUpperCase()} file to upload</span>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">Media library</h2>
           <p className="text-muted-foreground text-xs">
-            WAV files for media playback and PCAP files for replay tests. Stored under <code>media/&lt;kind&gt;/</code>.
+            WAV files for media playback and PCAP files for replay tests. Drag-and-drop onto this page to upload.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

@@ -14,7 +14,9 @@ import {
   type ServerProfile,
 } from '@/api/v2'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { JobTimelineChart } from '@/components/v2/JobTimelineChart'
 import { findPortConflicts } from '@/lib/portConflicts'
+import { computeJobTimeline24h } from '@/lib/jobsLive'
 
 type LiveSnap = {
   ts: string
@@ -70,6 +72,7 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
   const [health, setHealth] = useState<HealthV2 | null>(null)
   const [counts, setCounts] = useState<Counts | null>(null)
   const [recent, setRecent] = useState<Job[]>([])
+  const [jobHistory, setJobHistory] = useState<Job[]>([])
   const [servers, setServers] = useState<ServerProfile[]>([])
   const [clients, setClients] = useState<ClientProfile[]>([])
   const [live, setLive] = useState<LiveSnap | null>(null)
@@ -116,7 +119,10 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
       failed24h: outcomes.failed,
     })
     setRecent(recentJobs.jobs ?? [])
+    setJobHistory(allJobs.jobs ?? [])
   }, [bearer])
+
+  const timeline = useMemo(() => computeJobTimeline24h(jobHistory), [jobHistory])
 
   useEffect(() => {
     void run(() => refresh())
@@ -192,6 +198,15 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
         />
         <CountCard label="API" value={health?.status ?? '—'} />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Jobs timeline (24h)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <JobTimelineChart buckets={timeline} />
+        </CardContent>
+      </Card>
 
       {portConflicts.conflicting.size > 0 ? (
         <Card className="border-warning/40 bg-warning/10">

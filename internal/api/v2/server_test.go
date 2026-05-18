@@ -370,3 +370,48 @@ func TestV2AuthLoginFlow(t *testing.T) {
 	}
 	h.token = prev
 }
+
+func TestV2BuiltinScenarios(t *testing.T) {
+	h := newHarness(t, false)
+	resp := h.do(http.MethodGet, "/api/v2/builtin-scenarios", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list builtin status=%d", resp.StatusCode)
+	}
+	body := decode[map[string]any](t, resp)
+	sc, _ := body["scenarios"].([]any)
+	if len(sc) < 3 {
+		t.Fatalf("expected builtin scenarios, got %d", len(sc))
+	}
+	resp.Body.Close()
+
+	resp = h.do(http.MethodGet, "/api/v2/builtin-scenarios/uac", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get builtin uac status=%d", resp.StatusCode)
+	}
+	got := decode[map[string]any](t, resp)
+	xml, _ := got["xml"].(string)
+	if !strings.Contains(xml, "<scenario") {
+		t.Fatalf("expected scenario xml, got %q", xml[:min(40, len(xml))])
+	}
+	resp.Body.Close()
+}
+
+func TestV2Settings(t *testing.T) {
+	h := newHarness(t, false)
+	resp := h.do(http.MethodGet, "/api/v2/settings", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("settings status=%d", resp.StatusCode)
+	}
+	body := decode[map[string]any](t, resp)
+	if body["ui_data_dir"] == "" {
+		t.Fatalf("missing ui_data_dir")
+	}
+	resp.Body.Close()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

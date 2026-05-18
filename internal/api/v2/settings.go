@@ -1,16 +1,33 @@
 package v2
 
 import (
+	"io/fs"
 	"net/http"
+	"path/filepath"
 )
 
-// handleRotateJWTSecret is admin-only and replaces the current signing key
-// with a fresh 256-bit value. Invalidates every issued token immediately —
-// the caller's token included. Returns the new secret once so the operator
-// can stash it somewhere safe.
+type settingsResp struct {
+	UIDataDir           string `json:"ui_data_dir"`
+	ScenarioHistoryKeep int    `json:"scenario_history_keep"`
+	DiskUsageBytes      int64  `json:"disk_usage_bytes,omitempty"`
+}
+
+func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
+	if !s.requireStore(w) {
+		return
+	}
+	root := s.cfg.Store.Layout().Root
+	resp := settingsResp{
+		UIDataDir:           root,
+		ScenarioHistoryKeep: s.cfg.Store.ScenarioHistoryKeep(),
+		DiskUsageBytes:      dirSize(root),
+	}
+	s.writeJSON(w, http.StatusOK, resp)
+}
+
 func (s *Server) handleRotateJWTSecret(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.Auth == nil || !s.cfg.Auth.Enabled() {
-		s.writeError(w, http.StatusServiceUnavailable, "auth disabled")
+		s.writeError(w, http.StatusNotFound, "internal auth is not enabled")
 		return
 	}
 	secret, err := s.cfg.Auth.RotateSecret(r.Context())
@@ -18,9 +35,23 @@ func (s *Server) handleRotateJWTSecret(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.writeAudit(r.Context(), r, "settings.rotate_jwt_secret", "", "")
+	s.writeAudit(r.Context(), r, "settings.rotate_jwt_secret", "jwt_secret", "")
 	s.writeJSON(w, http.StatusOK, map[string]string{
 		"jwt_secret": secret,
-		"warning":    "all existing tokens (including yours) are now invalid; sign in again to continue",
+		"warning":    "All signed-in sessions are now invalid. Save this secret and sign in again.",
 	})
+}
+
+func dirSize(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if info, ierr := d.Info(); ierr == nil {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
 }

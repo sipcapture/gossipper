@@ -24,8 +24,18 @@ const FEATURES: { title: string; body: string }[] = [
   },
   {
     title: 'Auth & audit',
-    body: 'Optional internal SQLite + JWT users (role admin/user). Every mutating call is written to the audit_log table and surfaced under Settings → Audit.',
+    body: 'Optional internal SQLite + JWT users (role admin/user). Every mutating call is written to the audit_log table and surfaced on the Audit page.',
   },
+]
+
+const BUILTIN_SCENARIOS = [
+  'uac',
+  'uas',
+  'management',
+  'invite_media',
+  'invite_media_early',
+  'invite_media_savpf',
+  'invite_media_early_180',
 ]
 
 export type AboutV2Props = {
@@ -77,6 +87,20 @@ export function AboutV2({ bearer }: AboutV2Props) {
         <Kv k="Auth mode" v={health?.auth ?? '…'} />
         <Kv k="API" v="/api/v2/* (admin console)" />
         <Kv k="Status" v={err ? `error: ${err}` : health?.status ?? '…'} />
+      </div>
+
+      <div className="border-border bg-card rounded-md border p-3">
+        <h3 className="mb-1 text-sm font-medium">Built-in scenarios</h3>
+        <p className="text-muted-foreground mb-2 text-xs">
+          Engine-baked XML (read-only) — selectable in profile / job forms alongside custom scenarios.
+        </p>
+        <div className="flex flex-wrap gap-1">
+          {BUILTIN_SCENARIOS.map((id) => (
+            <code key={id} className="bg-muted rounded px-1.5 py-0.5 text-[10px]">
+              {id}
+            </code>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

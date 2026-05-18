@@ -93,3 +93,49 @@ export function summariseDiff(diff: DiffLine[]): { added: number; removed: numbe
   }
   return { added, removed }
 }
+
+export type SideBySideRow = {
+  leftNo: number
+  leftText: string
+  leftOp: DiffOp | 'blank'
+  rightNo: number
+  rightText: string
+  rightOp: DiffOp | 'blank'
+}
+
+/** sideBySideDiff renders paired rows for a two-column diff view. */
+export function sideBySideDiff(oldText: string, newText: string): SideBySideRow[] {
+  const unified = lineDiff(oldText, newText)
+  const rows: SideBySideRow[] = []
+  for (const d of unified) {
+    if (d.op === 'equal') {
+      rows.push({
+        leftNo: d.oldNo,
+        leftText: d.text,
+        leftOp: 'equal',
+        rightNo: d.newNo,
+        rightText: d.text,
+        rightOp: 'equal',
+      })
+    } else if (d.op === 'del') {
+      rows.push({
+        leftNo: d.oldNo,
+        leftText: d.text,
+        leftOp: 'del',
+        rightNo: -1,
+        rightText: '',
+        rightOp: 'blank',
+      })
+    } else {
+      rows.push({
+        leftNo: -1,
+        leftText: '',
+        leftOp: 'blank',
+        rightNo: d.newNo,
+        rightText: d.text,
+        rightOp: 'add',
+      })
+    }
+  }
+  return rows
+}

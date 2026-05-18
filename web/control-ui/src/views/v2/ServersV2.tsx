@@ -3,15 +3,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   createServer,
   deleteServer,
+  listBuiltinScenarios,
+  listClients,
   listScenarios,
   listServers,
   startServerProfile,
   stopServerProfile,
   updateServer,
+  type BuiltinScenarioMeta,
+  type ClientProfile,
   type ScenarioMeta,
   type ServerProfile,
   type TransportSpec,
 } from '@/api/v2'
+import { ScenarioPreview, ScenarioSelect } from '@/components/v2/ScenarioSelect'
 import { Button } from '@/components/ui/button'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
@@ -20,7 +25,8 @@ import { Modal } from '@/components/ui/modal'
 import { Textarea } from '@/components/ui/textarea'
 import { RuntimeBadge } from '@/components/v2/RuntimeBadge'
 import { TransportListEditor } from '@/components/v2/TransportListEditor'
-import { serverPortConflicts } from '@/lib/portConflicts'
+import { crossProfilePortConflicts, isProfilePortBlocked } from '@/lib/profileHelpers'
+import { useToast } from '@/lib/toast'
 
 const emptyDraft = (): ServerProfile => ({
   id: '',
@@ -36,16 +42,25 @@ export type ServersV2Props = {
 }
 
 export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
+  const { toast } = useToast()
   const [rows, setRows] = useState<ServerProfile[]>([])
+  const [clients, setClients] = useState<ClientProfile[]>([])
   const [scenarios, setScenarios] = useState<ScenarioMeta[]>([])
+  const [builtins, setBuiltins] = useState<BuiltinScenarioMeta[]>([])
   const [draft, setDraft] = useState<ServerProfile | null>(null)
   const [createMode, setCreateMode] = useState(false)
 
   const refresh = useCallback(async () => {
-    const r = await listServers({ bearer })
+    const [r, c, s, bi] = await Promise.all([
+      listServers({ bearer }),
+      listClients({ bearer }),
+      listScenarios({ bearer }),
+      listBuiltinScenarios({ bearer }).catch(() => ({ scenarios: [] as BuiltinScenarioMeta[] })),
+    ])
     setRows(r.servers ?? [])
-    const s = await listScenarios({ bearer })
+    setClients(c.clients ?? [])
     setScenarios(s.scenarios ?? [])
+    setBuiltins(bi.scenarios ?? [])
   }, [bearer])
 
   // Refresh only the rows (cheap) without touching the run/busy spinner.
@@ -104,10 +119,34 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
     })
   }
 
+  const onDuplicate = (row: ServerProfile) => {
+    const base = `${row.id}-copy`
+    let id = base
+    let n = 2
+    while (rows.some((r) => r.id === id)) {
+      id = `${base}-${n++}`
+    }
+    setDraft({
+      ...row,
+      id,
+      name: `${row.name} (copy)`,
+      source: undefined,
+      runtime: undefined,
+      transports: (row.transports ?? []).map((t) => ({ ...t })),
+    })
+    setCreateMode(true)
+  }
+
   const onStart = (row: ServerProfile) => {
+    const block = isProfilePortBlocked('server', row.id, rows, clients)
+    if (block.blocked) {
+      toast(`Port conflict: ${block.details.join(', ')}`, 'error')
+      return
+    }
     void run(async () => {
       try {
         await startServerProfile(row.id, { bearer })
+        toast('Job started', 'success')
       } catch (err) {
         console.warn('start:', err)
       } finally {
@@ -128,7 +167,7 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
     })
   }
 
-  const conflicts = useMemo(() => serverPortConflicts(rows), [rows])
+  const conflicts = useMemo(() => crossProfilePortConflicts(rows, clients), [rows, clients])
 
   const columns: Column<ServerProfile>[] = useMemo(
     () => [
@@ -138,10 +177,10 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
         render: (r) => (
           <span className="inline-flex items-center gap-1.5">
             <code className="text-xs">{r.id}</code>
-            {conflicts.conflicting.has(r.id) ? (
+            {conflicts.conflicting.has(`server:${r.id}`) ? (
               <span
                 className="bg-destructive/15 text-destructive rounded px-1 py-0.5 font-mono text-[9px] uppercase"
-                title={`Port conflict: ${(conflicts.details.get(r.id) ?? []).join(', ')}`}
+                title={`Port conflict: ${(conflicts.details.get(`server:${r.id}`) ?? []).join(', ')}`}
               >
                 ⚠ port
               </span>
@@ -184,6 +223,7 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
           const title = builtin
             ? 'Built-in profile (seeded from management config) — runs inside the master process. Restart the service to change bindings.'
             : undefined
+          const portBlock = isProfilePortBlocked('server', r.id, rows, clients)
           return (
             <div className="flex justify-end gap-1">
               <Button
@@ -191,8 +231,12 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
                 variant="outline"
                 size="xs"
                 onClick={() => onStart(r)}
-                disabled={busy || builtin}
-                title={title}
+                disabled={busy || builtin || portBlock.blocked}
+                title={
+                  portBlock.blocked
+                    ? `Port conflict: ${portBlock.details.join(', ')}`
+                    : title
+                }
               >
                 Start
               </Button>
@@ -208,6 +252,9 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
               </Button>
               <Button type="button" variant="outline" size="xs" onClick={() => onEdit(r)}>
                 Edit
+              </Button>
+              <Button type="button" variant="outline" size="xs" onClick={() => onDuplicate(r)}>
+                Duplicate
               </Button>
               <Button
                 type="button"
@@ -292,6 +339,7 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
             value={draft}
             onChange={setDraft}
             scenarios={scenarios}
+            builtins={builtins}
             disableId={!createMode}
           />
         ) : null}
@@ -304,11 +352,13 @@ function ServerForm({
   value,
   onChange,
   scenarios,
+  builtins,
   disableId,
 }: {
   value: ServerProfile
   onChange: (v: ServerProfile) => void
   scenarios: ScenarioMeta[]
+  builtins: BuiltinScenarioMeta[]
   disableId: boolean
 }) {
   const set = <K extends keyof ServerProfile>(k: K, v: ServerProfile[K]) => onChange({ ...value, [k]: v })
@@ -347,18 +397,18 @@ function ServerForm({
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
           <Label className="text-xs">Default scenario</Label>
-          <select
+          <ScenarioSelect
             value={value.scenario_ref ?? ''}
-            onChange={(e) => set('scenario_ref', e.target.value || undefined)}
-            className="border-input bg-background mt-1 w-full rounded-md border px-2 py-1.5 text-sm"
-          >
-            <option value="">(none)</option>
-            {scenarios.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.id} — {s.name}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => set('scenario_ref', id || undefined)}
+            scenarios={scenarios}
+            builtins={builtins}
+            roleFilter="uas"
+          />
+          <ScenarioPreview
+            scenarioId={value.scenario_ref ?? ''}
+            scenarios={scenarios}
+            builtins={builtins}
+          />
         </div>
         <div>
           <Label className="text-xs">Max concurrent</Label>

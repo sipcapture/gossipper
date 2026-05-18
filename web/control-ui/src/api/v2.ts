@@ -178,6 +178,35 @@ export type JobArtifact = {
 export type HealthV2 = { status: string; version?: string; auth: 'none' | 'internal' }
 export const getHealthV2 = (opts?: Opts) => request<HealthV2>('GET', '/health', undefined, opts)
 
+export type SettingsV2 = {
+  ui_data_dir: string
+  scenario_history_keep: number
+  disk_usage_bytes?: number
+}
+export const getSettingsV2 = (opts?: Opts) => request<SettingsV2>('GET', '/settings', undefined, opts)
+
+export type BuiltinScenarioMeta = {
+  id: string
+  name: string
+  role?: string
+  description?: string
+  source: 'builtin'
+}
+export const listBuiltinScenarios = (opts: Opts) =>
+  request<{ scenarios: BuiltinScenarioMeta[]; source: string }>(
+    'GET',
+    '/builtin-scenarios',
+    undefined,
+    opts,
+  )
+export const getBuiltinScenario = (id: string, opts: Opts) =>
+  request<{ meta: BuiltinScenarioMeta; xml: string; source: string }>(
+    'GET',
+    `/builtin-scenarios/${encodeURIComponent(id)}`,
+    undefined,
+    opts,
+  )
+
 export type AuthStatusV2 = { auth: 'none' | 'internal' }
 export const getAuthStatusV2 = (opts?: Opts) => request<AuthStatusV2>('GET', '/auth/status', undefined, opts)
 

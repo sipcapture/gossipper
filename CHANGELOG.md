@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.42] — 2026-05-18
+
+### Added
+
+- **Admin console Phase 5.2**: dedicated **Audit** nav page, global toast notifications, runtime settings panel (`GET /api/v2/settings` — `ui_data_dir`, `scenario_history_keep`, disk usage).
+- **Built-in scenarios API**: `GET /api/v2/builtin-scenarios` and `GET /api/v2/builtin-scenarios/{id}` expose engine-baked XML (`uac`, `uas`, `management`, `invite_media*`) read-only in the UI.
+- **ScenarioSelect** component with role-aware filtering (UAS/UAC) in Servers, Clients, and Jobs start forms; built-in scenario XML viewer on the Scenarios page.
+- **Jobs live feed**: Jobs page subscribes to `/api/v2/live` WebSocket instead of polling; restart button for failed/stopped jobs; stats sparkline from `stats.jsonl`.
+- **Dashboard 24h timeline** chart for succeeded/failed job outcomes.
+- **Scenario history**: side-by-side diff mode, media alias picker (`[[media:wav/…]]`), missing-media validation, restore-overwrite action.
+- **Media library**: drag-and-drop upload, reverse-reference column (“Used in scenarios”).
+- **Profile Duplicate** action on Servers and Clients; **hard block Start** when cross-profile port conflicts are detected.
+
+### Changed
+
+- Port-conflict badges now use cross-profile checks (`server:*` / `client:*` prefixes) on Servers, Clients, Dashboard, and Jobs.
+- About page corrected (Audit lives on its own nav item); Settings roadmap updated for Phase 5.2.
+
+### WebRTC (UI prep)
+
+- Transport editor warns when `webrtc` is enabled without ICE servers; running jobs show a WebRTC badge when the profile uses a webrtc transport row.
+
 ## [0.1.41] — 2026-05-18
 
 ### Added

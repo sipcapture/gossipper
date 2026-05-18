@@ -4,6 +4,7 @@ import type { TransportSpec } from '@/api/v2'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { webrtcMissingICE } from '@/lib/profileHelpers'
 
 const TRANSPORT_OPTIONS: { value: string; label: string; beta?: boolean }[] = [
   { value: 'u1', label: 'u1 — UDP (shared)' },
@@ -26,6 +27,7 @@ export type TransportListEditorProps = {
 }
 
 export function TransportListEditor({ value, onChange, defaultPort = 5060 }: TransportListEditorProps) {
+  const missingIce = webrtcMissingICE(value)
   const update = useCallback(
     (idx: number, patch: Partial<TransportSpec>) => {
       const next = value.slice()
@@ -56,6 +58,12 @@ export function TransportListEditor({ value, onChange, defaultPort = 5060 }: Tra
 
   return (
     <div className="flex flex-col gap-2">
+      {missingIce ? (
+        <p className="border-warning/40 bg-warning/10 text-warning rounded-md border px-2 py-1.5 text-[11px]">
+          WebRTC transport enabled without ICE servers — add at least one STUN/TURN URL for connectivity.
+          Per-call bridge diagnostics (Phase 4.2) will appear in job detail once engine wiring lands.
+        </p>
+      ) : null}
       {value.length === 0 ? (
         <p className="text-muted-foreground text-xs">No transports yet. Add the first one below.</p>
       ) : null}

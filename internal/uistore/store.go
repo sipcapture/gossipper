@@ -71,6 +71,10 @@ func OpenWithOptions(root string, opt StoreOptions) (*Store, error) {
 // Layout exposes the underlying directory layout (read only).
 func (s *Store) Layout() Layout { return s.layout }
 
+// ScenarioHistoryKeep returns the configured cap on archived scenario versions
+// per id (0 = unlimited).
+func (s *Store) ScenarioHistoryKeep() int { return s.scenarioHistoryKeep }
+
 func isSafeID(id string) bool {
 	id = strings.TrimSpace(id)
 	if id == "" || len(id) > 64 {
