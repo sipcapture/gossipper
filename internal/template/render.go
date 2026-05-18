@@ -882,37 +882,70 @@ func findInfDataRecordsStart(records [][]string) int {
 	return i
 }
 
-func csvRecordAt(basePath, name string, lineNumber int, overrides map[string]map[int]map[int]string, physicalLine bool) ([]string, bool, error) {
-	if lineNumber <= 0 {
-		return nil, false, nil
-	}
-	path := resolvePath(basePath, name)
+// csvFileCache caches parsed CSV files to avoid re-reading on every [fieldN]
+// reference. Under high CPS, hundreds of goroutines would otherwise each read
+// and parse the entire file (potentially 10MB+) simultaneously.
+var csvFileCache sync.Map // path → *csvCacheEntry
+
+type csvCacheEntry struct {
+	records    [][]string
+	dataStart  int // index of first data row (after SEQUENTIAL/RANDOM header)
+	comma      rune
+	loadOnce   sync.Once
+	err        error
+}
+
+func getCachedCSV(path string) (*csvCacheEntry, error) {
+	v, _ := csvFileCache.LoadOrStore(path, &csvCacheEntry{})
+	entry := v.(*csvCacheEntry)
+	entry.loadOnce.Do(func() {
+		entry.err = entry.load(path)
+	})
+	return entry, entry.err
+}
+
+func (e *csvCacheEntry) load(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, false, err
+		return err
 	}
 	defer file.Close()
 
 	peek := make([]byte, infDelimiterPeekBytes)
 	n, _ := file.Read(peek)
-	if _, err := file.Seek(0, 0); err != nil {
-		return nil, false, err
+	if _, seekErr := file.Seek(0, 0); seekErr != nil {
+		return seekErr
 	}
 
+	e.comma = sniffFieldCSVCommaFromPeek(peek[:n])
 	reader := csv.NewReader(file)
 	reader.FieldsPerRecord = -1
-	reader.Comma = sniffFieldCSVCommaFromPeek(peek[:n])
-	records, err := reader.ReadAll()
+	reader.Comma = e.comma
+	e.records, err = reader.ReadAll()
+	if err != nil {
+		return err
+	}
+	e.dataStart = findInfDataRecordsStart(e.records)
+	return nil
+}
+
+func csvRecordAt(basePath, name string, lineNumber int, overrides map[string]map[int]map[int]string, physicalLine bool) ([]string, bool, error) {
+	if lineNumber <= 0 {
+		return nil, false, nil
+	}
+	path := resolvePath(basePath, name)
+
+	entry, err := getCachedCSV(path)
 	if err != nil {
 		return nil, false, err
 	}
+	records := entry.records
+
 	var idx int
 	if physicalLine {
 		idx = lineNumber - 1
 	} else {
-		// SIPp -inf: optional first non-data row names distribution (SEQUENTIAL|RANDOM|USER).
-		// Implicit [fieldN] line = call_number selects the Nth data row, not that header row.
-		start := findInfDataRecordsStart(records)
+		start := entry.dataStart
 		dataRows := len(records) - start
 		if dataRows <= 0 {
 			return nil, false, nil
