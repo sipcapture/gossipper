@@ -1,5 +1,8 @@
 {
+  "_comment": "Hybrid management + load clients. ui_data_dir enables admin console (/api/v2/*); scenario_history_keep caps archived scenario XML revisions per id.",
   "api_addr": ":8080",
+  "ui_data_dir": "/usr/local/gossipper/data",
+  "scenario_history_keep": 50,
   "server": {
     "id": "listen",
     "role": "management",

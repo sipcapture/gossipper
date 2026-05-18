@@ -86,7 +86,9 @@ func openUIBundle(cfg cli.Config) (*UIBundle, error) {
 	if dir == "" {
 		return nil, nil
 	}
-	store, err := uistore.Open(dir)
+	store, err := uistore.OpenWithOptions(dir, uistore.StoreOptions{
+		ScenarioHistoryKeep: cfg.ScenarioHistoryKeep,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("ui v2: open data dir %q: %w", dir, err)
 	}

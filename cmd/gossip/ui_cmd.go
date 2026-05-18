@@ -25,6 +25,7 @@ func runUICommand(args []string) error {
 	fs := flag.NewFlagSet("ui", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	dataDir := fs.String("data-dir", "./data", "data directory for profiles, scenarios, media, jobs")
+	historyKeep := fs.Int("scenario-history-keep", 0, "max archived scenario versions per id (0 = unlimited)")
 	listen := fs.String("listen", ":8080", "HTTP listen address (Control UI + /api/v2)")
 	authSqlite := fs.String("auth-sqlite", "", "path to SQLite settings DB (defaults to <data-dir>/settings.sqlite); empty disables internal auth when --jwt-secret is empty too")
 	jwtSecret := fs.String("jwt-secret", "", "JWT signing secret (>=16 chars); empty disables internal auth")
@@ -49,7 +50,9 @@ Flags:
 		return err
 	}
 
-	store, err := uistore.Open(*dataDir)
+	store, err := uistore.OpenWithOptions(*dataDir, uistore.StoreOptions{
+		ScenarioHistoryKeep: *historyKeep,
+	})
 	if err != nil {
 		return fmt.Errorf("ui: open data dir: %w", err)
 	}

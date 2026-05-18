@@ -11,6 +11,8 @@
 //	profiles/clients/<id>.json   # ClientProfile
 //	scenarios/<id>.xml           # raw SIP XML
 //	scenarios/<id>.meta.json     # ScenarioMeta (sidecar)
+//	scenarios/<id>.history/<ts>.xml         # prior versions, snapshotted on update
+//	scenarios/<id>.history/<ts>.meta.json   # sidecar capturing the meta at that time
 //	media/wav/<file>.wav         # RFC4733-friendly PCM/WAV uploads
 //	media/pcap/<file>.pcap       # PCAP recordings for replay tests
 //	artifacts/jobs/<job-id>/...  # per-job recordings, summary, reports
@@ -72,6 +74,17 @@ func (l Layout) WavDir() string           { return filepath.Join(l.Root, "media"
 func (l Layout) PcapDir() string          { return filepath.Join(l.Root, "media", "pcap") }
 func (l Layout) JobsArtifactsDir() string { return filepath.Join(l.Root, "artifacts", "jobs") }
 func (l Layout) TempDir() string          { return filepath.Join(l.Root, "tmp") }
+
+// ScenarioHistoryDir returns the directory holding archived prior versions of
+// a single scenario. The directory is created lazily on first snapshot.
+// Returns an error when the id contains forbidden characters.
+func (l Layout) ScenarioHistoryDir(id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if !isSafeID(id) {
+		return "", fmt.Errorf("uistore: invalid scenario id %q", id)
+	}
+	return filepath.Join(l.ScenariosDir(), id+".history"), nil
+}
 
 // JobArtifactDir returns the per-job artifact directory; ensures it exists
 // before returning (callers may rely on the path being writable).

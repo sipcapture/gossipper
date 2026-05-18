@@ -86,6 +86,17 @@ type ClientProfile struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// ScenarioHistoryEntry describes a single archived prior version of a
+// scenario. The Timestamp/TS pair is the same instant in two forms — TS is
+// the filename-safe stamp the API uses as a path segment, Timestamp is
+// re-parsed for client-side display.
+type ScenarioHistoryEntry struct {
+	TS        string       `json:"ts"`             // e.g. "20260518T170230.123456789Z"
+	Timestamp time.Time    `json:"timestamp"`      // parsed UTC instant
+	SizeBytes int64        `json:"size_bytes"`     // archived XML byte length
+	Meta      ScenarioMeta `json:"meta,omitempty"` // sidecar at the time of archival
+}
+
 // ScenarioMeta is the sidecar JSON for a scenario XML file. The XML body is
 // stored separately to keep diffs friendly.
 type ScenarioMeta struct {

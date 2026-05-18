@@ -2,6 +2,7 @@ package v2
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/sipcapture/gossipper/internal/uistore"
 )
@@ -91,4 +92,82 @@ func (s *Server) handleDeleteScenario(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeAudit(r.Context(), r, "scenario.delete", id, "")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleListScenarioHistory(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStore(w) {
+		return
+	}
+	out, err := s.cfg.Store.ListScenarioHistory(pathID(r))
+	if err != nil {
+		code, msg := mapStoreError(err)
+		s.writeError(w, code, msg)
+		return
+	}
+	if out == nil {
+		out = []uistore.ScenarioHistoryEntry{}
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"history": out})
+}
+
+func (s *Server) handleGetScenarioHistory(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStore(w) {
+		return
+	}
+	id := pathID(r)
+	ts := strings.TrimSpace(r.PathValue("ts"))
+	body, err := s.cfg.Store.GetScenarioHistory(id, ts)
+	if err != nil {
+		code, msg := mapStoreError(err)
+		s.writeError(w, code, msg)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, body)
+}
+
+func (s *Server) handleDeleteScenarioHistory(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStore(w) {
+		return
+	}
+	id := pathID(r)
+	ts := strings.TrimSpace(r.PathValue("ts"))
+	if err := s.cfg.Store.DeleteScenarioHistory(id, ts); err != nil {
+		code, msg := mapStoreError(err)
+		s.writeError(w, code, msg)
+		return
+	}
+	s.writeAudit(r.Context(), r, "scenario.history.delete", id, ts)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type forkScenarioBody struct {
+	uistore.ScenarioMeta
+}
+
+func (s *Server) handleForkScenarioHistory(w http.ResponseWriter, r *http.Request) {
+	if !s.requireStore(w) {
+		return
+	}
+	id := pathID(r)
+	ts := strings.TrimSpace(r.PathValue("ts"))
+	var body forkScenarioBody
+	if err := s.decodeJSON(r, &body, 1<<20); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(body.ID) == "" {
+		s.writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	got, err := s.cfg.Store.ForkScenarioFromHistory(id, ts, body.ScenarioMeta)
+	if err != nil {
+		code, msg := mapStoreError(err)
+		if code == http.StatusInternalServerError && strings.Contains(err.Error(), "fork target id") {
+			code = http.StatusBadRequest
+		}
+		s.writeError(w, code, msg)
+		return
+	}
+	s.writeAudit(r.Context(), r, "scenario.fork", got.Meta.ID, id+":"+ts)
+	s.writeJSON(w, http.StatusCreated, got)
 }

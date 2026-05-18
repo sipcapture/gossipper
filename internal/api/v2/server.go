@@ -70,6 +70,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/scenarios/{id}", s.auth(s.handleGetScenario))
 	mux.HandleFunc("PUT /api/v2/scenarios/{id}", s.auth(s.handleUpdateScenario))
 	mux.HandleFunc("DELETE /api/v2/scenarios/{id}", s.auth(s.handleDeleteScenario))
+	mux.HandleFunc("GET /api/v2/scenarios/{id}/history", s.auth(s.handleListScenarioHistory))
+	mux.HandleFunc("GET /api/v2/scenarios/{id}/history/{ts}", s.auth(s.handleGetScenarioHistory))
+	mux.HandleFunc("DELETE /api/v2/scenarios/{id}/history/{ts}", s.auth(s.handleDeleteScenarioHistory))
+	mux.HandleFunc("POST /api/v2/scenarios/{id}/history/{ts}/fork", s.auth(s.handleForkScenarioHistory))
 
 	mux.HandleFunc("GET /api/v2/media/{kind}", s.auth(s.handleListMedia))
 	mux.HandleFunc("POST /api/v2/media/{kind}/{name}", s.auth(s.handleUploadMedia))
@@ -151,7 +155,8 @@ func mapStoreError(err error) (int, string) {
 		return http.StatusNotFound, "not found"
 	case errors.Is(err, uistore.ErrConflict):
 		return http.StatusConflict, "id already exists"
-	case errors.Is(err, uistore.ErrInvalidID):
+	case errors.Is(err, uistore.ErrInvalidID),
+		errors.Is(err, uistore.ErrInvalidHistoryTS):
 		return http.StatusBadRequest, err.Error()
 	default:
 		return http.StatusInternalServerError, err.Error()

@@ -20,6 +20,7 @@ import { Modal } from '@/components/ui/modal'
 import { Textarea } from '@/components/ui/textarea'
 import { RuntimeBadge } from '@/components/v2/RuntimeBadge'
 import { TransportListEditor } from '@/components/v2/TransportListEditor'
+import { clientPortConflicts } from '@/lib/portConflicts'
 
 const emptyDraft = (): ClientProfile => ({
   id: '',
@@ -115,9 +116,27 @@ export function ClientsV2({ bearer, busy, run, errorText }: ClientsV2Props) {
     })
   }
 
+  const conflicts = useMemo(() => clientPortConflicts(rows), [rows])
+
   const columns: Column<ClientProfile>[] = useMemo(
     () => [
-      { key: 'id', header: 'ID', render: (r) => <code className="text-xs">{r.id}</code> },
+      {
+        key: 'id',
+        header: 'ID',
+        render: (r) => (
+          <span className="inline-flex items-center gap-1.5">
+            <code className="text-xs">{r.id}</code>
+            {conflicts.conflicting.has(r.id) ? (
+              <span
+                className="bg-destructive/15 text-destructive rounded px-1 py-0.5 font-mono text-[9px] uppercase"
+                title={`Port conflict: ${(conflicts.details.get(r.id) ?? []).join(', ')}`}
+              >
+                ⚠ port
+              </span>
+            ) : null}
+          </span>
+        ),
+      },
       { key: 'name', header: 'Name', render: (r) => r.name },
       {
         key: 'status',
@@ -207,7 +226,7 @@ export function ClientsV2({ bearer, busy, run, errorText }: ClientsV2Props) {
         },
       },
     ],
-    [onDelete],
+    [busy, conflicts, onDelete, onStart, onStop],
   )
 
   return (
@@ -239,6 +258,15 @@ export function ClientsV2({ bearer, busy, run, errorText }: ClientsV2Props) {
       {errorText ? (
         <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
           {errorText}
+        </div>
+      ) : null}
+
+      {conflicts.conflicting.size > 0 ? (
+        <div className="border-warning/40 bg-warning/10 text-warning-foreground rounded-md border px-3 py-2 text-xs">
+          <span className="font-medium">Local-bind conflict:</span>{' '}
+          {conflicts.conflicting.size} client profile{conflicts.conflicting.size > 1 ? 's' : ''} reuse the same local
+          (family/port) bind. Concurrent runs will fail on bind(2). Affected:{' '}
+          <code>{Array.from(conflicts.conflicting).join(', ')}</code>
         </div>
       ) : null}
 

@@ -348,9 +348,28 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
               {scenarios.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.id} — {s.name}
+                  {s.role ? ` [${s.role}]` : ''}
                 </option>
               ))}
             </select>
+            {(() => {
+              if (!draft.scenario_id) return null
+              const sc = scenarios.find((x) => x.id === draft.scenario_id)
+              if (!sc) return null
+              return (
+                <div className="text-muted-foreground mt-1 rounded-md border px-2 py-1 text-[11px]">
+                  <div>
+                    <span className="text-foreground/70">role:</span>{' '}
+                    <code>{sc.role ?? 'either'}</code>
+                  </div>
+                  {sc.description ? (
+                    <div className="mt-0.5">
+                      <span className="text-foreground/70">desc:</span> {sc.description}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })()}
           </div>
           <div className="flex flex-col gap-1 pt-1">
             <label className="text-foreground flex items-center gap-2 text-xs">

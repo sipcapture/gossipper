@@ -135,6 +135,13 @@ export type ScenarioMeta = {
 
 export type ScenarioBody = { meta: ScenarioMeta; xml: string }
 
+export type ScenarioHistoryEntry = {
+  ts: string
+  timestamp: string
+  size_bytes: number
+  meta?: ScenarioMeta
+}
+
 export type MediaKind = 'wav' | 'pcap'
 export type MediaAsset = { kind: MediaKind; name: string; size_bytes: number; mod_time: string }
 
@@ -215,6 +222,39 @@ export const updateScenarioV2 = (id: string, m: ScenarioMeta, xml: string, opts:
   request<ScenarioBody>('PUT', `/scenarios/${encodeURIComponent(id)}`, { ...m, xml }, opts)
 export const deleteScenarioV2 = (id: string, opts: Opts) =>
   request<void>('DELETE', `/scenarios/${encodeURIComponent(id)}`, undefined, opts)
+export const listScenarioHistory = (id: string, opts: Opts) =>
+  request<{ history: ScenarioHistoryEntry[] }>(
+    'GET',
+    `/scenarios/${encodeURIComponent(id)}/history`,
+    undefined,
+    opts,
+  )
+export const getScenarioHistory = (id: string, ts: string, opts: Opts) =>
+  request<ScenarioBody>(
+    'GET',
+    `/scenarios/${encodeURIComponent(id)}/history/${encodeURIComponent(ts)}`,
+    undefined,
+    opts,
+  )
+export const deleteScenarioHistory = (id: string, ts: string, opts: Opts) =>
+  request<void>(
+    'DELETE',
+    `/scenarios/${encodeURIComponent(id)}/history/${encodeURIComponent(ts)}`,
+    undefined,
+    opts,
+  )
+export const forkScenarioHistory = (
+  id: string,
+  ts: string,
+  meta: Pick<ScenarioMeta, 'id' | 'name' | 'description' | 'role'>,
+  opts: Opts,
+) =>
+  request<ScenarioBody>(
+    'POST',
+    `/scenarios/${encodeURIComponent(id)}/history/${encodeURIComponent(ts)}/fork`,
+    meta,
+    opts,
+  )
 
 export const listMedia = (kind: MediaKind, opts: Opts) =>
   request<{ media: MediaAsset[]; kind: MediaKind }>('GET', `/media/${kind}`, undefined, opts)

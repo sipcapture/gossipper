@@ -3,6 +3,7 @@ package uistore
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -171,6 +172,195 @@ func minimalWAV() []byte {
 	out = append(out, []byte("data")...)
 	out = append(out, 0x00, 0x00, 0x00, 0x00) // data size = 0
 	return out
+}
+
+func TestScenarioHistorySnapshotsAndRetrieval(t *testing.T) {
+	s := newTestStore(t)
+	v1 := `<?xml version="1.0"?><scenario name="v1"/>`
+	v2 := `<?xml version="1.0"?><scenario name="v2"/>`
+	v3 := `<?xml version="1.0"?><scenario name="v3"/>`
+	if _, err := s.PutScenario(ScenarioMeta{ID: "demo", Name: "v1"}, v1, true); err != nil {
+		t.Fatalf("put v1: %v", err)
+	}
+	// First update — should produce one snapshot of v1.
+	if _, err := s.PutScenario(ScenarioMeta{ID: "demo", Name: "v2"}, v2, false); err != nil {
+		t.Fatalf("put v2: %v", err)
+	}
+	h, err := s.ListScenarioHistory("demo")
+	if err != nil {
+		t.Fatalf("history after v2: %v", err)
+	}
+	if len(h) != 1 {
+		t.Fatalf("expected 1 history entry, got %d", len(h))
+	}
+	if h[0].Meta.Name != "v1" {
+		t.Fatalf("history meta should reflect v1, got %q", h[0].Meta.Name)
+	}
+	got, err := s.GetScenarioHistory("demo", h[0].TS)
+	if err != nil {
+		t.Fatalf("get history: %v", err)
+	}
+	if got.XML != v1 {
+		t.Fatalf("history XML mismatch: %q", got.XML)
+	}
+	// Second update — second snapshot, newest first.
+	if _, err := s.PutScenario(ScenarioMeta{ID: "demo", Name: "v3"}, v3, false); err != nil {
+		t.Fatalf("put v3: %v", err)
+	}
+	h, err = s.ListScenarioHistory("demo")
+	if err != nil {
+		t.Fatalf("history after v3: %v", err)
+	}
+	if len(h) != 2 {
+		t.Fatalf("expected 2 history entries, got %d", len(h))
+	}
+	if h[0].Meta.Name != "v2" || h[1].Meta.Name != "v1" {
+		t.Fatalf("history order wrong: %q / %q", h[0].Meta.Name, h[1].Meta.Name)
+	}
+}
+
+func TestScenarioHistorySkipsIdenticalXML(t *testing.T) {
+	s := newTestStore(t)
+	xml := `<?xml version="1.0"?><scenario name="x"/>`
+	if _, err := s.PutScenario(ScenarioMeta{ID: "noop", Name: "first"}, xml, true); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	// Same XML, only meta changes → no snapshot.
+	if _, err := s.PutScenario(ScenarioMeta{ID: "noop", Name: "renamed"}, xml, false); err != nil {
+		t.Fatalf("put renamed: %v", err)
+	}
+	h, err := s.ListScenarioHistory("noop")
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(h) != 0 {
+		t.Fatalf("expected no history when XML unchanged, got %d", len(h))
+	}
+}
+
+func TestScenarioHistoryDeleteCleansUp(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.PutScenario(ScenarioMeta{ID: "gone", Name: "v1"}, `<a/>`, true); err != nil {
+		t.Fatalf("put v1: %v", err)
+	}
+	if _, err := s.PutScenario(ScenarioMeta{ID: "gone", Name: "v2"}, `<b/>`, false); err != nil {
+		t.Fatalf("put v2: %v", err)
+	}
+	if err := s.DeleteScenario("gone"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := s.ListScenarioHistory("gone"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+	}
+}
+
+func TestScenarioHistoryPruneKeepsNewest(t *testing.T) {
+	dir := t.TempDir()
+	s, err := OpenWithOptions(dir, StoreOptions{ScenarioHistoryKeep: 2})
+	if err != nil {
+		t.Fatalf("OpenWithOptions: %v", err)
+	}
+	xml := func(v int) string { return fmt.Sprintf(`<?xml version="1.0"?><scenario v="%d"/>`, v) }
+	if _, err := s.PutScenario(ScenarioMeta{ID: "cap", Name: "v0"}, xml(0), true); err != nil {
+		t.Fatalf("put v0: %v", err)
+	}
+	for i := 1; i <= 4; i++ {
+		if _, err := s.PutScenario(ScenarioMeta{ID: "cap", Name: fmt.Sprintf("v%d", i)}, xml(i), false); err != nil {
+			t.Fatalf("put v%d: %v", i, err)
+		}
+	}
+	hist, err := s.ListScenarioHistory("cap")
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(hist) != 2 {
+		t.Fatalf("expected 2 snapshots after prune, got %d", len(hist))
+	}
+	// Newest should be v3 then v2 (v0 was overwritten before snapshots; v1 pruned).
+	got, err := s.GetScenarioHistory("cap", hist[0].TS)
+	if err != nil {
+		t.Fatalf("get newest: %v", err)
+	}
+	if !strings.Contains(got.XML, `v="3"`) {
+		t.Fatalf("newest snapshot should be v3, got %q", got.XML)
+	}
+}
+
+func TestForkScenarioFromHistory(t *testing.T) {
+	s := newTestStore(t)
+	v1 := `<?xml version="1.0"?><scenario name="orig"/>`
+	if _, err := s.PutScenario(ScenarioMeta{ID: "src", Name: "Source", Role: "server", Description: "desc"}, v1, true); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	if _, err := s.PutScenario(ScenarioMeta{ID: "src", Name: "Source v2"}, `<?xml version="1.0"?><scenario name="v2"/>`, false); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	hist, err := s.ListScenarioHistory("src")
+	if err != nil || len(hist) != 1 {
+		t.Fatalf("history len=%d err=%v", len(hist), err)
+	}
+	forked, err := s.ForkScenarioFromHistory("src", hist[0].TS, ScenarioMeta{ID: "forked", Name: "Forked copy"})
+	if err != nil {
+		t.Fatalf("fork: %v", err)
+	}
+	if forked.XML != v1 {
+		t.Fatalf("fork XML mismatch: %q", forked.XML)
+	}
+	if forked.Meta.Role != "server" || forked.Meta.Description != "desc" {
+		t.Fatalf("fork meta not inherited: %+v", forked.Meta)
+	}
+	if _, err := s.ForkScenarioFromHistory("src", hist[0].TS, ScenarioMeta{ID: "src"}); err == nil {
+		t.Fatal("expected error when fork id equals source")
+	}
+}
+
+func TestDeleteScenarioHistoryEntry(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.PutScenario(ScenarioMeta{ID: "h", Name: "v1"}, `<a/>`, true); err != nil {
+		t.Fatalf("put v1: %v", err)
+	}
+	if _, err := s.PutScenario(ScenarioMeta{ID: "h", Name: "v2"}, `<b/>`, false); err != nil {
+		t.Fatalf("put v2: %v", err)
+	}
+	if _, err := s.PutScenario(ScenarioMeta{ID: "h", Name: "v3"}, `<c/>`, false); err != nil {
+		t.Fatalf("put v3: %v", err)
+	}
+	hist, err := s.ListScenarioHistory("h")
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(hist) != 2 {
+		t.Fatalf("expected 2 snapshots, got %d", len(hist))
+	}
+	// Remove the oldest snapshot (v1) and re-list.
+	if err := s.DeleteScenarioHistory("h", hist[1].TS); err != nil {
+		t.Fatalf("delete oldest: %v", err)
+	}
+	hist2, err := s.ListScenarioHistory("h")
+	if err != nil {
+		t.Fatalf("history after delete: %v", err)
+	}
+	if len(hist2) != 1 || hist2[0].TS != hist[0].TS {
+		t.Fatalf("expected only v2 snapshot to remain, got %+v", hist2)
+	}
+	if err := s.DeleteScenarioHistory("h", hist[1].TS); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound on second delete, got %v", err)
+	}
+	if err := s.DeleteScenarioHistory("h", "../etc/passwd"); !errors.Is(err, ErrInvalidHistoryTS) {
+		t.Fatalf("expected ErrInvalidHistoryTS, got %v", err)
+	}
+}
+
+func TestScenarioHistoryRejectsBadTS(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.PutScenario(ScenarioMeta{ID: "ok", Name: "x"}, `<x/>`, true); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	for _, bad := range []string{"../etc/passwd", "20260518T170230Z/../x", "not a ts", ""} {
+		if _, err := s.GetScenarioHistory("ok", bad); err == nil {
+			t.Fatalf("expected error for ts %q, got nil", bad)
+		}
+	}
 }
 
 func TestInvalidIDs(t *testing.T) {

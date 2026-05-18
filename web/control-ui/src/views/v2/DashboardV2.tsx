@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   getHealthV2,
@@ -8,10 +8,13 @@ import {
   listScenarios,
   listServers,
   liveWSURL,
+  type ClientProfile,
   type HealthV2,
   type Job,
+  type ServerProfile,
 } from '@/api/v2'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { findPortConflicts } from '@/lib/portConflicts'
 
 type LiveSnap = {
   ts: string
@@ -67,8 +70,22 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
   const [health, setHealth] = useState<HealthV2 | null>(null)
   const [counts, setCounts] = useState<Counts | null>(null)
   const [recent, setRecent] = useState<Job[]>([])
+  const [servers, setServers] = useState<ServerProfile[]>([])
+  const [clients, setClients] = useState<ClientProfile[]>([])
   const [live, setLive] = useState<LiveSnap | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+
+  // Cross-profile port-conflict check (servers + clients in one bucket).
+  // We tag IDs with kind: prefix so the dashboard can show which side a
+  // conflicting profile belongs to ("server:foo" / "client:bar"); the helper
+  // itself is kind-agnostic.
+  const portConflicts = useMemo(() => {
+    const tagged = [
+      ...servers.map((s) => ({ id: `server:${s.id}`, transports: s.transports })),
+      ...clients.map((c) => ({ id: `client:${c.id}`, transports: c.transports })),
+    ]
+    return findPortConflicts(tagged)
+  }, [servers, clients])
 
   const refresh = useCallback(async () => {
     const h = await getHealthV2({ bearer })
@@ -82,6 +99,8 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
       listJobs({ bearer }, 5),
       listJobs({ bearer }, 500),
     ])
+    setServers(s.servers ?? [])
+    setClients(c.clients ?? [])
     const outcomes = computeJobOutcomes24h(allJobs.jobs ?? [])
     setCounts({
       servers: (s.servers ?? []).length,
@@ -173,6 +192,35 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
         />
         <CountCard label="API" value={health?.status ?? '—'} />
       </div>
+
+      {portConflicts.conflicting.size > 0 ? (
+        <Card className="border-warning/40 bg-warning/10">
+          <CardHeader>
+            <CardTitle className="text-warning-foreground text-sm">
+              ⚠ Port conflicts across profiles ({portConflicts.conflicting.size})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-warning-foreground/90 mb-2 text-[11px]">
+              These profiles share a local bind tuple (family/port) — starting them
+              concurrently will fail on bind(2). Fix the listener on one side or run them
+              against different ports.
+            </p>
+            <ul className="space-y-0.5 text-[11px]">
+              {Array.from(portConflicts.conflicting)
+                .sort()
+                .map((id) => (
+                  <li key={id} className="font-mono">
+                    <span className="text-foreground/80">{id}</span>
+                    {portConflicts.details.get(id)?.length ? (
+                      <span className="text-muted-foreground"> — {portConflicts.details.get(id)!.join(', ')}</span>
+                    ) : null}
+                  </li>
+                ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

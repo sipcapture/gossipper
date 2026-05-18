@@ -20,6 +20,7 @@ import { Modal } from '@/components/ui/modal'
 import { Textarea } from '@/components/ui/textarea'
 import { RuntimeBadge } from '@/components/v2/RuntimeBadge'
 import { TransportListEditor } from '@/components/v2/TransportListEditor'
+import { serverPortConflicts } from '@/lib/portConflicts'
 
 const emptyDraft = (): ServerProfile => ({
   id: '',
@@ -127,9 +128,27 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
     })
   }
 
+  const conflicts = useMemo(() => serverPortConflicts(rows), [rows])
+
   const columns: Column<ServerProfile>[] = useMemo(
     () => [
-      { key: 'id', header: 'ID', render: (r) => <code className="text-xs">{r.id}</code> },
+      {
+        key: 'id',
+        header: 'ID',
+        render: (r) => (
+          <span className="inline-flex items-center gap-1.5">
+            <code className="text-xs">{r.id}</code>
+            {conflicts.conflicting.has(r.id) ? (
+              <span
+                className="bg-destructive/15 text-destructive rounded px-1 py-0.5 font-mono text-[9px] uppercase"
+                title={`Port conflict: ${(conflicts.details.get(r.id) ?? []).join(', ')}`}
+              >
+                ⚠ port
+              </span>
+            ) : null}
+          </span>
+        ),
+      },
       { key: 'name', header: 'Name', render: (r) => r.name },
       {
         key: 'status',
@@ -205,7 +224,7 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
         },
       },
     ],
-    [busy, onDelete, onEdit, onStart, onStop],
+    [busy, conflicts, onDelete, onEdit, onStart, onStop],
   )
 
   return (
@@ -231,6 +250,15 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
       {errorText ? (
         <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
           {errorText}
+        </div>
+      ) : null}
+
+      {conflicts.conflicting.size > 0 ? (
+        <div className="border-warning/40 bg-warning/10 text-warning-foreground rounded-md border px-3 py-2 text-xs">
+          <span className="font-medium">Port conflict warning:</span>{' '}
+          {conflicts.conflicting.size} profile{conflicts.conflicting.size > 1 ? 's' : ''} share a local bind
+          (family/port). Starting them concurrently will fail on bind(2). Affected:{' '}
+          <code>{Array.from(conflicts.conflicting).join(', ')}</code>
         </div>
       ) : null}
 

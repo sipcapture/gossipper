@@ -1,5 +1,8 @@
 {
+  "_comment": "Management UAS with admin console. ui_data_dir enables /api/v2/*; scenario_history_keep caps archived scenario versions per id (0 = unlimited).",
   "api_addr": ":8080",
+  "ui_data_dir": "/usr/local/gossipper/data",
+  "scenario_history_keep": 50,
   "server": {
     "role": "management",
     "scenario_name": "management",

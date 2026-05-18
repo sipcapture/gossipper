@@ -127,6 +127,9 @@ type Config struct {
 	// scenarios, media and the SQLite settings DB; same layout as `gossipper
 	// ui --data-dir`. Empty disables /api/v2 (only legacy /api/v1 is served).
 	UIDataDir string
+	// ScenarioHistoryKeep caps archived scenario versions per id in the UI
+	// store (0 = unlimited). Applied when UIDataDir is mounted.
+	ScenarioHistoryKeep int
 	// LegacyAPIV1 controls whether the legacy /api/v1/* surface is mounted
 	// on the management ApiAddr. Defaults to true for back-compat; when
 	// UIDataDir is non-empty and LegacyAPIV1Set is false the auto-default
@@ -425,6 +428,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.ApiAddr, "api_addr", cfg.ApiAddr, "HTTP listen address for management API (e.g. :8080); GET / serves embedded Control UI when built with Makefile target frontend; API under /api/v1/ and (when -ui_data_dir is set) /api/v2/")
 	fs.StringVar(&cfg.ApiToken, "api_token", cfg.ApiToken, "optional Bearer token required for all /api/v1 requests when set")
 	fs.StringVar(&cfg.UIDataDir, "ui_data_dir", cfg.UIDataDir, "enables /api/v2/* admin-console REST surface on -api_addr; directory holds profiles, scenarios, media, jobs (same layout as `gossipper ui --data-dir`)")
+	fs.IntVar(&cfg.ScenarioHistoryKeep, "scenario_history_keep", cfg.ScenarioHistoryKeep, "max archived scenario versions per id in ui_data_dir (0 = unlimited)")
 	fs.BoolVar(&cfg.LegacyAPIV1, "legacy_api_v1", true, "mount legacy /api/v1/* on -api_addr; default true for back-compat, auto-disabled when -ui_data_dir is non-empty unless this flag is set explicitly")
 	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "write CPU profile to file at exit")
 	fs.StringVar(&cfg.MemProfile, "memprofile", "", "write memory profile to file at exit")

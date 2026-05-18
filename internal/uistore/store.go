@@ -22,16 +22,34 @@ var ErrConflict = errors.New("uistore: id already exists")
 // ErrInvalidID is returned when an id contains forbidden characters.
 var ErrInvalidID = errors.New("uistore: invalid id (allowed: [a-zA-Z0-9._-], 1..64 chars)")
 
+// ErrInvalidHistoryTS is returned when a snapshot-id (history "ts" segment)
+// does not match the safe filename pattern (digits + T/Z/.).
+var ErrInvalidHistoryTS = errors.New("uistore: invalid history ts (allowed: digits, T, ., Z; 16..40 chars)")
+
+// StoreOptions tunes optional Store behaviour.
+type StoreOptions struct {
+	// ScenarioHistoryKeep caps archived scenario versions per id. 0 keeps all
+	// snapshots (default). After each new snapshot the oldest entries beyond
+	// the cap are deleted automatically.
+	ScenarioHistoryKeep int
+}
+
 // Store wraps a Layout with concurrency-safe CRUD helpers.
 type Store struct {
-	mu     sync.RWMutex
-	layout Layout
-	now    func() time.Time
+	mu                  sync.RWMutex
+	layout              Layout
+	now                 func() time.Time
+	scenarioHistoryKeep int
 }
 
 // Open returns a Store rooted at the given directory; missing sub-dirs are
 // created.
 func Open(root string) (*Store, error) {
+	return OpenWithOptions(root, StoreOptions{})
+}
+
+// OpenWithOptions is like Open but honours optional tuning knobs.
+func OpenWithOptions(root string, opt StoreOptions) (*Store, error) {
 	l, err := New(root)
 	if err != nil {
 		return nil, err
@@ -39,7 +57,15 @@ func Open(root string) (*Store, error) {
 	if err := l.Ensure(); err != nil {
 		return nil, err
 	}
-	return &Store{layout: l, now: func() time.Time { return time.Now().UTC() }}, nil
+	keep := opt.ScenarioHistoryKeep
+	if keep < 0 {
+		keep = 0
+	}
+	return &Store{
+		layout:              l,
+		now:                 func() time.Time { return time.Now().UTC() },
+		scenarioHistoryKeep: keep,
+	}, nil
 }
 
 // Layout exposes the underlying directory layout (read only).
@@ -416,6 +442,11 @@ func (s *Store) GetScenario(id string) (ScenarioBody, error) {
 
 // PutScenario creates or updates an XML scenario and its sidecar meta.
 // When create=true the function fails with ErrConflict if the id exists.
+//
+// On update (create=false and the scenario already exists), the prior XML+meta
+// is snapshotted into scenarios/<id>.history/<ts>.{xml,meta.json} before the
+// new content lands. Snapshots are skipped when the new XML is byte-identical
+// to the on-disk copy (treats sidecar-only edits as non-versioned).
 func (s *Store) PutScenario(meta ScenarioMeta, xml string, create bool) (ScenarioBody, error) {
 	if !isSafeID(meta.ID) {
 		return ScenarioBody{}, ErrInvalidID
@@ -442,6 +473,15 @@ func (s *Store) PutScenario(meta ScenarioMeta, xml string, create bool) (Scenari
 				meta.CreatedAt = existing.CreatedAt
 			}
 		}
+		// Snapshot prior version before overwriting. Best-effort: a failure
+		// here logs through the returned error path, but only if the snapshot
+		// itself was attempted with new content. Identical content → skip.
+		priorXML, rerr := os.ReadFile(xmlPath)
+		if rerr == nil && string(priorXML) != xml {
+			if err := s.snapshotScenarioLocked(meta.ID, priorXML, existing, now); err != nil {
+				return ScenarioBody{}, fmt.Errorf("uistore: snapshot prior scenario: %w", err)
+			}
+		}
 	} else {
 		if meta.CreatedAt.IsZero() {
 			meta.CreatedAt = now
@@ -461,7 +501,7 @@ func (s *Store) PutScenario(meta ScenarioMeta, xml string, create bool) (Scenari
 	return ScenarioBody{Meta: meta, XML: xml}, nil
 }
 
-// DeleteScenario removes both XML and sidecar.
+// DeleteScenario removes both XML, sidecar, and the entire history dir.
 func (s *Store) DeleteScenario(id string) error {
 	if !isSafeID(id) {
 		return ErrInvalidID
@@ -476,10 +516,258 @@ func (s *Store) DeleteScenario(id string) error {
 	if metaErr != nil && !errors.Is(metaErr, os.ErrNotExist) {
 		return metaErr
 	}
+	// History directory is cosmetic — drop silently on any non-ENOENT error
+	// rather than failing the whole delete; callers cannot observe leftover
+	// history because there's no XML to anchor it to anymore.
+	if histDir, err := s.layout.ScenarioHistoryDir(id); err == nil {
+		_ = os.RemoveAll(histDir)
+	}
 	if errors.Is(xmlErr, os.ErrNotExist) && errors.Is(metaErr, os.ErrNotExist) {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// historyTSFormat is the filename-safe timestamp layout for snapshots. We
+// avoid `:` (Windows) and rely on nanosecond precision to dodge same-tick
+// collisions when two updates land back-to-back.
+const historyTSFormat = "20060102T150405.000000000Z"
+
+// isSafeHistoryTS validates a user-supplied snapshot identifier. It must look
+// like one of our generated stamps so we never traverse outside the history
+// dir.
+func isSafeHistoryTS(ts string) bool {
+	if len(ts) < 16 || len(ts) > 40 {
+		return false
+	}
+	for _, r := range ts {
+		switch {
+		case r >= '0' && r <= '9':
+		case r == 'T' || r == 'Z' || r == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// snapshotScenarioLocked writes priorXML + priorMeta into the per-scenario
+// history directory keyed by a nanosecond-precision UTC timestamp. The caller
+// must already hold s.mu (write).
+func (s *Store) snapshotScenarioLocked(id string, priorXML []byte, priorMeta ScenarioMeta, now time.Time) error {
+	dir, err := s.layout.ScenarioHistoryDir(id)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	ts := now.UTC().Format(historyTSFormat)
+	xmlOut := filepath.Join(dir, ts+".xml")
+	metaOut := filepath.Join(dir, ts+".meta.json")
+	if err := s.writeAtomic(xmlOut, priorXML, 0o640); err != nil {
+		return err
+	}
+	if priorMeta.ID == "" {
+		priorMeta.ID = id
+	}
+	data, err := marshalJSON(&priorMeta)
+	if err != nil {
+		return err
+	}
+	if err := s.writeAtomic(metaOut, data, 0o640); err != nil {
+		return err
+	}
+	return s.pruneScenarioHistoryLocked(id)
+}
+
+// pruneScenarioHistoryLocked drops the oldest snapshots when count exceeds
+// ScenarioHistoryKeep. Caller must hold s.mu (write).
+func (s *Store) pruneScenarioHistoryLocked(id string) error {
+	if s.scenarioHistoryKeep <= 0 {
+		return nil
+	}
+	dir, err := s.layout.ScenarioHistoryDir(id)
+	if err != nil {
+		return err
+	}
+	entries, err := listScenarioHistoryEntriesFromDir(dir)
+	if err != nil {
+		return err
+	}
+	for i := s.scenarioHistoryKeep; i < len(entries); i++ {
+		ts := entries[i].TS
+		_ = os.Remove(filepath.Join(dir, ts+".xml"))
+		_ = os.Remove(filepath.Join(dir, ts+".meta.json"))
+	}
+	return nil
+}
+
+// listScenarioHistoryEntriesFromDir scans dir for *.xml snapshots, newest first.
+func listScenarioHistoryEntriesFromDir(dir string) ([]ScenarioHistoryEntry, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []ScenarioHistoryEntry{}, nil
+		}
+		return nil, err
+	}
+	out := make([]ScenarioHistoryEntry, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".xml") {
+			continue
+		}
+		ts := strings.TrimSuffix(name, ".xml")
+		if !isSafeHistoryTS(ts) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		parsed, perr := time.Parse(historyTSFormat, ts)
+		if perr != nil {
+			parsed = info.ModTime().UTC()
+		}
+		entry := ScenarioHistoryEntry{
+			TS:        ts,
+			Timestamp: parsed.UTC(),
+			SizeBytes: info.Size(),
+		}
+		var meta ScenarioMeta
+		if err := readJSON(filepath.Join(dir, ts+".meta.json"), &meta); err == nil {
+			entry.Meta = meta
+		}
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].TS > out[j].TS })
+	return out, nil
+}
+
+// ListScenarioHistory returns archived prior versions of a scenario, newest
+// first. Missing history directory (no updates yet) returns an empty slice.
+func (s *Store) ListScenarioHistory(id string) ([]ScenarioHistoryEntry, error) {
+	if !isSafeID(id) {
+		return nil, ErrInvalidID
+	}
+	dir, err := s.layout.ScenarioHistoryDir(id)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	// Anchor the scenario itself — there's no point in surfacing history for
+	// a scenario the caller cannot otherwise read.
+	if _, err := os.Stat(s.scenarioXMLPath(id)); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	entries, err := listScenarioHistoryEntriesFromDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+// ForkScenarioFromHistory creates a new scenario from an archived snapshot.
+// meta.ID must differ from sourceID. Empty name/role/description fall back to
+// the snapshot sidecar when present.
+func (s *Store) ForkScenarioFromHistory(sourceID, ts string, meta ScenarioMeta) (ScenarioBody, error) {
+	if !isSafeID(sourceID) || !isSafeID(meta.ID) {
+		return ScenarioBody{}, ErrInvalidID
+	}
+	if sourceID == meta.ID {
+		return ScenarioBody{}, fmt.Errorf("uistore: fork target id must differ from source %q", sourceID)
+	}
+	hist, err := s.GetScenarioHistory(sourceID, ts)
+	if err != nil {
+		return ScenarioBody{}, err
+	}
+	meta.Name = strings.TrimSpace(meta.Name)
+	if meta.Name == "" {
+		if hist.Meta.Name != "" && hist.Meta.Name != sourceID {
+			meta.Name = hist.Meta.Name + "_fork"
+		} else {
+			meta.Name = meta.ID
+		}
+	}
+	if meta.Description == "" && hist.Meta.Description != "" {
+		meta.Description = hist.Meta.Description
+	}
+	if meta.Role == "" && hist.Meta.Role != "" {
+		meta.Role = hist.Meta.Role
+	}
+	return s.PutScenario(meta, hist.XML, true)
+}
+
+// DeleteScenarioHistory removes a single archived snapshot (xml + sidecar).
+// Returns ErrNotFound when the snapshot does not exist.
+func (s *Store) DeleteScenarioHistory(id, ts string) error {
+	if !isSafeID(id) {
+		return ErrInvalidID
+	}
+	if !isSafeHistoryTS(ts) {
+		return ErrInvalidHistoryTS
+	}
+	dir, err := s.layout.ScenarioHistoryDir(id)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	xmlErr := os.Remove(filepath.Join(dir, ts+".xml"))
+	metaErr := os.Remove(filepath.Join(dir, ts+".meta.json"))
+	if xmlErr != nil && !errors.Is(xmlErr, os.ErrNotExist) {
+		return xmlErr
+	}
+	if metaErr != nil && !errors.Is(metaErr, os.ErrNotExist) {
+		return metaErr
+	}
+	if errors.Is(xmlErr, os.ErrNotExist) && errors.Is(metaErr, os.ErrNotExist) {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetScenarioHistory returns the archived XML+meta for a specific snapshot.
+func (s *Store) GetScenarioHistory(id, ts string) (ScenarioBody, error) {
+	if !isSafeID(id) {
+		return ScenarioBody{}, ErrInvalidID
+	}
+	if !isSafeHistoryTS(ts) {
+		return ScenarioBody{}, ErrInvalidHistoryTS
+	}
+	dir, err := s.layout.ScenarioHistoryDir(id)
+	if err != nil {
+		return ScenarioBody{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	xmlPath := filepath.Join(dir, ts+".xml")
+	data, err := os.ReadFile(xmlPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ScenarioBody{}, ErrNotFound
+		}
+		return ScenarioBody{}, err
+	}
+	var meta ScenarioMeta
+	if err := readJSON(filepath.Join(dir, ts+".meta.json"), &meta); err != nil && !errors.Is(err, ErrNotFound) {
+		return ScenarioBody{}, err
+	}
+	if meta.ID == "" {
+		meta.ID = id
+	}
+	if meta.Name == "" {
+		meta.Name = id
+	}
+	return ScenarioBody{Meta: meta, XML: string(data)}, nil
 }
 
 // --------------- media (WAV / PCAP) ---------------
