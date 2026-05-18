@@ -29,6 +29,7 @@ import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Modal } from '@/components/ui/modal'
+import { validateJobID } from '@/lib/jobId'
 import { isProfilePortBlocked, profileHasWebRTC } from '@/lib/profileHelpers'
 import { mergeLiveJobs, parseStatsLines, useLiveJobs } from '@/lib/jobsLive'
 import { useToast } from '@/lib/toast'
@@ -58,12 +59,14 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
   const [builtins, setBuiltins] = useState<BuiltinScenarioMeta[]>([])
   const [startOpen, setStartOpen] = useState(false)
   const [draft, setDraft] = useState<{
+    job_id: string
     profile_kind: 'server' | 'client'
     profile_id: string
     scenario_id: string
     record_wav: boolean
     record_wav_duplex: boolean
   }>({
+    job_id: '',
     profile_kind: 'server',
     profile_id: '',
     scenario_id: '',
@@ -129,8 +132,11 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
     return out
   }, [mergedRows])
 
+  const jobIdError = useMemo(() => validateJobID(draft.job_id), [draft.job_id])
+
   const openStartModal = (prefill?: Partial<typeof draft>) => {
     setDraft({
+      job_id: '',
       profile_kind: 'server',
       profile_id: '',
       scenario_id: '',
@@ -142,10 +148,11 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
   }
 
   const onStart = () => {
-    if (!draft.profile_id || startBlocked.blocked) return
+    if (!draft.profile_id || startBlocked.blocked || jobIdError) return
     void run(async () => {
       await startJob(
         {
+          id: draft.job_id.trim() || undefined,
           profile_kind: draft.profile_kind,
           profile_id: draft.profile_id,
           scenario_id: draft.scenario_id || undefined,
@@ -352,7 +359,7 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
               type="button"
               size="sm"
               onClick={onStart}
-              disabled={!draft.profile_id || busy || startBlocked.blocked}
+              disabled={!draft.profile_id || busy || startBlocked.blocked || !!jobIdError}
             >
               Start
             </Button>
@@ -366,6 +373,23 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
               {startBlocked.details.join(', ')}
             </div>
           ) : null}
+          <div>
+            <Label className="text-xs">Job ID (optional)</Label>
+            <Input
+              value={draft.job_id}
+              onChange={(e) => setDraft({ ...draft, job_id: e.target.value })}
+              placeholder="auto-generated UUID if empty"
+              className={`mt-1 font-mono text-sm ${jobIdError ? 'border-destructive/60' : ''}`}
+            />
+            {jobIdError ? (
+              <p className="text-destructive mt-1 text-[11px]">{jobIdError}</p>
+            ) : (
+              <p className="text-muted-foreground mt-1 text-[11px]">
+                Pin a readable name for artifacts under <code>artifacts/jobs/&lt;id&gt;/</code>.
+                Allowed: letters, digits, <code>.</code> <code>_</code> <code>-</code> (max 64).
+              </p>
+            )}
+          </div>
           <div>
             <Label className="text-xs">Profile kind</Label>
             <div className="mt-1 flex gap-2">

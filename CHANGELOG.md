@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.43] — 2026-05-18
+
+### Fixed
+
+- **Start job with built-in scenarios**: `POST /api/v2/jobs` now accepts engine built-ins (`uas`, `uac`, `management`, `invite_media*`) instead of returning `scenario: not found`.
+- **Jobs UI — custom job ID**: optional **Job ID** field in the Start job modal with validation; value is sent as `id` in the API request.
+
 ## [0.1.42] — 2026-05-18
 
 ### Added

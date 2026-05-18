@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/sipcapture/gossipper/internal/scenario"
 	"github.com/sipcapture/gossipper/internal/supervisor"
 	"github.com/sipcapture/gossipper/internal/uistore"
 )
@@ -115,8 +116,11 @@ func (s *Server) handleStartJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.ScenarioID != "" {
-		if _, err := s.cfg.Store.GetScenario(body.ScenarioID); err != nil {
+		if err := validateScenarioRef(s.cfg.Store, body.ScenarioID); err != nil {
 			code, msg := mapStoreError(err)
+			if code == http.StatusInternalServerError {
+				code = http.StatusBadRequest
+			}
 			s.writeError(w, code, "scenario: "+msg)
 			return
 		}
@@ -195,4 +199,21 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeAudit(r.Context(), r, "job.delete", id, "")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// validateScenarioRef accepts uistore scenarios and engine built-ins (uac, uas, …).
+func validateScenarioRef(store *uistore.Store, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	if _, err := store.GetScenario(id); err == nil {
+		return nil
+	} else if !errors.Is(err, uistore.ErrNotFound) {
+		return err
+	}
+	if _, err := scenario.BuiltinXML(id); err != nil {
+		return uistore.ErrNotFound
+	}
+	return nil
 }

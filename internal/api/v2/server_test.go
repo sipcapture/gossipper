@@ -331,6 +331,31 @@ func TestV2JobsStartStopDelete(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestV2StartJobCustomIDAndBuiltinScenario(t *testing.T) {
+	h := newHarness(t, false)
+	if _, err := h.store.PutServerProfile(uistore.ServerProfile{ID: "primary", Name: "Primary"}, true); err != nil {
+		t.Fatal(err)
+	}
+	resp := h.do(http.MethodPost, "/api/v2/jobs", map[string]any{
+		"id":           "my-stress-run",
+		"profile_id":   "primary",
+		"profile_kind": "server",
+		"scenario_id":  "uac",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("start status=%d body=%s", resp.StatusCode, string(raw))
+	}
+	job := decode[supervisor.Job](t, resp)
+	if job.ID != "my-stress-run" {
+		t.Fatalf("job id=%q", job.ID)
+	}
+	if job.ScenarioID != "uac" {
+		t.Fatalf("scenario_id=%q", job.ScenarioID)
+	}
+	resp.Body.Close()
+}
+
 func TestV2StartJobValidatesProfile(t *testing.T) {
 	h := newHarness(t, false)
 	resp := h.do(http.MethodPost, "/api/v2/jobs", map[string]any{"profile_id": "missing", "profile_kind": "server"})
