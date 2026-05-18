@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy and edit paths/ports. Run: gossipper server -config /path/to/this/file.json. ui_data_dir is required for the admin console (/api/v2/*); when set, legacy /api/v1/* is auto-disabled. scenario_history_keep caps archived scenario XML versions per id (0 = unlimited). For a deployment without admin console, drop ui_data_dir and set \"legacy_api_v1\": true (or remove the field).",
+  "_comment": "Copy and edit paths/ports. Run: gossipper server -config /path/to/this/file.json. ui_data_dir enables admin console (/api/v2/*) and internal auth by default (settings.sqlite under ui_data_dir). Set auth.type to none to disable. When ui_data_dir is set, legacy /api/v1/* is auto-disabled. scenario_history_keep caps archived scenario XML versions per id (0 = unlimited).",
   "api_addr": ":8080",
   "ui_data_dir": "/usr/local/gossipper/data",
   "scenario_history_keep": 50,

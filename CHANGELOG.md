@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.44] — 2026-05-19
+
+### Added
+
+- **Internal auth by default** when `ui_data_dir` is set (`gossipper server`) or when running `gossipper ui` (disable with `auth.type: none` or `--no-auth`).
+- **Settings DB bootstrap on first start**: auto-creates `<ui_data_dir>/settings.sqlite` with JWT secret, default admin user (`admin` / `sipcapture`), and baseline `kv_settings`.
+
+### Changed
+
+- `gossipper auth user-add` works with any config that has `ui_data_dir` (no explicit `auth` block required).
+- About page footer shows **AGPL-3.0** (was incorrectly Apache-2.0).
+
 ## [0.1.43] — 2026-05-18
 
 ### Fixed

@@ -40,6 +40,16 @@ type Auth struct {
 //
 // Returns an error when neither source produces a valid secret.
 func Open(sqlitePath, jwtSecret string) (*Auth, error) {
+	return open(sqlitePath, jwtSecret, false)
+}
+
+// OpenBootstrap is like Open but generates and persists a fresh JWT secret when
+// neither kv_settings nor jwtSecret supplies one (admin console default).
+func OpenBootstrap(sqlitePath, jwtSecret string) (*Auth, error) {
+	return open(sqlitePath, jwtSecret, true)
+}
+
+func open(sqlitePath, jwtSecret string, allowAutoGenerate bool) (*Auth, error) {
 	db, err := OpenStore(sqlitePath)
 	if err != nil {
 		return nil, err
@@ -55,8 +65,16 @@ func Open(sqlitePath, jwtSecret string) (*Auth, error) {
 		secret = jwtSecret
 	}
 	if len(secret) < 16 {
-		_ = db.Close()
-		return nil, errors.New("jwt secret must be at least 16 characters (set --auth-jwt-secret or rotate via API)")
+		if !allowAutoGenerate {
+			_ = db.Close()
+			return nil, errors.New("jwt secret must be at least 16 characters (set --jwt-secret or rotate via API)")
+		}
+		generated, err := GenerateJWTSecret()
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("generate jwt secret: %w", err)
+		}
+		secret = generated
 	}
 	if persisted == "" {
 		if err := PutSetting(context.Background(), db, kvJWTSecret, secret); err != nil {
@@ -64,7 +82,26 @@ func Open(sqlitePath, jwtSecret string) (*Auth, error) {
 			return nil, fmt.Errorf("persist initial jwt secret: %w", err)
 		}
 	}
+	if allowAutoGenerate {
+		created, err := EnsureBootstrap(context.Background(), db)
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("bootstrap settings db: %w", err)
+		}
+		if created {
+			logBootstrapCreated(bootstrapUsername(), bootstrapPassword())
+		}
+	}
 	return &Auth{db: db, secret: []byte(secret)}, nil
+}
+
+// GenerateJWTSecret returns a random 256-bit hex string suitable for JWT signing.
+func GenerateJWTSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 // RotateSecret generates a fresh 256-bit JWT secret, persists it to

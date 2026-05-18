@@ -41,10 +41,14 @@ func runAuthUserAdd(args []string) error {
 	if err != nil {
 		return err
 	}
-	if !loaded.Auth.InternalEnabled() {
-		return errors.New("config must set auth.type to internal with sqlite_path and jwt_secret")
+	if !loaded.AdminConsoleAuthEnabled() {
+		return errors.New("config must set ui_data_dir or auth.type to internal")
 	}
-	auth, err := settingsauth.Open(loaded.Auth.SQLitePath, loaded.Auth.JWTSecret)
+	path := loaded.AuthSQLitePath()
+	if path == "" {
+		return errors.New("config must set ui_data_dir or auth.sqlite_path")
+	}
+	auth, err := settingsauth.OpenBootstrap(path, loaded.Auth.JWTSecret)
 	if err != nil {
 		return err
 	}
@@ -52,6 +56,6 @@ func runAuthUserAdd(args []string) error {
 	if err := auth.CreateUser(context.Background(), *username, *password); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stdout, "user %q created or password updated in %s\n", *username, loaded.Auth.SQLitePath)
+	fmt.Fprintf(os.Stdout, "user %q created or password updated in %s\n", *username, path)
 	return nil
 }

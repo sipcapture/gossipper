@@ -29,6 +29,27 @@ func TestStoreUserVerify(t *testing.T) {
 	}
 }
 
+func TestOpenBootstrapGeneratesSecret(t *testing.T) {
+	dir := t.TempDir()
+	dbpath := filepath.Join(dir, "settings.sqlite")
+	a, err := OpenBootstrap(dbpath, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if !a.Enabled() {
+		t.Fatal("expected auth enabled")
+	}
+	a2, err := Open(dbpath, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a2.Close()
+	if !a2.Enabled() {
+		t.Fatal("expected persisted secret on reopen")
+	}
+}
+
 func TestAuthJWT(t *testing.T) {
 	dir := t.TempDir()
 	dbpath := filepath.Join(dir, "settings.sqlite")

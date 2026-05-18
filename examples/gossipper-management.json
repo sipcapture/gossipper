@@ -1,5 +1,5 @@
 {
-  "_comment": "Management UAS with admin console. ui_data_dir enables /api/v2/*; scenario_history_keep caps archived scenario versions per id (0 = unlimited).",
+  "_comment": "Management UAS with admin console. ui_data_dir enables /api/v2/* and internal auth by default (settings.sqlite: users, JWT, jobs). First start seeds admin/sipcapture unless users already exist. Set auth.type to none to disable. scenario_history_keep caps archived scenario versions per id (0 = unlimited).",
   "api_addr": ":8080",
   "ui_data_dir": "/usr/local/gossipper/data",
   "scenario_history_keep": 50,

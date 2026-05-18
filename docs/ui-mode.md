@@ -11,18 +11,16 @@ same UI through a "legacy engine" toggle when the master is not available.
 ```bash
 gossipper ui \
   --data-dir /var/lib/gossipper \
-  --listen :8080 \
-  --auth-secret "$GOSSIPPER_JWT_SECRET"
-
-# in another terminal: create the first admin user
-gossipper auth user-add \
-  --config /var/lib/gossipper/settings.sqlite \
-  --username admin --password admin0000
+  --listen :8080
 ```
 
-Then open <http://localhost:8080> in your browser. The UI auto-detects whether
-the admin console (`/api/v2`) is available and falls back to the legacy
-`/api/v1` view when running against `gossipper server`.
+Then open <http://localhost:8080> and sign in with the default admin user
+(`admin` / `sipcapture`, or values from `GOSSIPPER_BOOTSTRAP_USERNAME` /
+`GOSSIPPER_BOOTSTRAP_PASSWORD`). On first start the settings DB is created
+automatically with users and JWT settings.
+
+The UI auto-detects whether the admin console (`/api/v2`) is available and
+falls back to the legacy `/api/v1` view when running against `gossipper server`.
 
 ## Data layout
 

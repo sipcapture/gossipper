@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -219,6 +220,33 @@ type AuthConfig struct {
 // InternalEnabled reports whether internal SQLite+JWT auth is active.
 func (a AuthConfig) InternalEnabled() bool {
 	return strings.EqualFold(strings.TrimSpace(a.Type), "internal")
+}
+
+// ExplicitlyDisabled reports whether auth was explicitly turned off (auth.type: none).
+func (a AuthConfig) ExplicitlyDisabled() bool {
+	return strings.EqualFold(strings.TrimSpace(a.Type), "none")
+}
+
+// AuthSQLitePath returns the SQLite settings DB path for internal auth.
+func (c Config) AuthSQLitePath() string {
+	if p := strings.TrimSpace(c.Auth.SQLitePath); p != "" {
+		return p
+	}
+	if d := strings.TrimSpace(c.UIDataDir); d != "" {
+		return filepath.Join(d, "settings.sqlite")
+	}
+	return ""
+}
+
+// AdminConsoleAuthEnabled reports whether the admin console should mount internal auth.
+func (c Config) AdminConsoleAuthEnabled() bool {
+	if c.Auth.ExplicitlyDisabled() {
+		return false
+	}
+	if c.Auth.InternalEnabled() {
+		return true
+	}
+	return strings.TrimSpace(c.UIDataDir) != ""
 }
 
 func DefaultConfig() Config {

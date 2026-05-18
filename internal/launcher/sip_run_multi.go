@@ -109,11 +109,9 @@ func runSIPScenarioMulti(ctx context.Context, cfg cli.Config) error {
 				return loadCoord.Remove(id)
 			}
 		}
-		if preparedPrimary.CLIConfig.Auth.InternalEnabled() {
-			sa, err := settingsauth.Open(preparedPrimary.CLIConfig.Auth.SQLitePath, preparedPrimary.CLIConfig.Auth.JWTSecret)
-			if err != nil {
-				return fmt.Errorf("settings auth: %w", err)
-			}
+		if sa, err := ResolveSettingsAuth(preparedPrimary.CLIConfig); err != nil {
+			return fmt.Errorf("settings auth: %w", err)
+		} else if sa != nil {
 			settingsAuth = sa
 			apiCfg.SettingsAuth = sa
 		}

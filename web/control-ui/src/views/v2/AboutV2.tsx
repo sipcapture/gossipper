@@ -143,7 +143,14 @@ export function AboutV2({ bearer }: AboutV2Props) {
           docs
         </a>
         <span>·</span>
-        <span>Apache-2.0</span>
+        <a
+          href={`${REPO_URL}/blob/main/LICENSE`}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="text-primary underline-offset-2 hover:underline"
+        >
+          AGPL-3.0
+        </a>
       </footer>
     </section>
   )

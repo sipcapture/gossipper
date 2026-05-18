@@ -27,9 +27,9 @@ func runUICommand(args []string) error {
 	dataDir := fs.String("data-dir", "./data", "data directory for profiles, scenarios, media, jobs")
 	historyKeep := fs.Int("scenario-history-keep", 0, "max archived scenario versions per id (0 = unlimited)")
 	listen := fs.String("listen", ":8080", "HTTP listen address (Control UI + /api/v2)")
-	authSqlite := fs.String("auth-sqlite", "", "path to SQLite settings DB (defaults to <data-dir>/settings.sqlite); empty disables internal auth when --jwt-secret is empty too")
-	jwtSecret := fs.String("jwt-secret", "", "JWT signing secret (>=16 chars); empty disables internal auth")
-	noAuth := fs.Bool("no-auth", false, "explicitly disable internal auth (auth=none, all endpoints public)")
+	authSqlite := fs.String("auth-sqlite", "", "path to SQLite settings DB (defaults to <data-dir>/settings.sqlite)")
+	jwtSecret := fs.String("jwt-secret", "", "optional JWT signing secret (>=16 chars); auto-generated and persisted when empty")
+	noAuth := fs.Bool("no-auth", false, "disable internal auth (all /api/v2 endpoints public; default is auth enabled)")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), `gossipper ui — supervisor + Control UI
 
@@ -72,18 +72,13 @@ Flags:
 	reg := supervisor.NewRegistry(jobsStore, runner)
 
 	var auth *settingsauth.Auth
-	switch {
-	case *noAuth:
-		auth = nil
-	case strings.TrimSpace(*jwtSecret) != "":
-		a, err := settingsauth.Open(dbPath, *jwtSecret)
+	if !*noAuth {
+		a, err := settingsauth.OpenBootstrap(dbPath, *jwtSecret)
 		if err != nil {
 			return fmt.Errorf("ui: enable auth: %w", err)
 		}
 		defer a.Close()
 		auth = a
-	default:
-		fmt.Fprintln(os.Stderr, "ui: warning — internal auth disabled (set --jwt-secret to enable, or pass --no-auth to silence this warning)")
 	}
 
 	mux := http.NewServeMux()

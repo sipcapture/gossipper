@@ -344,8 +344,11 @@ func applyAuthRunSpec(cfg *Config, spec *authRunSpec, configDir string) error {
 		return fmt.Errorf("run profile auth.type: unknown %q (supported: none, internal)", t)
 	}
 	path := strings.TrimSpace(derefStringPtr(spec.SQLitePath))
+	if path == "" && strings.TrimSpace(cfg.UIDataDir) != "" {
+		path = filepath.Join(strings.TrimSpace(cfg.UIDataDir), "settings.sqlite")
+	}
 	if path == "" {
-		return errors.New("run profile auth.internal requires auth.sqlite_path")
+		return errors.New("run profile auth.internal requires auth.sqlite_path or ui_data_dir")
 	}
 	if filepath.IsAbs(path) {
 		path = filepath.Clean(path)
@@ -353,9 +356,6 @@ func applyAuthRunSpec(cfg *Config, spec *authRunSpec, configDir string) error {
 		path = filepath.Clean(filepath.Join(configDir, path))
 	}
 	secret := strings.TrimSpace(derefStringPtr(spec.JWTSecret))
-	if len(secret) < 16 {
-		return errors.New("run profile auth.jwt_secret must be at least 16 characters when auth.type is internal")
-	}
 	cfg.Auth = AuthConfig{Type: "internal", SQLitePath: path, JWTSecret: secret}
 	return nil
 }
