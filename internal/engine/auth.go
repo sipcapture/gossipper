@@ -23,11 +23,14 @@ type authKeywordOptions struct {
 }
 
 func (e *Engine) renderSIPMessage(raw string, ctx templ.Context) (string, error) {
-	// Strip XML/CDATA indentation before rendering so that [len] is computed
-	// from the dedented body, producing the correct Content-Length value.
-	// If [len] were computed first and dedenting happened after, the body would
-	// be shorter than Content-Length claims, causing TCP framing errors.
-	raw = normalizeSIPScenarioLineIndent(raw)
+	// Normalize indentation once per unique template text, then cache.
+	if normalized, ok := e.normalizedCache.Load(raw); ok {
+		raw = normalized.(string)
+	} else {
+		n := normalizeSIPScenarioLineIndent(raw)
+		e.normalizedCache.Store(raw, n)
+		raw = n
+	}
 
 	ctx.ClockTick = e.clockTick()
 	ctx.DynamicID = e.nextDynamicID()
@@ -362,6 +365,10 @@ func cloneKeywords(in map[string]string) map[string]string {
 // extractAuthKeywordOptions finds [authentication...] tokens without regexp.
 func extractAuthKeywordOptions(raw string) []authKeywordOptions {
 	const prefix = "[authentication"
+	// Fast path: skip ToLower allocation when the template has no auth keyword.
+	if !containsFoldCI(raw, "[authentication") {
+		return nil
+	}
 	var options []authKeywordOptions
 	s := strings.ToLower(raw)
 	for {
@@ -496,4 +503,17 @@ func parseDigestAuthorization(value string) (digestAuthorization, error) {
 		return digestAuthorization{}, errors.New("invalid Digest authorization header")
 	}
 	return out, nil
+}
+
+// containsFoldCI reports whether s contains substr (case-insensitive) without allocation.
+func containsFoldCI(s, substr string) bool {
+if len(substr) > len(s) {
+return false
+}
+for i := 0; i <= len(s)-len(substr); i++ {
+if strings.EqualFold(s[i:i+len(substr)], substr) {
+return true
+}
+}
+return false
 }

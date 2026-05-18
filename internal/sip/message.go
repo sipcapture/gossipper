@@ -53,6 +53,9 @@ func (m *Message) Copy() Message {
 		Headers:    make(map[string][]string, len(m.Headers)),
 	}
 	for k, v := range m.Headers {
+		if len(v) == 0 {
+			continue
+		}
 		cpy.Headers[k] = append([]string(nil), v...)
 	}
 	return cpy
@@ -61,8 +64,9 @@ func (m *Message) Copy() Message {
 // CopyInto copies src into dst, reusing dst's Headers map. Use when adapting
 // a Message value (e.g. from transport) to a pooled *Message for the engine.
 func CopyInto(dst *Message, src Message) {
-	for k := range dst.Headers {
-		delete(dst.Headers, k)
+	for k, vals := range dst.Headers {
+		clear(vals)
+		dst.Headers[k] = vals[:0]
 	}
 	dst.StartLine, dst.Method, dst.RequestURI = src.StartLine, src.Method, src.RequestURI
 	dst.StatusCode, dst.Reason = src.StatusCode, src.Reason
@@ -71,14 +75,20 @@ func CopyInto(dst *Message, src Message) {
 		dst.Headers = make(map[string][]string)
 	}
 	for k, v := range src.Headers {
-		dst.Headers[k] = append([]string(nil), v...)
+		if len(v) == 0 {
+			continue
+		}
+		dst.Headers[k] = append(dst.Headers[k], v...)
 	}
 }
 
-// PutMessage returns a Message to the pool. Clear Headers before putting if reused.
+// PutMessage returns a Message to the pool. Clears string references in
+// header slice backing arrays to allow GC of the underlying msg.Raw, then
+// truncates to zero-length so ParseInto can reuse the backing arrays.
 func PutMessage(m *Message) {
-	for k := range m.Headers {
-		delete(m.Headers, k)
+	for k, vals := range m.Headers {
+		clear(vals) // release substring references to msg.Raw
+		m.Headers[k] = vals[:0]
 	}
 	m.StartLine, m.Method, m.RequestURI = "", "", ""
 	m.StatusCode, m.Reason = 0, ""
@@ -86,15 +96,16 @@ func PutMessage(m *Message) {
 	msgPool.Put(m)
 }
 
-// ParseInto parses raw into msg, reusing msg's Headers map.
+// ParseInto parses raw into msg, reusing msg's Headers map and slice backing.
 // Safe for concurrent use provided each goroutine holds exclusive ownership of msg
 // (i.e. obtained via GetMessage and returned via PutMessage).
 func ParseInto(msg *Message, raw []byte) error {
 	if msg.Headers == nil {
 		msg.Headers = make(map[string][]string)
 	} else {
-		for k := range msg.Headers {
-			delete(msg.Headers, k)
+		for k, vals := range msg.Headers {
+			clear(vals)
+			msg.Headers[k] = vals[:0]
 		}
 	}
 	msg.Method, msg.RequestURI, msg.StatusCode, msg.Reason, msg.Body = "", "", 0, "", ""
@@ -102,7 +113,7 @@ func ParseInto(msg *Message, raw []byte) error {
 }
 
 // parseBytes is the shared byte scanner used by both Parse and ParseInto.
-// It scans raw without intermediate string copies (no ReplaceAll, no Split).
+// It uses substrings of msg.Raw to avoid per-line heap allocations.
 func parseBytes(raw []byte, msg *Message) error {
 	msg.Raw = string(raw)
 
@@ -116,7 +127,8 @@ func parseBytes(raw []byte, msg *Message) error {
 			if end > lineStart && raw[end-1] == '\r' {
 				end--
 			}
-			line := string(raw[lineStart:end])
+			// Substring of msg.Raw — shares backing memory, no allocation.
+			line := msg.Raw[lineStart:end]
 
 			switch lineIdx {
 			case 0:
@@ -125,24 +137,31 @@ func parseBytes(raw []byte, msg *Message) error {
 					return errors.New("empty SIP message")
 				}
 				msg.StartLine = line
-				if strings.HasPrefix(line, "SIP/2.0 ") {
-					parts := strings.SplitN(line, " ", 3)
-					if len(parts) < 3 {
+				if len(line) > 8 && line[:8] == "SIP/2.0 " {
+					// Parse status line: "SIP/2.0 200 OK"
+					rest := line[8:]
+					sp := strings.IndexByte(rest, ' ')
+					if sp < 0 {
 						return fmt.Errorf("invalid SIP status line %q", line)
 					}
-					code, err := strconv.Atoi(parts[1])
+					code, err := strconv.Atoi(rest[:sp])
 					if err != nil {
 						return err
 					}
 					msg.StatusCode = code
-					msg.Reason = parts[2]
+					msg.Reason = rest[sp+1:]
 				} else {
-					parts := strings.SplitN(line, " ", 3)
-					if len(parts) < 3 {
+					// Parse request line: "INVITE sip:... SIP/2.0"
+					sp1 := strings.IndexByte(line, ' ')
+					if sp1 < 0 {
 						return fmt.Errorf("invalid SIP request line %q", line)
 					}
-					msg.Method = parts[0]
-					msg.RequestURI = parts[1]
+					sp2 := strings.IndexByte(line[sp1+1:], ' ')
+					if sp2 < 0 {
+						return fmt.Errorf("invalid SIP request line %q", line)
+					}
+					msg.Method = line[:sp1]
+					msg.RequestURI = line[sp1+1 : sp1+1+sp2]
 				}
 			default:
 				if line == "" {
@@ -166,7 +185,7 @@ func parseBytes(raw []byte, msg *Message) error {
 	}
 
 	if bodyByteOffset >= 0 && bodyByteOffset < len(raw) {
-		msg.Body = string(raw[bodyByteOffset:])
+		msg.Body = msg.Raw[bodyByteOffset:]
 	}
 	return nil
 }
@@ -290,6 +309,29 @@ func MatchRecv(msg Message, request, response string, lastSent []byte) bool {
 	return reqNum == respNum && strings.EqualFold(strings.TrimSpace(reqMeth), strings.TrimSpace(respMeth))
 }
 
+// MatchRecvCached is a zero-allocation variant of MatchRecv that uses
+// pre-extracted CSeq number and method from lastSent.
+func MatchRecvCached(msg Message, request, response string, cseqNum int, cseqMethod string) bool {
+	if request != "" {
+		return strings.EqualFold(msg.Method, request)
+	}
+	if response == "" {
+		return false
+	}
+	wantCode, ok := parseRecvResponseFilter(response)
+	if !ok || msg.StatusCode != wantCode {
+		return false
+	}
+	if cseqMethod == "" {
+		return true
+	}
+	respNum, respMeth, ok := ParseCSeq(msg.Headers)
+	if !ok {
+		return true
+	}
+	return cseqNum == respNum && strings.EqualFold(cseqMethod, strings.TrimSpace(respMeth))
+}
+
 // ViaBranch extracts the branch parameter from the topmost Via header.
 // RFC 3261 §17.1.3: responses are matched to client transactions by the
 // branch parameter in the top Via header field.
@@ -298,11 +340,30 @@ func ViaBranch(headers map[string][]string) (string, bool) {
 	if !ok || val == "" {
 		return "", false
 	}
-	// Via params are semicolon-delimited after the sent-by.
-	for _, param := range strings.Split(val, ";") {
-		param = strings.TrimSpace(param)
-		if strings.HasPrefix(strings.ToLower(param), "branch=") {
-			return param[len("branch="):], true
+	// Scan for ";branch=" without allocation.
+	for i := 0; i < len(val); i++ {
+		if val[i] != ';' {
+			continue
+		}
+		// Skip whitespace after semicolon.
+		j := i + 1
+		for j < len(val) && (val[j] == ' ' || val[j] == '\t') {
+			j++
+		}
+		if j+7 <= len(val) &&
+			(val[j] == 'b' || val[j] == 'B') &&
+			(val[j+1] == 'r' || val[j+1] == 'R') &&
+			(val[j+2] == 'a' || val[j+2] == 'A') &&
+			(val[j+3] == 'n' || val[j+3] == 'N') &&
+			(val[j+4] == 'c' || val[j+4] == 'C') &&
+			(val[j+5] == 'h' || val[j+5] == 'H') &&
+			val[j+6] == '=' {
+			start := j + 7
+			end := strings.IndexByte(val[start:], ';')
+			if end < 0 {
+				return strings.TrimSpace(val[start:]), true
+			}
+			return strings.TrimSpace(val[start : start+end]), true
 		}
 	}
 	return "", false
@@ -341,6 +402,30 @@ func ResponseMatchesTransaction(msg Message, lastSent []byte) bool {
 	return strings.EqualFold(strings.TrimSpace(reqMeth), strings.TrimSpace(respMeth))
 }
 
+// ResponseMatchesCached is a zero-allocation variant of ResponseMatchesTransaction
+// that uses pre-extracted branch and method from the last sent request.
+// Returns true (safe default) if branch/method are empty.
+func ResponseMatchesCached(msg Message, branch, method string) bool {
+	if branch == "" {
+		return true
+	}
+	respBranch, ok := ViaBranch(msg.Headers)
+	if !ok {
+		return true
+	}
+	if !strings.EqualFold(branch, respBranch) {
+		return false
+	}
+	if method == "" {
+		return true
+	}
+	_, respMeth, ok := ParseCSeq(msg.Headers)
+	if !ok {
+		return true
+	}
+	return strings.EqualFold(method, strings.TrimSpace(respMeth))
+}
+
 // ViaSentBy parses the topmost Via header and extracts sent-by (host and port).
 // Format: Via: SIP/2.0/UDP host:port;branch=... or Via: SIP/2.0/UDP host;branch=...
 // Default port is 5060 when omitted.
@@ -371,4 +456,54 @@ func ViaSentBy(headers map[string][]string) (host string, port int, ok bool) {
 		return "", 0, false
 	}
 	return host, port, true
+}
+
+// BuildResponse constructs a minimal SIP response (e.g. 200 OK) to an
+// incoming request. Copies Via, From, To, Call-ID, and CSeq per RFC 3261
+// §8.2.6. Returns the raw response bytes ready to send on the wire.
+func BuildResponse(req Message, statusCode int, reason string) []byte {
+	var b strings.Builder
+	b.Grow(256)
+	b.WriteString("SIP/2.0 ")
+	b.WriteString(strconv.Itoa(statusCode))
+	b.WriteByte(' ')
+	b.WriteString(reason)
+	b.WriteString("\r\n")
+
+	// Via (all values, preserving order)
+	for _, key := range []string{"Via", "via", "v"} {
+		if vals, ok := req.Headers[key]; ok {
+			for _, v := range vals {
+				b.WriteString("Via: ")
+				b.WriteString(v)
+				b.WriteString("\r\n")
+			}
+		}
+	}
+
+	writeHdr := func(name string, aliases ...string) {
+		if v, ok := Header(req.Headers, name); ok {
+			b.WriteString(name)
+			b.WriteString(": ")
+			b.WriteString(v)
+			b.WriteString("\r\n")
+		} else {
+			for _, a := range aliases {
+				if v, ok := Header(req.Headers, a); ok {
+					b.WriteString(name)
+					b.WriteString(": ")
+					b.WriteString(v)
+					b.WriteString("\r\n")
+					return
+				}
+			}
+		}
+	}
+	writeHdr("From", "f")
+	writeHdr("To", "t")
+	writeHdr("Call-ID", "i")
+	writeHdr("CSeq")
+	b.WriteString("Content-Length: 0\r\n")
+	b.WriteString("\r\n")
+	return []byte(b.String())
 }
