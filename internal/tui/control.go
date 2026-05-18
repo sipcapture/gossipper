@@ -11,7 +11,9 @@ import (
 	"github.com/rivo/tview"
 	"github.com/sipcapture/gossipper/internal/engine"
 	"github.com/sipcapture/gossipper/internal/launcher"
+	"github.com/sipcapture/gossipper/internal/reporthtml"
 	"github.com/sipcapture/gossipper/internal/scenario"
+	"github.com/sipcapture/gossipper/internal/stats"
 )
 
 // RunControl launches the runtime dashboard directly from a prepared CLI run,
@@ -167,7 +169,44 @@ func RunControl(ctx context.Context, prepared launcher.Prepared) error {
 	})
 
 	defer close(stopPolling)
-	return app.SetRoot(layout, true).Run()
+	if err := app.SetRoot(layout, true).Run(); err != nil {
+		return err
+	}
+
+	// Write summary JSON/HTML after the TUI exits, mirroring the non-interactive path.
+	cfg := prepared.CLIConfig
+	writeJSON := cfg.SummaryJSON != ""
+	writeHTML := cfg.SummaryHTML != ""
+	if writeJSON || writeHTML {
+		healthCfg := stats.HealthConfig{
+			MinSuccessRatio:                cfg.HealthMinSuccessRatio,
+			MaxFailedCalls:                 cfg.HealthMaxFailedCalls,
+			MaxTimeouts:                    cfg.HealthMaxTimeouts,
+			HealthMaxRTCPFractionLost:      cfg.HealthMaxRTCPFractionLost,
+			HealthMaxRTCPJitterTS:          cfg.HealthMaxRTCPJitterTS,
+			HealthMinRTPPacketsRecv:        cfg.HealthMinRTPPacketsRecv,
+			HealthMinRTPPacketsRecvPerCall: cfg.HealthMinRTPPacketsRecvPerCall,
+		}
+		final := eng.Stats().FinalizeSummary(cfg.ToolVersion, healthCfg)
+		if writeJSON {
+			if err := stats.WriteSummaryJSONFile(cfg.SummaryJSON, final); err != nil {
+				return err
+			}
+		}
+		if writeHTML {
+			if err := reporthtml.WriteFile(cfg.SummaryHTML, final); err != nil {
+				return err
+			}
+		}
+		if healthCfg.Active() && final.Health != nil && !final.Health.Pass {
+			msg := strings.Join(final.Health.Reasons, "; ")
+			if msg == "" {
+				return launcher.ErrHealthCheckFailed
+			}
+			return fmt.Errorf("%w: %s", launcher.ErrHealthCheckFailed, msg)
+		}
+	}
+	return nil
 }
 
 func controlProfile(prepared launcher.Prepared) profile {
