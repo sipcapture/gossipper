@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"runtime/pprof"
 	"strings"
 	"syscall"
@@ -52,6 +54,12 @@ func run(args []string) error {
 }
 
 func runMain(args []string) error {
+	// Cap memory so the GC becomes aggressive before OOM.
+	// Default 4 GiB unless GOMEMLIMIT env var is set by the user.
+	if debug.SetMemoryLimit(-1) == math.MaxInt64 {
+		debug.SetMemoryLimit(4 * 1024 * 1024 * 1024) // 4 GiB
+	}
+
 	if len(args) > 0 && args[0] == "auth" {
 		return runAuthCommand(args[1:])
 	}
