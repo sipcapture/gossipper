@@ -2742,6 +2742,11 @@ func (e *Engine) waitForMatch(
 			if sip.MatchRecvCached(*msg, cmd.RecvReq, cmd.RecvResp, lastSentCSeqNum, lastSentMethod) {
 				return msg, nil
 			}
+			// Capture fields BEFORE stash — stash may free the message
+			// (e.g., BYE auto-response, late provisional discard), making
+			// subsequent field reads a use-after-free race.
+			msgStatus := msg.StatusCode
+			msgMatchesTxn := sip.ResponseMatchesCached(*msg, lastSentBranch, lastSentMethod)
 			if stash != nil {
 				if stashErr := stash(msg, fromPending); stashErr != nil {
 					sip.PutMessage(msg)
@@ -2752,7 +2757,7 @@ func (e *Engine) waitForMatch(
 			// §17.1.1.2, but only for the current transaction (branch match
 			// per §17.1.3) — stale retransmissions must not suppress
 			// retransmissions for the active transaction.
-			if msg.StatusCode >= 200 && sip.ResponseMatchesCached(*msg, lastSentBranch, lastSentMethod) {
+			if msgStatus >= 200 && msgMatchesTxn {
 				finalResponseSeen = true
 			}
 			if cmd.Optional {
@@ -2909,7 +2914,7 @@ func (e *Engine) sourceIPForCall(callNumber int) string {
 // sipMailboxCap is the per-call buffer for demuxed UDP/TCP SIP messages.
 // Sized to absorb retransmission bursts without dropping while keeping
 // memory bounded at high concurrency (1000 calls × 128 slots = manageable).
-const sipMailboxCap = 128
+const sipMailboxCap = 512
 
 // dispatchWorkers returns the number of parallel dispatch goroutines to use.
 // Multiple workers prevent a single ParseInto from blocking all message delivery.
@@ -2969,7 +2974,8 @@ func (r *mailboxRegistry) unregister(callID string) {
 
 // dispatchParallel launches n sharded dispatch goroutines. Messages are
 // routed to a shard based on Call-ID hash to preserve per-call ordering.
-// Shard sends are non-blocking to prevent one slow shard from stalling all.
+// Shard sends block to avoid dropping SIP responses under load; with
+// per-shard buffers of 4096 this only stalls if a shard is truly overloaded.
 func (r *mailboxRegistry) dispatchParallel(incoming <-chan transport.Packet, n int) {
 	if n < 2 {
 		go r.dispatch(incoming)
@@ -2977,18 +2983,13 @@ func (r *mailboxRegistry) dispatchParallel(incoming <-chan transport.Packet, n i
 	}
 	shards := make([]chan transport.Packet, n)
 	for i := range shards {
-		shards[i] = make(chan transport.Packet, 1024)
+		shards[i] = make(chan transport.Packet, 4096)
 		go r.dispatch(shards[i])
 	}
 	go func() {
 		for packet := range incoming {
 			shard := callIDShard(packet.Data, n)
-			select {
-			case shards[shard] <- packet:
-			default:
-				// Shard full — drop packet rather than block all shards.
-				packet.Release()
-			}
+			shards[shard] <- packet
 		}
 		for _, ch := range shards {
 			close(ch)
