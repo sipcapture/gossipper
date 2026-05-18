@@ -15,12 +15,17 @@ type RateController struct {
 	paused   bool
 	stopped  bool
 	updateCh chan struct{}
+	// nextFire tracks the absolute time the next call should fire.
+	// This allows the controller to catch up if the caller was delayed
+	// (e.g., blocked on a semaphore), maintaining accurate average rate.
+	nextFire time.Time
 }
 
 func NewRateController(rate float64) *RateController {
 	return &RateController{
 		rate:     sanitizeRate(rate),
 		updateCh: make(chan struct{}),
+		nextFire: time.Now(),
 	}
 }
 
@@ -45,7 +50,31 @@ func (r *RateController) Wait(ctx context.Context) error {
 			}
 		}
 
-		timer := time.NewTimer(rateToPeriod(rate))
+		period := rateToPeriod(rate)
+		r.mu.Lock()
+		// Advance nextFire by one period. If we fell behind (nextFire is
+		// in the past), fire immediately to catch up to the target rate.
+		// Cap catch-up to maxBurst periods to prevent unbounded bursts
+		// after long semaphore blocks.
+		if r.nextFire.IsZero() {
+			r.nextFire = time.Now()
+		}
+		const maxBurst = 10
+		earliest := time.Now().Add(-time.Duration(maxBurst) * period)
+		if r.nextFire.Before(earliest) {
+			r.nextFire = earliest
+		}
+		r.nextFire = r.nextFire.Add(period)
+		target := r.nextFire
+		r.mu.Unlock()
+
+		wait := time.Until(target)
+		if wait <= 0 {
+			// Already past target time — fire immediately (catch-up).
+			return nil
+		}
+
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
 			if !timer.Stop() {
@@ -73,6 +102,7 @@ func (r *RateController) SetRate(rate float64) float64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.rate = sanitizeRate(rate)
+	r.nextFire = time.Now() // reset schedule on rate change
 	r.broadcastLocked()
 	return r.rate
 }
@@ -81,6 +111,7 @@ func (r *RateController) AdjustRate(delta float64) float64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.rate = sanitizeRate(r.rate + delta)
+	r.nextFire = time.Now() // reset schedule on rate change
 	r.broadcastLocked()
 	return r.rate
 }
@@ -96,6 +127,7 @@ func (r *RateController) Resume() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.paused = false
+	r.nextFire = time.Now() // reset schedule on resume to avoid catch-up burst
 	r.broadcastLocked()
 }
 

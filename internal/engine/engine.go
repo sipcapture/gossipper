@@ -2,8 +2,6 @@ package engine
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -229,6 +228,9 @@ type Engine struct {
 	listenerAccept []atomic.Bool
 
 	callRecordsMu sync.Mutex
+
+	// normalizedCache caches normalizeSIPScenarioLineIndent results per template text.
+	normalizedCache sync.Map
 }
 
 func New(cfg Config) *Engine {
@@ -643,7 +645,7 @@ func (e *Engine) runClientShared(ctx context.Context) error {
 	}
 
 	registry := newMailboxRegistry(e.log)
-	go registry.dispatch(shared.Receive())
+	registry.dispatchParallel(shared.Receive(), dispatchWorkers())
 
 	e.perSocketMode.Store(true)
 	e.sem.Resize(e.callConcurrencyLimit(true))
@@ -795,7 +797,7 @@ func (e *Engine) runClientPerSourceIP(ctx context.Context) error {
 			return fmt.Errorf("transport ui failed to bind client socket on %s: %w", bindAddr, err)
 		}
 		sharedByIP[sourceIP] = shared
-		go registry.dispatch(shared.Receive())
+		registry.dispatchParallel(shared.Receive(), dispatchWorkers())
 	}
 	defer closeSharedSocketPool(sharedByIP)
 
@@ -2071,6 +2073,9 @@ func (e *Engine) executeCall(
 
 	var (
 		lastSent         []byte
+		lastSentBranch   string // cached Via branch of lastSent (avoids re-parse)
+		lastSentMethod   string // cached CSeq method of lastSent
+		lastSentCSeqNum  int    // cached CSeq sequence number of lastSent
 		lastRetrans      time.Duration
 		inviteStartedAt  time.Time
 		inviteLatencySet bool
@@ -2082,7 +2087,17 @@ func (e *Engine) executeCall(
 		// INVITE 200 OK arrives (indicating our ACK was lost).
 		inviteACK       []byte
 		inviteBranch    string
+		// Per-call RNG avoids global randomMu contention under high CPS.
+		callRandom      = mrand.New(mrand.NewSource(time.Now().UnixNano() + int64(callNumber)))
 	)
+	// Drain pending messages on exit so pooled *sip.Message objects are
+	// returned promptly, reducing GC pressure and peak memory.
+	defer func() {
+		for _, m := range pending {
+			sip.PutMessage(m)
+		}
+		pending = nil
+	}()
 	currentUserID := userID(callNumber, e.cfg.Users)
 	renderCtx.Users = e.cfg.Users
 	renderCtx.UserID = currentUserID
@@ -2177,9 +2192,7 @@ func (e *Engine) executeCall(
 		case scenario.CommandPause, scenario.CommandTimeWait:
 			var pause time.Duration
 			if cmd.Pause != nil {
-				e.randomMu.Lock()
-				pause = cmd.Pause.Sample(e.random)
-				e.randomMu.Unlock()
+				pause = cmd.Pause.Sample(callRandom)
 			}
 			if pause <= 0 {
 				pause = e.cfg.DefaultPause
@@ -2201,13 +2214,18 @@ func (e *Engine) executeCall(
 			lastRetrans = cmd.Retrans
 
 			parsed := sip.GetMessage()
-			defer sip.PutMessage(parsed)
 			if err := sip.ParseInto(parsed, lastSent); err == nil {
+				// Cache branch, method, and CSeq number to avoid re-parsing in stash/match callbacks.
+				if branch, ok := sip.ViaBranch(parsed.Headers); ok {
+					lastSentBranch = branch
+				}
+				if num, meth, ok := sip.ParseCSeq(parsed.Headers); ok {
+					lastSentMethod = strings.TrimSpace(meth)
+					lastSentCSeqNum = num
+				}
 				if strings.EqualFold(parsed.Method, "INVITE") {
 					inviteStartedAt = time.Now()
-					if branch, ok := sip.ViaBranch(parsed.Headers); ok {
-						inviteBranch = branch
-					}
+					inviteBranch = lastSentBranch
 				} else if strings.EqualFold(parsed.Method, "ACK") && inviteBranch != "" {
 					// Store ACK for automatic retransmission on INVITE 200
 					// retransmits (RFC 3261 §13.2.2.4).
@@ -2215,6 +2233,7 @@ func (e *Engine) executeCall(
 					copy(inviteACK, lastSent)
 				}
 			}
+			sip.PutMessage(parsed)
 		case scenario.CommandSendCmd:
 			rawCmd := normalizeSIPScenarioLineIndent(cmd.SendText)
 			cmdRenderCtx := renderCtx
@@ -2261,7 +2280,7 @@ func (e *Engine) executeCall(
 						// response may be waiting).
 						hasFinal := false
 						for i, m := range pending {
-							if sip.MatchRecv(*m, cmd.RecvReq, cmd.RecvResp, lastSent) {
+							if sip.MatchRecvCached(*m, cmd.RecvReq, cmd.RecvResp, lastSentCSeqNum, lastSentMethod) {
 								pending = append(pending[:i], pending[i+1:]...)
 								return m, true, nil
 							}
@@ -2289,7 +2308,18 @@ func (e *Engine) executeCall(
 				unexpMainIndex = idx
 			}
 			var unexpectedForMain *sip.Message
-			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, send, retransmit, recvTimeout, func(m *sip.Message, fromPending bool) error {
+			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, lastSentBranch, lastSentMethod, lastSentCSeqNum, send, retransmit, recvTimeout, func(m *sip.Message, fromPending bool) error {
+				// RFC 3261 §15.1.2: auto-respond 200 OK to incoming BYE
+				// requests that don't match the current recv command.
+				// This handles the "glare" case where both sides send BYE,
+				// and prevents retransmission storms from the remote side.
+				if m.Method == "BYE" && m.StatusCode == 0 && cmd.RecvReq != "BYE" {
+					_ = send(sip.BuildResponse(*m, 200, "OK"))
+					if !fromPending {
+						sip.PutMessage(m)
+					}
+					return nil
+				}
 				if fromPending {
 					if cmd.Optional {
 						// Re-queue back so subsequent optional recvs can try it.
@@ -2298,13 +2328,13 @@ func (e *Engine) executeCall(
 					}
 					// RFC 3261 §13.2.2.4: resend ACK for retransmitted INVITE
 					// 200 from a prior transaction, then discard.
-					if m.StatusCode > 0 && !sip.ResponseMatchesTransaction(*m, lastSent) {
+					if m.StatusCode > 0 && !sip.ResponseMatchesCached(*m, lastSentBranch, lastSentMethod) {
 						if m.StatusCode == 200 && len(inviteACK) > 0 && inviteBranch != "" {
 							if branch, ok := sip.ViaBranch(m.Headers); ok && strings.EqualFold(branch, inviteBranch) {
 								_ = send(inviteACK)
 							}
 						}
-						sip.PutMessage(m)
+						// Don't PutMessage here; waitForMatch frees fromPending messages.
 						return nil
 					}
 					// For mandatory recv, a stashed final response (>= 200) with
@@ -2313,7 +2343,7 @@ func (e *Engine) executeCall(
 					// Only abort if the response belongs to the current transaction
 					// (RFC 3261 §17.1.3 branch match); stale retransmissions from
 					// prior transactions are simply discarded.
-					if m.StatusCode >= 200 && unexpMainIndex < 0 && sip.ResponseMatchesTransaction(*m, lastSent) {
+					if m.StatusCode >= 200 && unexpMainIndex < 0 && sip.ResponseMatchesCached(*m, lastSentBranch, lastSentMethod) {
 						e.traceUnexpectedSIP(callNumber, cmd, *m)
 						e.traceCountUnexpected(cmd.Index)
 						sawUnexpectedSIP = true
@@ -2322,7 +2352,7 @@ func (e *Engine) executeCall(
 					}
 					return nil
 				}
-				if cmd.RecvResp != "" && sip.ResponseStatusMatches(*m, cmd.RecvResp) && !sip.MatchRecv(*m, cmd.RecvReq, cmd.RecvResp, lastSent) {
+				if cmd.RecvResp != "" && sip.ResponseStatusMatches(*m, cmd.RecvResp) && !sip.MatchRecvCached(*m, cmd.RecvReq, cmd.RecvResp, lastSentCSeqNum, lastSentMethod) {
 					e.emitRecvCSeqReject(callNumber, renderCtx.CallID, cmd, m, lastSent)
 				}
 				// Responses from prior transactions (RFC 3261 §17.1.3 branch
@@ -2330,12 +2360,18 @@ func (e *Engine) executeCall(
 				// discard them rather than logging as unexpected.
 				// If it's a retransmitted INVITE 200 and we have a stored ACK,
 				// resend the ACK per RFC 3261 §13.2.2.4.
-				if m.StatusCode > 0 && !sip.ResponseMatchesTransaction(*m, lastSent) {
+				if m.StatusCode > 0 && !sip.ResponseMatchesCached(*m, lastSentBranch, lastSentMethod) {
 					if m.StatusCode == 200 && len(inviteACK) > 0 && inviteBranch != "" {
 						if branch, ok := sip.ViaBranch(m.Headers); ok && strings.EqualFold(branch, inviteBranch) {
 							_ = send(inviteACK)
 						}
 					}
+					sip.PutMessage(m)
+					return nil
+				}
+				// Late provisional (1xx) for the current transaction is normal
+				// under load — discard silently rather than marking as unexpected.
+				if m.StatusCode > 0 && m.StatusCode < 200 && sip.ResponseMatchesCached(*m, lastSentBranch, lastSentMethod) {
 					sip.PutMessage(m)
 					return nil
 				}
@@ -2357,8 +2393,8 @@ func (e *Engine) executeCall(
 				// Only abort if the response belongs to the current transaction
 				// (branch match per §17.1.3); stale retransmissions from prior
 				// transactions are silently discarded.
-				if !cmd.Optional && m.StatusCode >= 200 && sip.ResponseMatchesTransaction(*m, lastSent) {
-					pending = append(pending, m)
+				// Don't append to pending — waitForMatch frees msg on stash error.
+				if !cmd.Optional && m.StatusCode >= 200 && sip.ResponseMatchesCached(*m, lastSentBranch, lastSentMethod) {
 					return fmt.Errorf("received unexpected %d response (expected %s): %w",
 						m.StatusCode, strings.TrimSpace(cmd.RecvResp), errUnexpectedFinalAbort)
 				}
@@ -2442,7 +2478,7 @@ func (e *Engine) executeCall(
 			callKey, msg, err := e.waitForCommand(ctx, waitKey, "", cmd.CmdSrc, recvTimeout)
 			if err != nil {
 				if cmd.Optional {
-					index = resolveNext(index, cmd, store, e.random)
+					index = resolveNext(index, cmd, store, callRandom)
 					continue
 				}
 				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
@@ -2486,7 +2522,7 @@ func (e *Engine) executeCall(
 
 		recordCommandStats(cmd)
 		finishRTD(cmd.StopRTD)
-		index = resolveNext(index, cmd, store, e.random)
+		index = resolveNext(index, cmd, store, callRandom)
 	}
 
 	success = true
@@ -2665,6 +2701,9 @@ func (e *Engine) waitForMatch(
 	receive func(context.Context) (*sip.Message, bool, error),
 	cmd scenario.Command,
 	lastSent []byte,
+	lastSentBranch string,
+	lastSentMethod string,
+	lastSentCSeqNum int,
 	send func([]byte) error,
 	retrans time.Duration,
 	timeout time.Duration,
@@ -2672,18 +2711,35 @@ func (e *Engine) waitForMatch(
 ) (*sip.Message, error) {
 	deadline := time.Now().Add(timeout)
 	finalResponseSeen := false
+
+	// Create a single parent context bounded by the overall deadline.
+	// For retransmission, we cancel and re-derive per iteration to keep
+	// the receive function responsive to the retrans interval.
+	outerCtx, outerCancel := context.WithDeadline(ctx, deadline)
+	defer outerCancel()
+
 	for {
-		waitFor := time.Until(deadline)
-		if waitFor <= 0 {
+		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("sip recv: exceeded total wait %v (request=%q response=%q): %w",
 				timeout, strings.TrimSpace(cmd.RecvReq), strings.TrimSpace(cmd.RecvResp), context.DeadlineExceeded)
 		}
 
-		receiveCtx, cancel := context.WithTimeout(ctx, minDuration(waitFor, nextRetrans(retrans)))
+		// When retransmission is active, bound each receive attempt to
+		// the retrans interval. Otherwise use the outer deadline context
+		// directly to avoid per-iteration context allocation.
+		var receiveCtx context.Context
+		var cancel context.CancelFunc
+		if retrans > 0 && !finalResponseSeen {
+			receiveCtx, cancel = context.WithTimeout(outerCtx, retrans)
+		} else {
+			receiveCtx = outerCtx
+			cancel = func() {}
+		}
 		msg, fromPending, err := receive(receiveCtx)
 		cancel()
+
 		if err == nil {
-			if sip.MatchRecv(*msg, cmd.RecvReq, cmd.RecvResp, lastSent) {
+			if sip.MatchRecvCached(*msg, cmd.RecvReq, cmd.RecvResp, lastSentCSeqNum, lastSentMethod) {
 				return msg, nil
 			}
 			if stash != nil {
@@ -2696,7 +2752,7 @@ func (e *Engine) waitForMatch(
 			// §17.1.1.2, but only for the current transaction (branch match
 			// per §17.1.3) — stale retransmissions must not suppress
 			// retransmissions for the active transaction.
-			if msg.StatusCode >= 200 && sip.ResponseMatchesTransaction(*msg, lastSent) {
+			if msg.StatusCode >= 200 && sip.ResponseMatchesCached(*msg, lastSentBranch, lastSentMethod) {
 				finalResponseSeen = true
 			}
 			if cmd.Optional {
@@ -2756,26 +2812,6 @@ func resolveNext(index int, cmd scenario.Command, vars *varStore, rnd *mrand.Ran
 		return next
 	}
 	return cmd.NextIndex
-}
-
-func minDuration(a, b time.Duration) time.Duration {
-	if a <= 0 {
-		return b
-	}
-	if b <= 0 {
-		return a
-	}
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func nextRetrans(value time.Duration) time.Duration {
-	if value <= 0 {
-		return 0
-	}
-	return value
 }
 
 // clampMediaPort wraps a computed media port into the valid [1024, 65535] range.
@@ -2871,9 +2907,22 @@ func (e *Engine) sourceIPForCall(callNumber int) string {
 }
 
 // sipMailboxCap is the per-call buffer for demuxed UDP/TCP SIP messages.
-// Sized to absorb bursts (retransmissions, provisional floods) under high CPS
-// without dropping messages on the dispatch hot path.
-const sipMailboxCap = 512
+// Sized to absorb retransmission bursts without dropping while keeping
+// memory bounded at high concurrency (1000 calls × 128 slots = manageable).
+const sipMailboxCap = 128
+
+// dispatchWorkers returns the number of parallel dispatch goroutines to use.
+// Multiple workers prevent a single ParseInto from blocking all message delivery.
+func dispatchWorkers() int {
+	n := runtime.GOMAXPROCS(0)
+	if n < 2 {
+		return 2
+	}
+	if n > 8 {
+		return 8
+	}
+	return n
+}
 
 // mailboxRegistry routes incoming SIP packets to per-call channels using
 // sync.Map for lock-free reads on the dispatch hot path.
@@ -2901,7 +2950,91 @@ func (r *mailboxRegistry) register(callID string) chan *sip.Message {
 }
 
 func (r *mailboxRegistry) unregister(callID string) {
-	r.mailboxes.Delete(sip.NormalizeCallID(callID))
+	norm := sip.NormalizeCallID(callID)
+	if v, loaded := r.mailboxes.LoadAndDelete(norm); loaded {
+		ch := v.(chan *sip.Message)
+		// Drain any buffered messages so pooled objects are returned promptly.
+		for {
+			select {
+			case m := <-ch:
+				if m != nil {
+					sip.PutMessage(m)
+				}
+			default:
+				return
+			}
+		}
+	}
+}
+
+// dispatchParallel launches n sharded dispatch goroutines. Messages are
+// routed to a shard based on Call-ID hash to preserve per-call ordering.
+// Shard sends are non-blocking to prevent one slow shard from stalling all.
+func (r *mailboxRegistry) dispatchParallel(incoming <-chan transport.Packet, n int) {
+	if n < 2 {
+		go r.dispatch(incoming)
+		return
+	}
+	shards := make([]chan transport.Packet, n)
+	for i := range shards {
+		shards[i] = make(chan transport.Packet, 1024)
+		go r.dispatch(shards[i])
+	}
+	go func() {
+		for packet := range incoming {
+			shard := callIDShard(packet.Data, n)
+			select {
+			case shards[shard] <- packet:
+			default:
+				// Shard full — drop packet rather than block all shards.
+				packet.Release()
+			}
+		}
+		for _, ch := range shards {
+			close(ch)
+		}
+	}()
+}
+
+// callIDShard extracts a hash of the Call-ID from raw SIP bytes for sharding.
+// Uses a fast byte scan — no allocation. Falls back to shard 0 on failure.
+func callIDShard(raw []byte, n int) int {
+	// Scan for "Call-ID:" or "i:" (compact form) header
+	var value []byte
+	for i := 0; i < len(raw)-8; i++ {
+		if raw[i] != '\n' {
+			continue
+		}
+		line := raw[i+1:]
+		if len(line) >= 9 && (line[0] == 'C' || line[0] == 'c') &&
+			(line[1] == 'a' || line[1] == 'A') &&
+			(line[2] == 'l' || line[2] == 'L') &&
+			(line[3] == 'l' || line[3] == 'L') &&
+			line[4] == '-' &&
+			(line[5] == 'I' || line[5] == 'i') &&
+			(line[6] == 'D' || line[6] == 'd') &&
+			line[7] == ':' {
+			value = line[8:]
+		} else if len(line) >= 3 && (line[0] == 'i' || line[0] == 'I') && line[1] == ':' {
+			value = line[2:]
+		}
+		if value != nil {
+			break
+		}
+	}
+	if value == nil {
+		return 0
+	}
+	// Simple FNV-1a hash of the Call-ID value up to CR/LF
+	var h uint32 = 2166136261
+	for _, b := range value {
+		if b == '\r' || b == '\n' {
+			break
+		}
+		h ^= uint32(b)
+		h *= 16777619
+	}
+	return int(h % uint32(n))
 }
 
 func (r *mailboxRegistry) dispatch(incoming <-chan transport.Packet) {
@@ -3023,12 +3156,12 @@ func (r *mailboxRegistry) _dispatchMessageOld(msg sip.Message) {
 	}
 }
 
+// callIDCounter provides unique call IDs without crypto/rand syscall overhead.
+var callIDCounter atomic.Uint64
+
 func newCallID(callNumber int) string {
-	buf := make([]byte, 8)
-	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("gossip-%d-%d", callNumber, time.Now().UnixNano())
-	}
-	return fmt.Sprintf("gossip-%d-%s", callNumber, hex.EncodeToString(buf))
+	seq := callIDCounter.Add(1)
+	return fmt.Sprintf("gossip-%d-%x-%x", callNumber, seq, time.Now().UnixNano()&0xFFFFFFFF)
 }
 
 func randomBranch(callNumber, messageIndex int) string {
@@ -3868,6 +4001,9 @@ func copyHeaders(m map[string][]string) map[string][]string {
 	}
 	out := make(map[string][]string, len(m))
 	for k, v := range m {
+		if len(v) == 0 {
+			continue // skip stale entries from pool reuse
+		}
 		out[k] = append([]string(nil), v...)
 	}
 	return out
