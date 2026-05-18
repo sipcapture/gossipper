@@ -159,6 +159,10 @@ type Config struct {
 	// InjectionFile is the CLI -inf CSV path; used as default for [fieldN] without file=.
 	InjectionFile string
 
+	// Keys holds user-defined keyword replacements from -key name value.
+	// Merged into ExtraKeywords so [name] expands to value in the scenario.
+	Keys map[string]string
+
 	// Log is the structured event logger used for SIP/call/auth events.
 	// nil is treated as eventlog.Noop().
 	Log  eventlog.Logger
@@ -2085,6 +2089,9 @@ func (e *Engine) executeCall(
 		renderCtx.ExtraKeywords["contact_transport"] = "WSS"
 	}
 	applySIPIdentityKeywords(renderCtx.ExtraKeywords, e.cfg, localIP, localPort)
+	for k, v := range e.cfg.Keys {
+		renderCtx.ExtraKeywords[k] = v
+	}
 	currentRemoteHost := remoteHost
 	currentRemoteIP := remoteHost
 	currentRemotePort := remotePort

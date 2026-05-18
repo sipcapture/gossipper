@@ -185,6 +185,10 @@ type Config struct {
 	SipProvider     string
 	SipExtraHeaders []string
 
+	// Keys holds user-defined keyword replacements from -key name value (SIPp-compatible).
+	// In the scenario, [name] expands to value.
+	Keys map[string]string
+
 	// RecordWAVDir enables automatic per-call WAV capture (decoded remote G.711); see docs/media-roadmap.md.
 	RecordWAVDir    string
 	RecordWAVDuplex bool
@@ -325,6 +329,11 @@ func Parse(args []string) (Config, error) {
 		return Config{}, err
 	}
 
+	normalizedArgs, userKeys, err := extractKeyArgs(normalizedArgs)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := DefaultConfig()
 	var profileTotalCallsExplicit bool
 	if meta.ServerFlatConfigPath != "" {
@@ -353,6 +362,9 @@ func Parse(args []string) (Config, error) {
 	}
 	cfg.InfIndexFile = infIndexFile
 	cfg.InfIndexField = infIndexField
+	if len(userKeys) > 0 {
+		cfg.Keys = userKeys
+	}
 
 	fs := flag.NewFlagSet("gossipper", flag.ContinueOnError)
 	fs.SetOutput(os.Stdout)
@@ -951,6 +963,33 @@ func extractInfIndexArgs(args []string) ([]string, string, int, error) {
 		return nil, "", 0, errors.New("infindex field must be greater than or equal to zero")
 	}
 	return normalized, fileName, field, nil
+}
+
+// extractKeyArgs extracts -key name value pairs from args (SIPp-compatible).
+// Each -key consumes the next two positional arguments and stores them in the
+// returned map. The remaining args (without -key triplets) are returned.
+func extractKeyArgs(args []string) ([]string, map[string]string, error) {
+	normalized := make([]string, 0, len(args))
+	keys := make(map[string]string)
+
+	for idx := 0; idx < len(args); idx++ {
+		arg := args[idx]
+		if arg != "-key" && arg != "--key" {
+			normalized = append(normalized, arg)
+			continue
+		}
+		if idx+2 >= len(args) {
+			return nil, nil, errors.New("-key requires two arguments: -key <name> <value>")
+		}
+		name := args[idx+1]
+		value := args[idx+2]
+		if name == "" {
+			return nil, nil, errors.New("-key name must not be empty")
+		}
+		keys[name] = value
+		idx += 2
+	}
+	return normalized, keys, nil
 }
 
 func applyServerModeIfEnabled(cfg *Config, flagProvided map[string]struct{}) error {

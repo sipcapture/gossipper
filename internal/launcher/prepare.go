@@ -132,6 +132,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		CommandPeers:     cfg.CommandPeers,
 		UISourceIPs:      append([]string(nil), cfg.UISourceIPs...),
 		InjectionFile:    cfg.InjectionFile,
+		Keys:             cfg.Keys,
 		Role:             roleFromScenario(sc),
 		PCAPLinkLayer:    cfg.PCAPLinkLayer,
 		SipFrom:          cfg.SipFrom,

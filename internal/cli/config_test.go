@@ -1652,3 +1652,29 @@ func TestParseServerSubcommandRejectsLegacyConfigClientFlag(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestParseKeyFlag(t *testing.T) {
+sf := filepath.Join(t.TempDir(), "s.xml")
+os.WriteFile(sf, []byte(`<?xml version="1.0"?><scenario name="test"><send><![CDATA[INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0]]></send></scenario>`), 0o644)
+
+cfg, err := Parse([]string{"-sf", sf, "-rsa", "127.0.0.1:5060", "-key", "myvar", "hello", "-key", "other", "world"})
+if err != nil {
+t.Fatalf("Parse: %v", err)
+}
+if cfg.Keys["myvar"] != "hello" {
+t.Errorf("Keys[myvar]=%q, want %q", cfg.Keys["myvar"], "hello")
+}
+if cfg.Keys["other"] != "world" {
+t.Errorf("Keys[other]=%q, want %q", cfg.Keys["other"], "world")
+}
+}
+
+func TestParseKeyFlagMissingValue(t *testing.T) {
+_, err := Parse([]string{"-sf", "/tmp/x.xml", "-rsa", "127.0.0.1:5060", "-key", "name"})
+if err == nil {
+t.Fatal("expected error for -key with missing value")
+}
+if !strings.Contains(err.Error(), "-key requires two arguments") {
+t.Fatalf("unexpected error: %v", err)
+}
+}
