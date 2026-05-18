@@ -13,7 +13,10 @@ import (
 )
 
 const (
-	maxUDPDatagram = 65535
+	// maxUDPSIPDatagram is the maximum expected SIP message size over UDP.
+	// SIP messages rarely exceed MTU (1500 bytes); 4096 covers jumbo or
+	// multi-line SDP while using 16x less memory than the theoretical UDP max.
+	maxUDPSIPDatagram = 4096
 	// inboundChanDepth is the base depth of SharedUDP Receive channel per receiver slot (scaled below).
 	inboundChanDepth = 512
 	maxInboundChan   = 8192
@@ -45,7 +48,7 @@ func (p *Packet) Release() {
 
 // udpBufPool reuses read buffers to reduce GC pressure under high packet rates.
 var udpBufPool = sync.Pool{
-	New: func() any { return make([]byte, maxUDPDatagram) },
+	New: func() any { return make([]byte, maxUDPSIPDatagram) },
 }
 
 // SharedUDP is a UDP socket shared by multiple logical SIP flows (gossipper UAC/UAS).
@@ -57,6 +60,7 @@ type SharedUDP struct {
 	incomingOnce  sync.Once
 	closed        atomic.Bool
 	receiverCount int
+	sendIdx       atomic.Uint64 // round-robin index for send distribution
 }
 
 // NewSharedUDP binds localAddr and starts ingress goroutines. Parallelism is controlled by
@@ -156,7 +160,7 @@ func (s *SharedUDP) readLoop(conn *net.UDPConn) {
 			s.shutdownIncoming()
 			return
 		}
-		if n <= 0 || n > maxUDPDatagram {
+		if n <= 0 || n > maxUDPSIPDatagram {
 			udpBufPool.Put(buffer)
 			continue
 		}
@@ -190,7 +194,9 @@ func (s *SharedUDP) Send(payload []byte, addr *net.UDPAddr) error {
 	if len(s.conns) == 0 {
 		return errors.New("transport: UDP not initialized")
 	}
-	_, err := s.conns[0].WriteToUDP(payload, addr)
+	// Round-robin across sockets to reduce kernel lock contention.
+	idx := s.sendIdx.Add(1) % uint64(len(s.conns))
+	_, err := s.conns[idx].WriteToUDP(payload, addr)
 	return err
 }
 
