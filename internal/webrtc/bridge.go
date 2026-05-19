@@ -1,27 +1,3 @@
-// Package webrtc wraps pion/webrtc/v4 in a thin SIP-friendly bridge.
-//
-// Status: experimental. The bridge is intentionally decoupled from the SIP
-// engine so it can be developed and tested in isolation; the engine wiring
-// (per-call PeerConnection bound to a MediaSession) is the next step.
-//
-// Design constraints:
-//   - Single audio track per peer (G.711 PCMA at 8 kHz mono). Opus is plumbed
-//     through the codec list but the engine produces μ-law / a-law today so
-//     PCMA is what we exercise.
-//   - DTLS-SRTP, ICE-lite-friendly defaults. ICE servers can be provided by
-//     the caller (e.g. from a Server profile UI block).
-//   - No SDP munging — pion produces a standards-compliant answer. The SIP
-//     scenario must accept the answer verbatim.
-//
-// Typical use:
-//
-//	b, err := webrtc.NewBridge(webrtc.Options{ICEServers: []string{"stun:stun.l.google.com:19302"}})
-//	if err != nil { return err }
-//	defer b.Close()
-//	answer, err := b.Answer(offerSDP)
-//	... // ship answer over SIP / 200 OK
-//	b.OnPCMA(func(payload []byte) { /* feed engine media session */ })
-//	for _, frame := range outgoingPCMA { _ = b.WritePCMA(frame, 20*time.Millisecond) }
 package webrtc
 
 import (
@@ -54,8 +30,12 @@ type Options struct {
 	// are offered. Default false → PCMU (payload 0).
 	PrefersPCMA bool
 	// ICEGatherTimeout bounds how long Answer/CreateOffer wait for ICE
-	// gathering. Zero defaults to 5s.
+	// gathering when ICETrickleFullGather is true. Zero defaults to 5s.
 	ICEGatherTimeout time.Duration
+	// ICETrickleFullGather waits for full ICE gathering before returning SDP
+	// (legacy behaviour). Default false → trickle: return after first local
+	// candidates or a short grace window.
+	ICETrickleFullGather bool
 	// Logger is a *log/slog.Logger-like hook; nil means silent.
 	Logger Logger
 }
@@ -74,7 +54,9 @@ type Bridge struct {
 	inboundMu        sync.RWMutex
 	inboundCB        func(payload []byte)
 	codec            string // "PCMU" or "PCMA"
+	opts             Options
 	iceGatherTimeout time.Duration
+	trickleFullGather bool
 	iceServers       []string
 	iceAuthMode      string
 	closed           chan struct{}
@@ -84,6 +66,11 @@ type Bridge struct {
 	connectionState  string
 	selectedLocal    string
 	selectedRemote   string
+	localCandidateCount int
+	localCandidates     []*webrtc.ICECandidate
+	remoteTrickleAdded  int
+	turnRefreshCount    int
+	turnCredExpires     int64
 }
 
 // NewBridge spins up a PeerConnection ready to answer an offer.
@@ -125,17 +112,29 @@ func NewBridge(opts Options) (*Bridge, error) {
 	}
 
 	b := &Bridge{
-		pc:               pc,
-		outbound:         outbound,
-		codec:            codec,
-		iceGatherTimeout: gatherTimeout(opts),
-		iceServers:       append([]string(nil), opts.ICEServers...),
-		iceAuthMode:      authMode(opts),
-		closed:           make(chan struct{}),
-		gatheringState:   pc.ICEGatheringState().String(),
-		connectionState:  pc.ICEConnectionState().String(),
+		pc:                pc,
+		outbound:          outbound,
+		codec:             codec,
+		opts:              opts,
+		iceGatherTimeout:  gatherTimeout(opts),
+		trickleFullGather: opts.ICETrickleFullGather,
+		iceServers:        append([]string(nil), opts.ICEServers...),
+		iceAuthMode:       authMode(opts),
+		closed:            make(chan struct{}),
+		gatheringState:    pc.ICEGatheringState().String(),
+		connectionState:   pc.ICEConnectionState().String(),
 	}
 
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			return
+		}
+		cCopy := c
+		b.stateMu.Lock()
+		b.localCandidateCount++
+		b.localCandidates = append(b.localCandidates, cCopy)
+		b.stateMu.Unlock()
+	})
 	pc.OnICEGatheringStateChange(func(s webrtc.ICEGatheringState) {
 		b.stateMu.Lock()
 		b.gatheringState = s.String()
@@ -155,12 +154,11 @@ func NewBridge(opts Options) (*Bridge, error) {
 		go b.consumeRemoteTrack(remote)
 	})
 
+	b.startTURNRefreshLoop()
 	return b, nil
 }
 
 func registerAudioCodecs(m *webrtc.MediaEngine) error {
-	// Standard G.711 set; payload types follow IANA defaults that SIP scenarios
-	// expect to see in the answer.
 	codecs := []webrtc.RTPCodecParameters{
 		{
 			RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypePCMU, ClockRate: 8000, Channels: 1},
@@ -186,9 +184,7 @@ func gatherTimeout(opts Options) time.Duration {
 	return 5 * time.Second
 }
 
-// Answer accepts an SDP offer and returns the corresponding answer (also
-// gathered to completion so the returned SDP already contains every ICE
-// candidate — trickle ICE is not used here to keep SIP integration simple).
+// Answer accepts an SDP offer and returns the corresponding answer.
 func (b *Bridge) Answer(offerSDP string) (string, error) {
 	if err := b.pc.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
@@ -200,20 +196,7 @@ func (b *Bridge) Answer(offerSDP string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("webrtc: create answer: %w", err)
 	}
-	gather := webrtc.GatheringCompletePromise(b.pc)
-	if err := b.pc.SetLocalDescription(answer); err != nil {
-		return "", fmt.Errorf("webrtc: set local: %w", err)
-	}
-	select {
-	case <-gather:
-	case <-time.After(b.iceGatherTimeout):
-		return "", errors.New("webrtc: ICE gathering timed out")
-	}
-	final := b.pc.LocalDescription()
-	if final == nil {
-		return "", errors.New("webrtc: no local description")
-	}
-	return final.SDP, nil
+	return b.finishLocalSDP(context.Background(), answer)
 }
 
 // CreateOffer flips the role around: the bridge produces an offer instead of
@@ -223,18 +206,50 @@ func (b *Bridge) CreateOffer(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	gather := webrtc.GatheringCompletePromise(b.pc)
-	if err := b.pc.SetLocalDescription(offer); err != nil {
-		return "", err
+	return b.finishLocalSDP(ctx, offer)
+}
+
+func (b *Bridge) finishLocalSDP(ctx context.Context, desc webrtc.SessionDescription) (string, error) {
+	if err := b.pc.SetLocalDescription(desc); err != nil {
+		return "", fmt.Errorf("webrtc: set local: %w", err)
 	}
-	select {
-	case <-gather:
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case <-time.After(b.iceGatherTimeout):
-		return "", errors.New("webrtc: ICE gathering timed out")
+	if b.trickleFullGather {
+		gather := webrtc.GatheringCompletePromise(b.pc)
+		select {
+		case <-gather:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(b.iceGatherTimeout):
+			return "", errors.New("webrtc: ICE gathering timed out")
+		}
+	} else {
+		deadline := time.Now().Add(trickleFirstCandidateWait)
+		for {
+			b.stateMu.RLock()
+			n := b.localCandidateCount
+			gs := b.gatheringState
+			b.stateMu.RUnlock()
+			if n > 0 || gs == "complete" {
+				break
+			}
+			if time.Now().After(deadline) {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
 	}
-	return b.pc.LocalDescription().SDP, nil
+	final := b.pc.LocalDescription()
+	if final == nil {
+		return "", errors.New("webrtc: no local description")
+	}
+	b.stateMu.RLock()
+	pending := append([]*webrtc.ICECandidate(nil), b.localCandidates...)
+	b.stateMu.RUnlock()
+	return mergeCandidatesIntoSDP(final.SDP, pending), nil
 }
 
 // AcceptAnswer completes the offer-side handshake.
@@ -283,7 +298,7 @@ func (b *Bridge) consumeRemoteTrack(remote *webrtc.TrackRemote) {
 		if cb != nil && len(pkt.Payload) > 0 {
 			cb(pkt.Payload)
 		}
-		_ = pkt // shut go vet up about pkt being a *rtp.Packet
+		_ = pkt
 	}
 }
 
@@ -305,10 +320,19 @@ func (b *Bridge) ICEDiagnostics() map[string]any {
 	b.stateMu.RLock()
 	defer b.stateMu.RUnlock()
 	out := map[string]any{
-		"ice_gathering":  b.gatheringState,
-		"ice_connection": b.connectionState,
-		"ice_servers":    len(b.iceServers),
-		"turn_auth":      b.iceAuthMode,
+		"ice_gathering":       b.gatheringState,
+		"ice_connection":      b.connectionState,
+		"ice_servers":         len(b.iceServers),
+		"turn_auth":           b.iceAuthMode,
+		"ice_trickle":         !b.trickleFullGather,
+		"local_candidates":    b.localCandidateCount,
+		"remote_trickle_added": b.remoteTrickleAdded,
+	}
+	if b.turnRefreshCount > 0 {
+		out["turn_refresh_count"] = b.turnRefreshCount
+	}
+	if b.turnCredExpires > 0 {
+		out["turn_cred_expires"] = b.turnCredExpires
 	}
 	if b.selectedLocal != "" {
 		out["selected_local"] = b.selectedLocal
@@ -336,5 +360,4 @@ func (b *Bridge) refreshSelectedCandidatePair() {
 	}
 }
 
-// avoid unused import warning when the pkg is built without tests
 var _ = rtp.Packet{}

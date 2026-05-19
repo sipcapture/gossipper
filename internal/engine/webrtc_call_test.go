@@ -71,6 +71,37 @@ func TestPrepareWebRTCAnswerKeyword(t *testing.T) {
 	}
 }
 
+func TestMaybeTrickleWebRTCFromMessage(t *testing.T) {
+	offerer, err := webrtc.NewBridge(webrtc.Options{PrefersPCMA: true, ICETrickleFullGather: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer offerer.Close()
+	answerer, err := webrtc.NewBridge(webrtc.Options{PrefersPCMA: true, ICETrickleFullGather: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer answerer.Close()
+
+	offerSDP, err := offerer.CreateOffer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	answerSDP, err := answerer.Answer(offerSDP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := &callMedia{wrtc: &webrtcCallMedia{bridge: offerer}}
+	if err := cm.wrtc.acceptAnswer(answerSDP); err != nil {
+		t.Fatal(err)
+	}
+	frag := "SIP/2.0 200 OK\r\nContent-Type: application/trickle-ice+json\r\nContent-Length: 80\r\n\r\n" +
+		`{"candidate":"candidate:1 1 udp 2130706431 192.0.2.1 1234 typ host"}`
+	if err := maybeTrickleWebRTCFromMessage(cm, frag); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPrepareWebRTCOfferKeyword(t *testing.T) {
 	answerer, err := webrtc.NewBridge(webrtc.Options{PrefersPCMA: true})
 	if err != nil {

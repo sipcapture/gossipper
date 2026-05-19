@@ -2454,6 +2454,9 @@ func (e *Engine) executeCall(
 			if err := maybeAcceptWebRTCAnswer(callMedia, msg.Raw); err != nil {
 				return err
 			}
+			if err := maybeTrickleWebRTCFromMessage(callMedia, msg.Raw); err != nil {
+				return err
+			}
 			if cmd.RRS {
 				renderCtx.ExtraKeywords["routes"] = buildRouteHeaders(msg.Headers)
 			}

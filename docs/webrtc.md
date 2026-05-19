@@ -52,7 +52,9 @@ outbound audio track and lets the SIP scenario:
 - **`[contact_transport]`** renders `WSS` when the bridge is active — use in Contact headers (`transport=[contact_transport]`). Keep `[transport]` / `[sip_transport]` for Via (UDP/TCP/TLS signaling).
 - **RTP/RTCP stats**: pion `GetStats()` feeds `media.Stats` and call-record `webrtc` block (`fraction_lost`, `jitter_ms`, `rtp_packets_lost`).
 - **`rtp_stream` synthetic** over WebRTC sends silence frames through `Bridge.WritePCMA` / `WritePCMU`.
-- **`Options.ICEGatherTimeout`** on the bridge (default 5s).
+- **`Options.ICEGatherTimeout`** on the bridge (default 5s) when `ICETrickleFullGather` is enabled.
+- **Trickle ICE (default)**: local offer/answer returns after first host candidates (~400ms grace); remote trickle SDP / `application/trickle-ice+json` ingested on SIP recv.
+- **TURN REST refresh**: coturn ephemeral credentials refreshed mid-call before expiry (`turn_refresh_count` in diagnostics).
 - **Control UI**: job monitor shows a WebRTC diagnostics strip (ICE servers from profile + recent worker log lines).
 - PCAP replay, mic, DTMF, and classic RTP/RTCP stats return `media.ErrUnsupportedOverWebRTC` on the WebRTC path.
 
@@ -117,11 +119,20 @@ turns:turn.example.com:5349?transport=tcp
 
 STUN URLs never receive credentials. TURN URLs pick inline URL creds first, then REST, then static profile creds.
 
+**Trickle ICE**
+
+- Default: bridge returns SDP quickly with initial host candidates and `a=ice-options:trickle`; STUN/TURN candidates continue in background.
+- Remote updates: SIP bodies with candidate-only SDP or `Content-Type: application/trickle-ice+json` are applied during the call (same JSON format as classic RTP path in `internal/media`).
+- Legacy full-gather: pass `ICETrickleFullGather: true` in bridge options (waits for complete gathering, up to `ICEGatherTimeout`).
+
+**TURN REST refresh**
+
+When `ice_auth_secret` is set, each bridge mints REST credentials at creation and refreshes them automatically before expiry (margin ≈ min(60s, TTL/4)). Diagnostics expose `turn_cred_expires` and `turn_refresh_count`.
+
 ## What is *not* yet wired
 
 - No SDP munging is performed between SIP and WebRTC offers beyond template injection. Scenario authors that need custom SIP SDP headers should still inline bridge output via `[webrtc_offer]` / `[webrtc_answer]`.
-- Trickle ICE is not used — offers/answers wait for full ICE gathering.
-- Short-lived REST credentials are not refreshed mid-call if TTL expires before the dialog ends.
+- Outbound SIP INFO for locally gathered trickle candidates is not automated — publish `[webrtc_trickle]` / scenario-driven INFO if peers need late local candidates.
 
 ## Runtime integration roadmap (Phase 4.2)
 

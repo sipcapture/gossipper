@@ -4,9 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.60] — 2026-05-20
+
 ### Added
 
-- **E2E WebRTC loopback CI**: `scripts/smoke-webrtc-loopback.sh` / `make smoke-webrtc` — UAS+UAC supervisor jobs with builtin `webrtc_uas`/`webrtc_uac`, validates `call_records.jsonl` webrtc block (offer/answer + RTP).
+- **Trickle ICE** on WebRTC bridge: fast local SDP (host candidates + `a=ice-options:trickle`), ingest remote trickle SDP/JSON via `AddRemoteICECandidatesFromBody`, engine hook on SIP recv for ICE fragments.
+- **Mid-call TURN REST refresh**: background credential rotation via `SetConfiguration` before coturn REST expiry; diagnostics `turn_refresh_count`, `turn_cred_expires`.
+
+### Changed
+
+- Default WebRTC gather is trickle-first; set `ICETrickleFullGather` on bridge options for legacy wait-for-complete behaviour.
+- `docs/webrtc.md` updated for trickle and TURN refresh.
 
 ## [0.1.59] — 2026-05-19
 

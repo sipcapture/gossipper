@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	"github.com/sipcapture/gossipper/internal/media"
+	"github.com/sipcapture/gossipper/internal/sip"
 	templ "github.com/sipcapture/gossipper/internal/template"
+	"github.com/sipcapture/gossipper/internal/webrtc"
 )
 
 func prepareWebRTCSendKeywords(ctx context.Context, cm *callMedia, renderCtx *templ.Context, sendTemplate string) error {
@@ -49,6 +51,31 @@ func maybeAcceptWebRTCAnswer(cm *callMedia, raw string) error {
 		return nil
 	}
 	return cm.wrtc.acceptAnswer(body)
+}
+
+func maybeTrickleWebRTCFromMessage(cm *callMedia, raw string) error {
+	if cm == nil || !cm.usesWebRTC() {
+		return nil
+	}
+	body := trickleBodyFromRaw(raw)
+	if body == "" || !webrtc.IsTrickleICEFragment(body) {
+		return nil
+	}
+	_, err := cm.wrtc.bridge.AddRemoteICECandidatesFromBody(body)
+	return err
+}
+
+func trickleBodyFromRaw(raw string) string {
+	msg := sip.GetMessage()
+	defer sip.PutMessage(msg)
+	if err := sip.ParseInto(msg, []byte(raw)); err != nil {
+		return strings.TrimSpace(media.SDPBodyFromRawMessage(raw))
+	}
+	body := strings.TrimSpace(media.EffectiveMediaSDPBody(*msg))
+	if body != "" {
+		return body
+	}
+	return strings.TrimSpace(media.SDPBodyFromRawMessage(raw))
 }
 
 func sipResponseWithSDP(raw string) bool {

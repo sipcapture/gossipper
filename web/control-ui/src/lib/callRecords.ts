@@ -4,6 +4,11 @@ export type CallRecordWebRTC = {
   ice_gathering?: string
   ice_connection?: string
   turn_auth?: string
+  ice_trickle?: boolean
+  local_candidates?: number
+  remote_trickle_added?: number
+  turn_refresh_count?: number
+  turn_cred_expires?: number
   selected_local?: string
   selected_remote?: string
   ice_servers?: number
