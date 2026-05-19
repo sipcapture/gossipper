@@ -22,6 +22,16 @@ func registerEmbeddedControlUI(mux *http.ServeMux) {
 	if !HasEmbeddedControlUI() {
 		return
 	}
+	registerEmbeddedControlUIOnMux(mux)
+}
+
+// RegisterEmbeddedControlUI mounts GET / and /assets/* when a Vite build is
+// embedded (internal/api/webdist). No-op when only .gitkeep is present.
+func RegisterEmbeddedControlUI(mux *http.ServeMux) {
+	registerEmbeddedControlUI(mux)
+}
+
+func registerEmbeddedControlUIOnMux(mux *http.ServeMux) {
 	root, err := fs.Sub(webControlUIDist, "webdist")
 	if err != nil {
 		return

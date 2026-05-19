@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	apiv2 "github.com/sipcapture/gossipper/internal/api/v2"
+	"github.com/sipcapture/gossipper/internal/api"
 	"github.com/sipcapture/gossipper/internal/settingsauth"
 	"github.com/sipcapture/gossipper/internal/supervisor"
 	"github.com/sipcapture/gossipper/internal/uistore"
@@ -88,6 +89,7 @@ Flags:
 		Auth:     auth,
 		Version:  GetShortVersionString(),
 	}).Register(mux)
+	api.RegisterEmbeddedControlUI(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok\n"))
@@ -99,8 +101,12 @@ Flags:
 
 	errCh := make(chan error, 1)
 	go func() {
-		fmt.Fprintf(os.Stderr, "gossipper ui: data-dir=%s listen=%s auth=%s\n",
-			store.Layout().Root, *listen, authLabel(auth))
+		uiNote := "embedded Control UI at /"
+		if !api.HasEmbeddedControlUI() {
+			uiNote = "Control UI NOT embedded (rebuild with: make frontend && go build)"
+		}
+		fmt.Fprintf(os.Stderr, "gossipper ui: data-dir=%s listen=%s auth=%s %s\n",
+			store.Layout().Root, *listen, authLabel(auth), uiNote)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

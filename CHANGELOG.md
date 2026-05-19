@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.46] — 2026-05-19
+
+### Fixed
+
+- **`gossipper ui`**: mount embedded Control UI at **`GET /`** and **`/assets/*`** (same as `gossipper server -api_addr`); log a clear hint when the binary was built without `make frontend`.
+
 ## [0.1.45] — 2026-05-19
 
 ### Added
