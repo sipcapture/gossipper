@@ -1,14 +1,13 @@
 import { useMemo, useState } from 'react'
 
-import { createClient, listClients, startJob, updateClient } from '@/api/v2'
+import { runLoadTest, type LoadTestRunBody } from '@/api/v2'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  buildLoadTestEngine,
   defaultLoadTestDraft,
+  draftToLoadTestRequest,
   INVITE_MEDIA_SCENARIOS,
-  LOAD_WIZARD_PROFILE_ID,
   loadTestCliPreview,
   parseDirector,
   type LoadTestDraft,
@@ -34,46 +33,11 @@ export function LoadTestV2({ bearer, run, onNavigate }: LoadTestV2Props) {
     setDraft((d) => ({ ...d, [key]: value }))
   }
 
-  const upsertWizardProfile = async () => {
-    const dir = parseDirector(draft.director)
-    if (!dir) throw new Error('director')
-    const profile = {
-      id: LOAD_WIZARD_PROFILE_ID,
-      name: 'Load test (wizard)',
-      description: 'Auto-updated by the Load test wizard before each run.',
-      scenario_ref: draft.scenario_id,
-      remote_ip: dir.host,
-      remote_port: dir.port,
-      rate: draft.rate,
-      max_concurrent: draft.max_concurrent,
-      duration_ms: draft.run_timeout_ms > 0 ? draft.run_timeout_ms : undefined,
-      transports: [{ transport: 'u1', local_ip: '0.0.0.0', local_port: 0, enabled: true }],
-    }
-    const existing = await listClients({ bearer })
-    if (existing.clients?.some((c) => c.id === LOAD_WIZARD_PROFILE_ID)) {
-      await updateClient(LOAD_WIZARD_PROFILE_ID, profile, { bearer })
-    } else {
-      await createClient(profile, { bearer })
-    }
-  }
-
   const onStart = () => {
     if (directorError || jobIdError) return
     void run(async () => {
-      await upsertWizardProfile()
-      const job = await startJob(
-        {
-          id: draft.job_id.trim() || undefined,
-          profile_kind: 'client',
-          profile_id: LOAD_WIZARD_PROFILE_ID,
-          scenario_id: draft.scenario_id,
-          record_wav: draft.record_wav || undefined,
-          record_wav_duplex: draft.record_wav && draft.record_wav_duplex ? true : undefined,
-          engine: buildLoadTestEngine(draft),
-        },
-        { bearer },
-      )
-      toast(`Load test job started (${job.id.slice(0, 8)}…)`, 'success')
+      const out = await runLoadTest(draftToLoadTestRequest(draft) as LoadTestRunBody, { bearer })
+      toast(`Load test running in background (${out.job.id.slice(0, 8)}…) — stop via Jobs`, 'success')
       onNavigate?.('jobs')
     })
   }
@@ -83,12 +47,14 @@ export function LoadTestV2({ bearer, run, onNavigate }: LoadTestV2Props) {
       <header className="flex flex-col gap-1">
         <h2 className="text-base font-semibold tracking-tight">Load test</h2>
         <p className="text-muted-foreground text-xs leading-relaxed">
-          Sipstress-style <strong className="text-foreground/90">invite_media</strong> runs via supervisor jobs:
-          director (SBC), call volume, trunk identity, optional WAV capture, and health gates. Results appear under{' '}
+          Sipstress-style <strong className="text-foreground/90">invite_media</strong> runs as a background supervisor
+          job via <code className="text-[11px]">POST /api/v2/load-test/run</code>: director (SBC), call volume, trunk
+          identity, optional WAV capture, and health gates. Poll status or stop under{' '}
           <button type="button" className="text-primary hover:underline" onClick={() => onNavigate?.('jobs')}>
             Jobs
           </button>{' '}
-          and{' '}
+          (<code className="text-[11px]">GET /api/v2/jobs/&#123;id&#125;</code>,{' '}
+          <code className="text-[11px]">POST …/stop</code>). Results also appear in{' '}
           <button type="button" className="text-primary hover:underline" onClick={() => onNavigate?.('reports')}>
             Reports
           </button>{' '}

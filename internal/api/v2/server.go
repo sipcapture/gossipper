@@ -87,6 +87,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v2/jobs/{id}", s.auth(s.handleDeleteJob))
 	mux.HandleFunc("POST /api/v2/jobs/{id}/stop", s.auth(s.handleStopJob))
 	mux.HandleFunc("POST /api/v2/jobs", s.auth(s.handleStartJob))
+	mux.HandleFunc("GET /api/v2/load-test", s.auth(s.handleGetLoadTest))
+	mux.HandleFunc("POST /api/v2/load-test/run", s.auth(s.handleRunLoadTest))
 	mux.HandleFunc("GET /api/v2/tools", s.auth(s.handleListTools))
 	mux.HandleFunc("POST /api/v2/tools/{id}/run", s.auth(s.handleRunTool))
 	mux.HandleFunc("GET /api/v2/jobs/{id}/recordings", s.auth(s.handleListRecordings))

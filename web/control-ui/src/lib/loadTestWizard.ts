@@ -109,6 +109,28 @@ export function buildLoadTestEngine(draft: LoadTestDraft): Record<string, unknow
   return engine
 }
 
+/** Maps wizard form state to POST /api/v2/load-test/run body. */
+export function draftToLoadTestRequest(draft: LoadTestDraft): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    director: draft.director.trim(),
+    scenario_id: draft.scenario_id,
+    total_calls: draft.total_calls,
+    rate: draft.rate,
+    max_concurrent: draft.max_concurrent,
+    health_enabled: draft.health_enabled,
+    health_min_success_ratio: draft.health_min_success_ratio,
+    health_max_failed_calls: draft.health_max_failed_calls,
+  }
+  if (draft.job_id.trim()) body.id = draft.job_id.trim()
+  if (draft.run_timeout_ms > 0) body.run_timeout_ms = draft.run_timeout_ms
+  if (draft.sip_from.trim()) body.sip_from = draft.sip_from.trim()
+  if (draft.sip_pai.trim()) body.sip_pai = draft.sip_pai.trim()
+  if (draft.sip_provider.trim()) body.sip_provider = draft.sip_provider.trim()
+  if (draft.record_wav) body.record_wav = true
+  if (draft.record_wav && draft.record_wav_duplex) body.record_wav_duplex = true
+  return body
+}
+
 export function loadTestCliPreview(draft: LoadTestDraft): string {
   const dir = parseDirector(draft.director)
   const rsa = dir ? `${dir.host}:${dir.port}` : draft.director

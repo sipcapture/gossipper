@@ -359,6 +359,36 @@ export const runTool = (
     opts,
   )
 
+export type LoadTestRunBody = {
+  id?: string
+  director: string
+  scenario_id?: string
+  total_calls: number
+  rate: number
+  max_concurrent: number
+  run_timeout_ms?: number
+  sip_from?: string
+  sip_pai?: string
+  sip_provider?: string
+  record_wav?: boolean
+  record_wav_duplex?: boolean
+  health_enabled?: boolean
+  health_min_success_ratio?: number
+  health_max_failed_calls?: number
+}
+
+export type LoadTestSchema = {
+  scenarios: string[]
+  defaults: Record<string, unknown>
+  lifecycle: Record<string, string>
+}
+
+export const getLoadTestSchema = (opts: Opts) =>
+  request<LoadTestSchema>('GET', '/load-test', undefined, opts)
+
+export const runLoadTest = (body: LoadTestRunBody, opts: Opts) =>
+  request<{ job: Job; async: boolean; message: string }>('POST', '/load-test/run', body, opts)
+
 // Per-profile shortcuts. Body fields mirror startJob() minus profile_id /
 // profile_kind which are taken from the URL.
 export const startServerProfile = (

@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.48] — 2026-05-19
+
+### Added
+
+- **Load test API**: `GET /api/v2/load-test` (schema/defaults) and `POST /api/v2/load-test/run` — starts a sipstress-style `invite_media` worker in the background (`202 Accepted` + job id). Status/stop via existing `GET/POST /api/v2/jobs/{id}` endpoints.
+- **`internal/loadtest`**: shared server-side entry used by the API and admin UI wizard (`UpsertWizardProfile`, `Start`).
+
+### Changed
+
+- **Load test wizard** calls `POST /api/v2/load-test/run` instead of client upsert + generic `POST /jobs`.
+
 ## [0.1.47] — 2026-05-19
 
 ### Changed
