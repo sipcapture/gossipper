@@ -157,14 +157,19 @@ func (a *Auth) Login(ctx context.Context, username, password string) (token stri
 	if err != nil {
 		return "", 0, err
 	}
+	role := "admin"
+	if u, err := GetUser(ctx, a.db, uid); err == nil && strings.TrimSpace(u.Role) != "" {
+		role = u.Role
+	}
 	now := time.Now()
 	exp := now.Add(jwtTTL)
 	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"iss": jwtIssuer,
-		"sub": strings.TrimSpace(username),
-		"uid": uid,
-		"iat": now.Unix(),
-		"exp": exp.Unix(),
+		"iss":  jwtIssuer,
+		"sub":  strings.TrimSpace(username),
+		"uid":  uid,
+		"role": role,
+		"iat":  now.Unix(),
+		"exp":  exp.Unix(),
 	}).SignedString(a.signingKey())
 	if err != nil {
 		return "", 0, err

@@ -60,7 +60,7 @@ export async function getV1Control(opts: Opts = {}): Promise<V1Control> {
 }
 
 export async function patchV1Control(
-  body: { rate?: number; paused?: boolean; pause?: boolean; resume?: boolean },
+  body: { engine_id?: string; id?: string; rate?: number; paused?: boolean; pause?: boolean; resume?: boolean },
   opts: Opts = {},
 ): Promise<V1Control> {
   return v1(

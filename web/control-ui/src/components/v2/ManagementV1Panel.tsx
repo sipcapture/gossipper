@@ -9,6 +9,7 @@ import {
   listV1Clients,
   patchV1Control,
   type V1Control,
+  type V1ControlEngine,
   type V1StatsEngine,
 } from '@/api/v1'
 import { Button } from '@/components/ui/button'
@@ -26,6 +27,7 @@ export function ManagementV1Panel({ bearer }: ManagementV1PanelProps) {
   const [stats, setStats] = useState<(V1StatsEngine & { engines?: V1StatsEngine[] }) | null>(null)
   const [clients, setClients] = useState<Awaited<ReturnType<typeof listV1Clients>> | null>(null)
   const [rateDraft, setRateDraft] = useState('')
+  const [engineRates, setEngineRates] = useState<Record<string, string>>({})
   const [newClientJSON, setNewClientJSON] = useState('{"transport":"udp","rate":1}')
   const [error, setError] = useState<string | null>(null)
 
@@ -49,6 +51,13 @@ export function ManagementV1Panel({ bearer }: ManagementV1PanelProps) {
     return () => clearInterval(t)
   }, [refresh])
 
+  const engines: V1ControlEngine[] =
+    control?.multi && control.engines
+      ? control.engines
+      : control
+        ? [{ id: 'primary', rate: control.rate ?? 0, paused: control.paused ?? false }]
+        : []
+
   if (available === null) return <p className="text-muted-foreground text-xs">Probing /api/v1…</p>
   if (!available) {
     return (
@@ -68,13 +77,22 @@ export function ManagementV1Panel({ bearer }: ManagementV1PanelProps) {
     )
   }
 
-  const onSetRate = () => {
+  const onSetRateAll = () => {
     const rate = parseFloat(rateDraft)
     if (!Number.isFinite(rate) || rate <= 0) return
     void patchV1Control({ rate }, { bearer }).then(setControl)
   }
 
-  const onPause = (paused: boolean) => void patchV1Control({ paused }, { bearer }).then(setControl)
+  const onSetEngineRate = (engineId: string) => {
+    const rate = parseFloat(engineRates[engineId] ?? '')
+    if (!Number.isFinite(rate) || rate <= 0) return
+    void patchV1Control({ engine_id: engineId, rate }, { bearer }).then(setControl)
+  }
+
+  const onPauseEngine = (engineId: string, paused: boolean) =>
+    void patchV1Control({ engine_id: engineId, paused }, { bearer }).then(setControl)
+
+  const onPauseAll = (paused: boolean) => void patchV1Control({ paused }, { bearer }).then(setControl)
 
   const onAddClient = () => {
     let body: Record<string, unknown>
@@ -98,31 +116,45 @@ export function ManagementV1Panel({ bearer }: ManagementV1PanelProps) {
             <Label className="text-[10px]">Set rate (all engines)</Label>
             <Input className="mt-1 h-8 w-28" value={rateDraft} onChange={(e) => setRateDraft(e.target.value)} placeholder="4" />
           </div>
-          <Button type="button" size="sm" onClick={onSetRate}>
-            Apply rate
+          <Button type="button" size="sm" onClick={onSetRateAll}>
+            Apply to all
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => onPause(true)}>
-            Pause
+          <Button type="button" size="sm" variant="outline" onClick={() => onPauseAll(true)}>
+            Pause all
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => onPause(false)}>
-            Resume
+          <Button type="button" size="sm" variant="outline" onClick={() => onPauseAll(false)}>
+            Resume all
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={() => void refresh()}>
             Refresh
           </Button>
         </div>
-        {control?.multi && control.engines ? (
-          <ul className="font-mono space-y-0.5">
-            {control.engines.map((e) => (
-              <li key={e.id}>
-                {e.id}: rate={e.rate} {e.paused ? 'PAUSED' : 'running'}
-              </li>
-            ))}
-          </ul>
-        ) : control ? (
-          <p>
-            rate={control.rate ?? '—'} paused={String(control.paused ?? false)}
-          </p>
+        {engines.length > 0 ? (
+          <div className="border-border rounded-md border p-2">
+            <div className="text-muted-foreground mb-2 font-medium">Per-engine control</div>
+            <ul className="space-y-2">
+              {engines.map((e) => (
+                <li key={e.id} className="flex flex-wrap items-center gap-2 font-mono">
+                  <span className="min-w-[8rem]">{e.id}</span>
+                  <span className="text-muted-foreground">
+                    rate={e.rate} {e.paused ? 'PAUSED' : 'running'}
+                  </span>
+                  <Input
+                    className="h-7 w-20 text-xs"
+                    placeholder="rate"
+                    value={engineRates[e.id] ?? ''}
+                    onChange={(ev) => setEngineRates({ ...engineRates, [e.id]: ev.target.value })}
+                  />
+                  <Button type="button" size="xs" onClick={() => onSetEngineRate(e.id)}>
+                    Set rate
+                  </Button>
+                  <Button type="button" size="xs" variant="outline" onClick={() => onPauseEngine(e.id, !e.paused)}>
+                    {e.paused ? 'Resume' : 'Pause'}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
         {stats?.engines ? (
           <div>

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -84,12 +85,15 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	username, _ := mc["sub"].(string)
 	uid, _ := mc["uid"].(float64)
 	exp, _ := mc["exp"].(float64)
-	role := "admin"
-	if uid > 0 {
-		db := s.cfg.Auth.DB()
-		if db != nil {
-			if u, err := settingsauth.GetUser(r.Context(), db, int64(uid)); err == nil {
-				role = u.Role
+	role, _ := mc["role"].(string)
+	if strings.TrimSpace(role) == "" {
+		role = "admin"
+		if uid > 0 {
+			db := s.cfg.Auth.DB()
+			if db != nil {
+				if u, err := settingsauth.GetUser(r.Context(), db, int64(uid)); err == nil && u.Role != "" {
+					role = u.Role
+				}
 			}
 		}
 	}

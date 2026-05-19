@@ -268,6 +268,22 @@ export const getScenarioV2 = (id: string, opts: Opts) =>
   request<ScenarioBody>('GET', `/scenarios/${encodeURIComponent(id)}`, undefined, opts)
 export const createScenarioV2 = (m: ScenarioMeta, xml: string, opts: Opts) =>
   request<ScenarioBody>('POST', '/scenarios', { ...m, xml }, opts)
+
+export type ImportPCAPJobBody = {
+  job_id: string
+  which?: 'uac' | 'uas' | 'both'
+  scenario_id: string
+  uas_scenario_id?: string
+}
+
+export const importScenarioFromPCAPJob = (body: ImportPCAPJobBody, opts: Opts) =>
+  request<{ imported: { id: string; role: string; file: string }[]; out_dir: string; job_id: string }>(
+    'POST',
+    '/scenarios/import-from-pcap-job',
+    body,
+    opts,
+  )
+
 export const updateScenarioV2 = (id: string, m: ScenarioMeta, xml: string, opts: Opts) =>
   request<ScenarioBody>('PUT', `/scenarios/${encodeURIComponent(id)}`, { ...m, xml }, opts)
 export const deleteScenarioV2 = (id: string, opts: Opts) =>

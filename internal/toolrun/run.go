@@ -128,11 +128,9 @@ func runPCAP2Scenario(spec supervisor.Spec, args map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("pcap: %w", err)
 	}
-	outDir := argString(args, "out_dir")
-	if outDir == "" {
-		outDir = filepath.Join(spec.ArtifactsDir, "scenarios")
-	} else if outDir, err = resolveDataPath(spec.DataDir, outDir); err != nil {
-		return fmt.Errorf("out_dir: %w", err)
+	outDir, err := pcap2scenario.OutDirFromArgs(spec.DataDir, spec.ArtifactsDir, args)
+	if err != nil {
+		return err
 	}
 	sipPort, err := argInt(args, "sip_port", 0)
 	if err != nil {

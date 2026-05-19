@@ -34,4 +34,16 @@ jobs:
           cache-dependency-path: web/control-ui/package-lock.json
 
       - name: Test and build
-        run: make frontend && go test ./... && make build-go
+        run: |
+          make frontend
+          cd web/control-ui && npm test
+          go test ./...
+          go test -race -short \
+            ./internal/api/... \
+            ./internal/api/v2/... \
+            ./internal/settingsauth/... \
+            ./internal/pcap2scenario/... \
+            ./internal/loadtest/... \
+            ./internal/supervisor/... \
+            ./internal/uistore/...
+          make build-go

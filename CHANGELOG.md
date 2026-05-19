@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.51] — 2026-05-19
+
+### Added
+
+- **Auto-import pcap2scenario**: `POST /api/v2/scenarios/import-from-pcap-job` reads `scenario_uac.xml` / `scenario_uas.xml` from a succeeded tool job; Scenarios UI one-click import.
+- **JWT role claim** on login (`role` from SQLite users table); `GET /me` prefers token claim.
+- **Per-engine v1 control**: `POST /api/v1/control` accepts `engine_id` / `id` to set rate/pause for one engine; Dashboard panel updated.
+
+### Changed
+
+- **CI** (`go.yml`): explicit `npm test`, full `go test ./...`, and `go test -race -short` on API/auth/store packages (engine/cmd soak tests still run without `-race` until existing races are fixed).
+
 ## [0.1.50] — 2026-05-19
 
 ### Added

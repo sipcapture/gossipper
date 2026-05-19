@@ -66,6 +66,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v2/clients/{id}", s.auth(s.handleUpdateClientProfile))
 	mux.HandleFunc("DELETE /api/v2/clients/{id}", s.auth(s.handleDeleteClientProfile))
 
+	mux.HandleFunc("POST /api/v2/scenarios/import-from-pcap-job", s.auth(s.handleImportScenarioFromPCAPJob))
 	mux.HandleFunc("GET /api/v2/scenarios", s.auth(s.handleListScenarios))
 	mux.HandleFunc("GET /api/v2/builtin-scenarios", s.auth(s.handleListBuiltinScenarios))
 	mux.HandleFunc("GET /api/v2/builtin-scenarios/{id}", s.auth(s.handleGetBuiltinScenario))

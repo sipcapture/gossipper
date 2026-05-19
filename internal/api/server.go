@@ -560,10 +560,29 @@ func (s *Server) handleControlGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type controlPatch struct {
-	Rate   *float64 `json:"rate"`
-	Paused *bool    `json:"paused"`
-	Pause  *bool    `json:"pause"` // alias for paused when only stop/start semantics desired
-	Resume *bool    `json:"resume"`
+	EngineID *string  `json:"engine_id,omitempty"`
+	ID       *string  `json:"id,omitempty"` // alias for engine_id
+	Rate     *float64 `json:"rate"`
+	Paused   *bool    `json:"paused"`
+	Pause    *bool    `json:"pause"` // alias for paused when only stop/start semantics desired
+	Resume   *bool    `json:"resume"`
+}
+
+func (s *Server) engineByID(id string) *engine.Engine {
+	id = strings.TrimSpace(id)
+	if id == "" || s.cfg.Engine == nil {
+		return nil
+	}
+	if id == "primary" || id == s.statsPrimaryID() {
+		return s.cfg.Engine
+	}
+	extras, ids := s.mergedExtras()
+	for i, e := range extras {
+		if e != nil && ids[i] == id {
+			return e
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleControlPost(w http.ResponseWriter, r *http.Request) {
@@ -596,6 +615,22 @@ func (s *Server) handleControlPost(w http.ResponseWriter, r *http.Request) {
 		if body.Resume != nil && *body.Resume {
 			e.Resume()
 		}
+	}
+	targetID := ""
+	if body.EngineID != nil {
+		targetID = strings.TrimSpace(*body.EngineID)
+	} else if body.ID != nil {
+		targetID = strings.TrimSpace(*body.ID)
+	}
+	if targetID != "" {
+		e := s.engineByID(targetID)
+		if e == nil {
+			s.jsonErr(w, http.StatusNotFound, fmt.Sprintf("engine %q not found", targetID))
+			return
+		}
+		apply(e)
+		s.handleControlGet(w, r)
+		return
 	}
 	apply(s.cfg.Engine)
 	extras, _ := s.mergedExtras()

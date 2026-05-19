@@ -63,6 +63,7 @@ type Bridge struct {
 	pc          *webrtc.PeerConnection
 	outbound    *webrtc.TrackLocalStaticSample
 	inboundOnce sync.Once
+	inboundMu   sync.RWMutex
 	inboundCB   func(payload []byte)
 	codec       string // "PCMU" or "PCMA"
 	closed      chan struct{}
@@ -224,7 +225,9 @@ func (b *Bridge) WritePCMU(payload []byte, dur time.Duration) error {
 // payload bytes, no RTP header). Calling more than once replaces the previous
 // callback. Safe to call before Answer().
 func (b *Bridge) OnPCMA(cb func(payload []byte)) {
+	b.inboundMu.Lock()
 	b.inboundCB = cb
+	b.inboundMu.Unlock()
 }
 
 func (b *Bridge) consumeRemoteTrack(remote *webrtc.TrackRemote) {
@@ -238,7 +241,10 @@ func (b *Bridge) consumeRemoteTrack(remote *webrtc.TrackRemote) {
 		if err != nil {
 			return
 		}
-		if cb := b.inboundCB; cb != nil && len(pkt.Payload) > 0 {
+		b.inboundMu.RLock()
+		cb := b.inboundCB
+		b.inboundMu.RUnlock()
+		if cb != nil && len(pkt.Payload) > 0 {
 			cb(pkt.Payload)
 		}
 		_ = pkt // shut go vet up about pkt being a *rtp.Packet

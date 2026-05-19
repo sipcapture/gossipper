@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestStoreUserVerify(t *testing.T) {
@@ -73,6 +75,14 @@ func TestAuthJWT(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+tok)
 	if !a.ValidRequest(req) {
 		t.Fatal("expected ValidRequest true")
+	}
+	claims, err := a.ParseToken(tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mc, _ := claims.(jwt.MapClaims)
+	if mc["role"] != "admin" {
+		t.Fatalf("role claim=%v", mc["role"])
 	}
 }
 

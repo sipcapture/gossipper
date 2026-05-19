@@ -408,6 +408,67 @@ func TestAPIMultiStatsShape(t *testing.T) {
 	}
 }
 
+func TestAPIControlPerEngine(t *testing.T) {
+	sc := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
+
+]]></send><recv response="200" optional="true"/></scenario>`)
+	eng0 := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 1, RemoteHost: "127.0.0.1", RemotePort: 9})
+	eng1 := engine.New(engine.Config{Scenario: sc, Transport: "u1", LocalIP: "127.0.0.1", LocalPort: 2, RemoteHost: "127.0.0.1", RemotePort: 9})
+	srv := New(ServerConfig{
+		Engine:           eng0,
+		ExtraEngines:     []*engine.Engine{eng1},
+		ExtraIDs:         []string{"side"},
+		StatsPrimaryID:   "main",
+		CLI:              cli.DefaultConfig(),
+		ValidateScenario: func(scenario.Scenario) error { return nil },
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	baseMain := eng0.Rate()
+	baseSide := eng1.Rate()
+
+	res, err := ts.Client().Post(ts.URL+"/api/v1/control", "application/json", strings.NewReader(`{"engine_id":"side","rate":7.5}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("POST control: %s", res.Status)
+	}
+	var out map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := out["engines"].([]any)
+	if len(rows) != 2 {
+		t.Fatalf("engines=%v", out["engines"])
+	}
+	rateFor := func(id string) float64 {
+		for _, row := range rows {
+			m, _ := row.(map[string]any)
+			if m["id"] == id {
+				return m["rate"].(float64)
+			}
+		}
+		t.Fatalf("engine %q not found", id)
+		return 0
+	}
+	if got := rateFor("side"); got != 7.5 {
+		t.Fatalf("side rate=%v want 7.5", got)
+	}
+	if got := rateFor("main"); got != baseMain {
+		t.Fatalf("main rate changed: got %v was %v", got, baseMain)
+	}
+	if eng1.Rate() != 7.5 {
+		t.Fatalf("eng1 rate=%v", eng1.Rate())
+	}
+	if eng0.Rate() != baseMain {
+		t.Fatalf("eng0 rate changed: got %v was %v", eng0.Rate(), baseMain)
+	}
+	_ = baseSide
+}
+
 func TestAPIClientsPostDisabled(t *testing.T) {
 	sc := mustScenario(t, `<?xml version="1.0"?><scenario name="t"><send><![CDATA[OPTIONS sip:x SIP/2.0
 
