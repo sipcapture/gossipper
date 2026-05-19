@@ -34,13 +34,35 @@ outbound audio track and lets the SIP scenario:
   while ICE settings flow through `WebRTC*` fields
   (`internal/supervisor/profile_cfg.go::splitWebRTC`).
 
+## What is in place (Phase 4.2 — partial)
+
+- **Opt-in scenarios**: `<scenario webrtc="true">` spins up a per-call `internal/webrtc.Bridge` instead of `media.Session`.
+- **UAS answer path**: before `<send>` steps that contain `[webrtc_answer]`, the engine generates a WebRTC SDP answer from the last received INVITE offer and injects it via template keyword.
+- **`rtp_stream` synthetic** over WebRTC sends silence frames through `Bridge.WritePCMA` / `WritePCMU`.
+- **`Options.ICEGatherTimeout`** on the bridge (default 5s).
+- PCAP replay, mic, DTMF, and classic RTP/RTCP stats return `media.ErrUnsupportedOverWebRTC` on the WebRTC path.
+
+Example UAS snippet:
+
+```xml
+<scenario name="webrtc_uas" webrtc="true">
+  <recv request="INVITE"/>
+  <send retrans="500">
+    <![CDATA[SIP/2.0 200 OK
+Content-Type: application/sdp
+Content-Length: [len]
+
+[webrtc_answer]]]>
+  </send>
+  ...
+</scenario>
+```
+
 ## What is *not* yet wired
 
 - The SIP engine does not yet attach a `Bridge` per call when the scenario
-  asks for `[transport]=webrtc`. The plumbing lives next door
-  (`internal/engine/ws_transport.go` knows how to push SIP/WS frames; the
-  bridge knows how to push media) — but bridging the SIP `MediaSession` with
-  pion `TrackRemote` is the work tracked under "Phase 4.2".
+  asks for `[transport]=webrtc` only (use `webrtc="true"` on `<scenario>` today).
+  UAC offer generation via `[webrtc_offer]` is not wired yet.
 - No SDP munging is performed between SIP and WebRTC offers. Scenario
   authors that need WebRTC interop today should produce the offer with the
   bridge and inline the returned SDP into their `<send>`.

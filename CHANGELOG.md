@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.54] — 2026-05-20
+
+### Added
+
+- **WebRTC Phase 4.2 (partial)**: opt-in `<scenario webrtc="true">` uses per-call `webrtc.Bridge`; UAS `[webrtc_answer]` template keyword; synthetic `rtp_stream` over WebRTC; `ICEGatherTimeout` bridge option.
+
 ## [0.1.53] — 2026-05-19
 
 ### Added

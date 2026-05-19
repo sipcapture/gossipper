@@ -20,6 +20,7 @@ func (e *Engine) runInit(ctx context.Context) error {
 	mediaSession.SetTURN(e.cfg.TURNServer, e.cfg.TURNUser, e.cfg.TURNPass, e.cfg.TURNRealm)
 	mediaSession.EnsureLocalIceCredentials()
 	defer mediaSession.Stop()
+	callMedia := &callMedia{session: mediaSession}
 	renderCtx := templ.Context{
 		Service:       e.cfg.Service,
 		Transport:     e.cfg.Transport,
@@ -54,7 +55,7 @@ func (e *Engine) runInit(ctx context.Context) error {
 		renderCtx.MessageIndex = cmd.Index
 		switch cmd.Type {
 		case scenario.CommandNop, scenario.CommandLabel:
-			actionResult, err := e.applyActions(ctx, 0, cmd.Actions, renderCtx, store, mediaSession)
+			actionResult, err := e.applyActions(ctx, 0, cmd.Actions, renderCtx, store, callMedia)
 			if err != nil {
 				if err == errStopCall {
 					return nil
@@ -115,7 +116,7 @@ func (e *Engine) runInit(ctx context.Context) error {
 				e.traceEvent("init recvCmd", 0, msg.raw)
 			}
 			renderCtx.Variables = store.Snapshot()
-			actionResult, err := e.applyActions(ctx, 0, cmd.Actions, renderCtx, store, mediaSession)
+			actionResult, err := e.applyActions(ctx, 0, cmd.Actions, renderCtx, store, callMedia)
 			if err != nil {
 				if err == errStopCall {
 					return nil

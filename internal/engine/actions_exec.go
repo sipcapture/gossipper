@@ -16,7 +16,8 @@ import (
 	templ "github.com/sipcapture/gossipper/internal/template"
 )
 
-func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, renderCtx templ.Context, vars *varStore, mediaSession *media.Session) error {
+func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, renderCtx templ.Context, vars *varStore, callMedia *callMedia) error {
+	mediaSession := callMedia.sessionOrNil()
 	switch strings.ToLower(strings.TrimSpace(action.IntCmd)) {
 	case "":
 	case "stop_call":
@@ -41,7 +42,7 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 	}
 
 	if action.RTPStream != "" {
-		if mediaSession == nil {
+		if callMedia == nil {
 			return fmt.Errorf("rtp_stream is not available in this context")
 		}
 		streamSpec, err := templ.RenderMessageStrict(action.RTPStream, renderCtx)
@@ -54,6 +55,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		}
 		switch command {
 		case "pause":
+			if callMedia.usesWebRTC() {
+				return media.ErrUnsupportedOverWebRTC
+			}
 			if e.cfg.MediaScale {
 				if se := e.scaleMedia(); se != nil {
 					se.PauseCall(renderCtx.CallID)
@@ -62,6 +66,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 				mediaSession.Pause()
 			}
 		case "resume":
+			if callMedia.usesWebRTC() {
+				return media.ErrUnsupportedOverWebRTC
+			}
 			if e.cfg.MediaScale {
 				if se := e.scaleMedia(); se != nil {
 					se.ResumeCall(renderCtx.CallID)
@@ -70,6 +77,10 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 				mediaSession.Resume()
 			}
 		case "stop":
+			if callMedia.usesWebRTC() {
+				callMedia.wrtc.stop()
+				break
+			}
 			if e.cfg.MediaScale {
 				if se := e.scaleMedia(); se != nil {
 					_ = se.UnregisterCall(renderCtx.CallID)
@@ -79,6 +90,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			}
 			mediaSession.ClearSDESSRTP()
 		case "echo":
+			if callMedia.usesWebRTC() {
+				return media.ErrUnsupportedOverWebRTC
+			}
 			mediaSession.ClearSDESSRTP()
 			if e.cfg.TraceMessages {
 				fmt.Fprintf(os.Stdout, "rtp_stream echo listen on %s:%d\n", renderCtx.LocalIP, renderCtx.MediaPort)
@@ -87,6 +101,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 				return err
 			}
 		case "mic":
+			if callMedia.usesWebRTC() {
+				return media.ErrUnsupportedOverWebRTC
+			}
 			last := mustParseLastMessage(renderCtx)
 			if err := configureMediaSRTPForRTPStream(e, mediaSession, last, "mic"); err != nil {
 				return err
@@ -102,6 +119,18 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 				return err
 			}
 		case "start":
+			if callMedia.usesWebRTC() {
+				if !cfg.Synthetic {
+					return media.ErrUnsupportedOverWebRTC
+				}
+				if e.cfg.TraceMessages {
+					fmt.Fprintf(os.Stdout, "rtp_stream start (webrtc) synthetic\n")
+				}
+				if err := callMedia.wrtc.startSynthetic(ctx, cfg); err != nil {
+					return err
+				}
+				break
+			}
 			last := mustParseLastMessage(renderCtx)
 			if e.cfg.MediaScale {
 				if !cfg.Synthetic {
@@ -140,6 +169,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 	}
 
 	if action.RTPRecord != "" {
+		if callMedia.usesWebRTC() {
+			return media.ErrUnsupportedOverWebRTC
+		}
 		if mediaSession == nil {
 			return fmt.Errorf("rtp_record is not available in this context")
 		}
@@ -167,6 +199,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 	}
 
 	if action.PlayPCAPAudio != "" {
+		if callMedia.usesWebRTC() {
+			return media.ErrUnsupportedOverWebRTC
+		}
 		if mediaSession == nil {
 			return fmt.Errorf("play_pcap_audio is not available in this context")
 		}
@@ -187,6 +222,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		}
 	}
 	if action.RTPCheck != "" {
+		if callMedia.usesWebRTC() {
+			return media.ErrUnsupportedOverWebRTC
+		}
 		if mediaSession == nil {
 			return fmt.Errorf("rtpcheck is not available in this context")
 		}
@@ -201,6 +239,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		}
 	}
 	if action.PlayPCAPVideo != "" {
+		if callMedia.usesWebRTC() {
+			return media.ErrUnsupportedOverWebRTC
+		}
 		if mediaSession == nil {
 			return fmt.Errorf("play_pcap_video is not available in this context")
 		}
@@ -221,6 +262,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		}
 	}
 	if action.PlayPCAPImage != "" {
+		if callMedia.usesWebRTC() {
+			return media.ErrUnsupportedOverWebRTC
+		}
 		if mediaSession == nil {
 			return fmt.Errorf("play_pcap_image is not available in this context")
 		}
@@ -241,6 +285,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		}
 	}
 	if action.SendDTMF != "" {
+		if callMedia.usesWebRTC() {
+			return media.ErrUnsupportedOverWebRTC
+		}
 		if mediaSession == nil {
 			return fmt.Errorf("send_dtmf is not available in this context")
 		}

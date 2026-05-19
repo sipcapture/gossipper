@@ -48,6 +48,9 @@ type Options struct {
 	// PrefersPCMA picks PCMA (G.711 a-law, payload 8) over PCMU when both
 	// are offered. Default false → PCMU (payload 0).
 	PrefersPCMA bool
+	// ICEGatherTimeout bounds how long Answer/CreateOffer wait for ICE
+	// gathering. Zero defaults to 5s.
+	ICEGatherTimeout time.Duration
 	// Logger is a *log/slog.Logger-like hook; nil means silent.
 	Logger Logger
 }
@@ -60,14 +63,15 @@ type Logger interface {
 
 // Bridge owns a single pion PeerConnection plus its outbound audio track.
 type Bridge struct {
-	pc          *webrtc.PeerConnection
-	outbound    *webrtc.TrackLocalStaticSample
-	inboundOnce sync.Once
-	inboundMu   sync.RWMutex
-	inboundCB   func(payload []byte)
-	codec       string // "PCMU" or "PCMA"
-	closed      chan struct{}
-	closeOnce   sync.Once
+	pc                 *webrtc.PeerConnection
+	outbound           *webrtc.TrackLocalStaticSample
+	inboundOnce        sync.Once
+	inboundMu          sync.RWMutex
+	inboundCB           func(payload []byte)
+	codec              string // "PCMU" or "PCMA"
+	iceGatherTimeout   time.Duration
+	closed             chan struct{}
+	closeOnce          sync.Once
 }
 
 // NewBridge spins up a PeerConnection ready to answer an offer.
@@ -113,10 +117,11 @@ func NewBridge(opts Options) (*Bridge, error) {
 	}
 
 	b := &Bridge{
-		pc:       pc,
-		outbound: outbound,
-		codec:    codec,
-		closed:   make(chan struct{}),
+		pc:               pc,
+		outbound:         outbound,
+		codec:            codec,
+		iceGatherTimeout: gatherTimeout(opts),
+		closed:           make(chan struct{}),
 	}
 
 	pc.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
@@ -150,6 +155,13 @@ func registerAudioCodecs(m *webrtc.MediaEngine) error {
 	return nil
 }
 
+func gatherTimeout(opts Options) time.Duration {
+	if opts.ICEGatherTimeout > 0 {
+		return opts.ICEGatherTimeout
+	}
+	return 5 * time.Second
+}
+
 // Answer accepts an SDP offer and returns the corresponding answer (also
 // gathered to completion so the returned SDP already contains every ICE
 // candidate — trickle ICE is not used here to keep SIP integration simple).
@@ -170,7 +182,7 @@ func (b *Bridge) Answer(offerSDP string) (string, error) {
 	}
 	select {
 	case <-gather:
-	case <-time.After(5 * time.Second):
+	case <-time.After(b.iceGatherTimeout):
 		return "", errors.New("webrtc: ICE gathering timed out")
 	}
 	final := b.pc.LocalDescription()
@@ -195,7 +207,7 @@ func (b *Bridge) CreateOffer(ctx context.Context) (string, error) {
 	case <-gather:
 	case <-ctx.Done():
 		return "", ctx.Err()
-	case <-time.After(5 * time.Second):
+	case <-time.After(b.iceGatherTimeout):
 		return "", errors.New("webrtc: ICE gathering timed out")
 	}
 	return b.pc.LocalDescription().SDP, nil

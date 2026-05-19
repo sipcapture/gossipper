@@ -31,6 +31,7 @@ type rawDistributionAttrs struct {
 type rawScenario struct {
 	XMLName  xml.Name          `xml:"scenario"`
 	Name     string            `xml:"name,attr"`
+	WebRTC   string            `xml:"webrtc,attr"`
 	Elements []rawScenarioItem `xml:",any"`
 }
 
@@ -148,6 +149,7 @@ func ParseString(data string) (Scenario, error) {
 		Labels:     make(map[string]int),
 		InitLabels: make(map[string]int),
 		Mode:       ModeClient,
+		WebRTC:     parseBool(raw.WebRTC),
 	}
 
 	for _, elem := range raw.Elements {

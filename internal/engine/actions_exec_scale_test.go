@@ -36,7 +36,7 @@ func TestApplyExecRTPStreamScaleSynthetic(t *testing.T) {
 	}
 
 	action := scenario.Action{RTPStream: "synthetic,0,0,PCMU/8000,20"}
-	if err := eng.applyExecAction(ctx, action, renderCtx, nil, mediaSession); err != nil {
+	if err := eng.applyExecAction(ctx, action, renderCtx, nil, &callMedia{session: mediaSession}); err != nil {
 		t.Fatalf("applyExecAction: %v", err)
 	}
 	if eng.scaleMedia().StreamCount() != 1 {

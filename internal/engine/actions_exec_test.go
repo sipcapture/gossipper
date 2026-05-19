@@ -106,7 +106,7 @@ func TestApplyExecActionRTPCheck(t *testing.T) {
 		scenario.Action{Type: scenario.ActionExec, RTPCheck: "min_packets=1 timeout_ms=300 direction=send"},
 		templ.Context{},
 		newVarStore(nil, nil, nil, 0),
-		mediaSession,
+		&callMedia{session: mediaSession},
 	)
 	if err != nil {
 		t.Fatalf("applyExecAction(rtpcheck) error = %v", err)
@@ -127,7 +127,7 @@ func TestApplyExecActionRTPCheckTimeout(t *testing.T) {
 		scenario.Action{Type: scenario.ActionExec, RTPCheck: "min_packets=1 timeout_ms=50 direction=recv"},
 		templ.Context{},
 		newVarStore(nil, nil, nil, 0),
-		mediaSession,
+		&callMedia{session: mediaSession},
 	)
 	if err == nil {
 		t.Fatal("expected timeout error")

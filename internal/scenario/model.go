@@ -30,6 +30,7 @@ type Scenario struct {
 	Name            string
 	BasePath        string
 	Mode            Mode
+	WebRTC          bool
 	Commands        []Command
 	InitCommands    []Command
 	Labels          map[string]int

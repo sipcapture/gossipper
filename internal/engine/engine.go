@@ -1983,15 +1983,12 @@ func (e *Engine) executeCall(
 	startedAt := time.Now()
 	e.stats.StartCall()
 	success := false
-	mediaSession := media.NewSession()
-	mediaSession.SetPCAPLinkLayer(e.cfg.PCAPLinkLayer)
-	mediaSession.SetTURN(e.cfg.TURNServer, e.cfg.TURNUser, e.cfg.TURNPass, e.cfg.TURNRealm)
-	if e.hep != nil && !e.cfg.MediaScale {
-		mediaSession.SetHEPObserver(e.hep)
+	scen := e.snapshotLiveScenario()
+	callMedia, err := newCallMedia(e, scen, callID)
+	if err != nil {
+		return err
 	}
-	mediaSession.SetCallID(callID)
-	mediaSession.SetAutoRecord(e.cfg.RecordWAVDir, e.cfg.RecordWAVDuplex)
-	mediaSession.EnsureLocalIceCredentials()
+	callMedia.configure(e, callID)
 	sawUnexpectedSIP := false
 	e.log.Emit(eventlog.Event{
 		Time:  startedAt,
@@ -2015,14 +2012,14 @@ func (e *Engine) executeCall(
 		if e.cfg.MediaScale {
 			e.stats.AddMediaStats(e.scaleUnregisterCall(callID))
 		} else {
-			e.stats.AddMediaStats(mediaSession.Snapshot())
+			e.stats.AddMediaStats(callMedia.snapshot())
 		}
 		if e.hep != nil {
 			e.hep.SendFinalReports(callID)
 		}
-		mediaSession.Stop()
+		callMedia.stop()
 		duration := time.Since(startedAt)
-		e.appendCallRecordJSONL(callNumber, callID, success, duration, runErr, sawUnexpectedSIP, mediaSession.Snapshot())
+		e.appendCallRecordJSONL(callNumber, callID, success, duration, runErr, sawUnexpectedSIP, callMedia.snapshot())
 		e.stats.FinishCall(success, duration)
 		e.traceCallCompleted()
 		result := "success"
@@ -2054,7 +2051,6 @@ func (e *Engine) executeCall(
 		})
 	}()
 
-	scen := e.snapshotLiveScenario()
 	renderCtx := templ.Context{
 		Service:     e.cfg.Service,
 		Transport:   sipTransport,
@@ -2067,8 +2063,8 @@ func (e *Engine) executeCall(
 		MediaIP:     localIP,
 		MediaIPType: ipType(localIP),
 		MediaPort:   clampMediaPort(localPort + 2 + ((callNumber - 1) * 2)),
-		IceUfrag:    mediaSession.ICELocalUfrag(),
-		IcePwd:      mediaSession.ICELocalPwd(),
+		IceUfrag:    callMedia.iceUfrag(),
+		IcePwd:      callMedia.icePwd(),
 		CallID:      callID,
 		CSeq:        e.cfg.BaseCSeq,
 		CallNumber:  callNumber,
@@ -2185,7 +2181,7 @@ func (e *Engine) executeCall(
 		switch cmd.Type {
 		case scenario.CommandLabel:
 		case scenario.CommandNop:
-			actionResult, err := e.applyActions(ctx, callNumber, cmd.Actions, renderCtx, store, mediaSession)
+			actionResult, err := e.applyActions(ctx, callNumber, cmd.Actions, renderCtx, store, callMedia)
 			if err != nil {
 				if errors.Is(err, errStopCall) {
 					recordCommandStats(cmd)
@@ -2216,6 +2212,9 @@ func (e *Engine) executeCall(
 				return err
 			}
 		case scenario.CommandSend:
+			if err := prepareWebRTCAnswerKeyword(callMedia, &renderCtx, cmd.SendText); err != nil {
+				return err
+			}
 			renderCtx.BranchBase = randomBranch(callNumber, cmd.Index)
 			message, err := e.renderSIPMessage(cmd.SendText, renderCtx)
 			if err != nil {
@@ -2449,7 +2448,7 @@ func (e *Engine) executeCall(
 				renderCtx.ExtraKeywords["routes"] = buildRouteHeaders(msg.Headers)
 			}
 			renderCtx.Variables = store.Snapshot()
-			actionResult, err := e.applyActions(ctx, callNumber, cmd.Actions, renderCtx, store, mediaSession)
+			actionResult, err := e.applyActions(ctx, callNumber, cmd.Actions, renderCtx, store, callMedia)
 			if err != nil {
 				if errors.Is(err, errStopCall) {
 					recordCommandStats(cmd)
@@ -2514,7 +2513,7 @@ func (e *Engine) executeCall(
 				e.traceEvent("recvCmd", callNumber, msg.raw)
 			}
 			renderCtx.Variables = store.Snapshot()
-			actionResult, err := e.applyActions(ctx, callNumber, cmd.Actions, renderCtx, store, mediaSession)
+			actionResult, err := e.applyActions(ctx, callNumber, cmd.Actions, renderCtx, store, callMedia)
 			if err != nil {
 				if errors.Is(err, errStopCall) {
 					recordCommandStats(cmd)
@@ -3331,7 +3330,7 @@ type actionResult struct {
 	hasSetDestination   bool
 }
 
-func (e *Engine) applyActions(ctx context.Context, callNumber int, actions []scenario.Action, renderCtx templ.Context, vars *varStore, mediaSession *media.Session) (actionResult, error) {
+func (e *Engine) applyActions(ctx context.Context, callNumber int, actions []scenario.Action, renderCtx templ.Context, vars *varStore, callMedia *callMedia) (actionResult, error) {
 	renderCtx.Variables = vars.Snapshot()
 	result := actionResult{}
 	for _, action := range actions {
@@ -3514,7 +3513,7 @@ func (e *Engine) applyActions(ctx context.Context, callNumber int, actions []sce
 				return actionResult{}, err
 			}
 		case scenario.ActionExec:
-			if err := e.applyExecAction(ctx, action, renderCtx, vars, mediaSession); err != nil {
+			if err := e.applyExecAction(ctx, action, renderCtx, vars, callMedia); err != nil {
 				return actionResult{}, err
 			}
 		}
