@@ -17,7 +17,7 @@ import { ReportsV2 } from '@/views/v2/ReportsV2'
 import { ScenariosV2 } from '@/views/v2/ScenariosV2'
 import { ServersV2 } from '@/views/v2/ServersV2'
 import { SettingsV2 } from '@/views/v2/SettingsV2'
-import { StressToolsV2 } from '@/views/v2/StressToolsV2'
+import { LoadTestV2 } from '@/views/v2/LoadTestV2'
 import { UsersV2 } from '@/views/v2/UsersV2'
 
 const LS_JWT = 'gossipper_v2_jwt'
@@ -30,7 +30,7 @@ type NavId =
   | 'scenarios'
   | 'jobs'
   | 'reports'
-  | 'stress'
+  | 'load'
   | 'media'
   | 'audit'
   | 'users'
@@ -44,7 +44,7 @@ const NAV: { id: NavId; label: string; hint: string }[] = [
   { id: 'scenarios', label: 'Scenarios', hint: 'XML scenarios + sidecar meta' },
   { id: 'jobs', label: 'Jobs', hint: 'worker runs (start / stop / inspect)' },
   { id: 'reports', label: 'Reports', hint: 'summary JSON, HTML and PDF from jobs' },
-  { id: 'stress', label: 'Stress tools', hint: 'sipstress-style utilities & load patterns' },
+  { id: 'load', label: 'Load test', hint: 'sipstress-style invite_media job wizard' },
   { id: 'media', label: 'Media', hint: 'WAV and PCAP upload library' },
   { id: 'audit', label: 'Audit', hint: 'mutating API actions log' },
   { id: 'users', label: 'Users', hint: 'admin users' },
@@ -279,8 +279,12 @@ function AdminAppInner() {
               }}
             />
           )}
-          {nav === 'stress' && (
-            <StressToolsV2 bearer={bearer} busy={busy} run={run} onNavigate={setNav} />
+          {nav === 'load' && (
+            <LoadTestV2
+              bearer={bearer}
+              run={run}
+              onNavigate={(target) => setNav(target)}
+            />
           )}
           {nav === 'media' && <MediaV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
           {nav === 'audit' && <AuditV2 bearer={bearer} />}

@@ -111,6 +111,9 @@ func BuildConfigFromSpec(spec Spec) (cli.Config, func(), error) {
 	if strings.TrimSpace(cfg.SummaryJSON) == "" && strings.TrimSpace(spec.ArtifactsDir) != "" {
 		cfg.SummaryJSON = filepath.Join(spec.ArtifactsDir, "summary.json")
 	}
+	if strings.TrimSpace(cfg.SummaryHTML) == "" && strings.TrimSpace(spec.ArtifactsDir) != "" {
+		cfg.SummaryHTML = filepath.Join(spec.ArtifactsDir, "report.html")
+	}
 
 	if spec.RecordWAV && strings.TrimSpace(spec.ArtifactsDir) != "" {
 		recDir := filepath.Join(spec.ArtifactsDir, "recordings")
@@ -268,11 +271,8 @@ func enabledTransports(in []uistore.TransportSpec) []uistore.TransportSpec {
 }
 
 // overlayEngineJSON merges raw JSON keys into cfg by unmarshalling into a
-// shallow map and then re-encoding cfg-friendly fields one by one. Only a
-// handful of keys are supported (rate, max_concurrent, total_calls,
-// global_timeout, transport, local_ip, local_port, remote_host, remote_port).
-// Unknown keys are ignored so the UI can extend the schema without breaking
-// older workers.
+// shallow map. Unknown keys are ignored so the UI can extend the schema
+// without breaking older workers.
 func overlayEngineJSON(cfg *cli.Config, raw []byte) error {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil {
@@ -320,6 +320,22 @@ func overlayEngineJSON(cfg *cli.Config, raw []byte) error {
 		var n int
 		if json.Unmarshal(v, &n) == nil && n > 0 {
 			cfg.GlobalTimeout = time.Duration(n) * time.Millisecond
+		}
+	}
+	str("sip_from", &cfg.SipFrom)
+	str("sip_pai", &cfg.SipPAI)
+	str("sip_provider", &cfg.SipProvider)
+	flt("health_min_success_ratio", &cfg.HealthMinSuccessRatio)
+	if v, ok := m["health_max_failed_calls"]; ok {
+		var n int
+		if json.Unmarshal(v, &n) == nil && n >= 0 {
+			cfg.HealthMaxFailedCalls = n
+		}
+	}
+	if v, ok := m["health_max_timeouts"]; ok {
+		var n int
+		if json.Unmarshal(v, &n) == nil && n >= 0 {
+			cfg.HealthMaxTimeouts = n
 		}
 	}
 	return nil

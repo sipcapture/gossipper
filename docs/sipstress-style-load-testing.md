@@ -86,7 +86,19 @@ Dynamic client ids are merged into **`GET /api/v1/stats`** and **`/api/v1/live`*
 
 ## 6. Control UI (browser)
 
-The **Vite/React** app under [`web/control-ui/`](../web/control-ui/) talks to the same API: live WebSocket, stats tables, control (pause/rate), dynamic clients tab, scenario editor. Build with **`make frontend`** so the UI is embedded; packages may also ship static files under **`/usr/local/gossipper/dist/`**. Developer notes: [`web/control-ui/README.md`](../web/control-ui/README.md).
+The **Vite/React** admin console (`gossipper ui` or `gossipper server` with `ui_data_dir`) exposes:
+
+| Area | Purpose |
+| --- | --- |
+| **Load test** | Sipstress-style wizard: director (SBC), `invite_media*` scenario, calls/CPS/concurrency, trunk identity (`sip_from` / `sip_pai` / `sip_provider`), health gates, WAV capture → supervisor job |
+| **Jobs** | Start/stop/isolate workers; live stats; artifacts (`summary.json`, `report.html`, recordings) |
+| **Reports** | Browse and download summary/HTML/PDF across jobs |
+| **Scenarios → Prep** | `pcap2scenario`, CSV `infindex` as tool jobs |
+| **Clients / Servers** | Persistent profiles for repeat runs |
+
+Build with **`make frontend`** so the UI is embedded; packages may also ship static files under **`/usr/local/gossipper/dist/`**. Developer notes: [`web/control-ui/README.md`](../web/control-ui/README.md).
+
+**Compared to [sipstress](https://github.com/achrafka/sipstress):** Gossipper uses XML scenarios and aggregate `summary.json` (not Python per-call Plotly dashboards). The **Load test** page maps the common sipstress one-liner (`--director`, `--calls`, `--cps`, `-j`, identity headers) to a **Jobs** run with the same engine flags.
 
 ## 7. systemd quick map
 

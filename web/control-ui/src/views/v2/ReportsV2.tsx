@@ -124,8 +124,7 @@ export function ReportsV2({ bearer, run, onOpenJob }: ReportsV2Props) {
           <h2 className="text-sm font-semibold">Reports</h2>
           <p className="text-muted-foreground text-xs">
             Summary JSON, HTML, and PDF artifacts from completed jobs. Generate HTML/PDF from a job detail
-            on the Jobs page, or run stress tools under{' '}
-            <code className="text-[11px]">report-html</code> / <code className="text-[11px]">summary-to-pdf</code>.
+            on the Jobs page, or use prep utilities under <strong className="text-foreground/80">Scenarios</strong>.
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => void run(() => refresh())}>

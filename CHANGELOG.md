@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.47] — 2026-05-19
+
+### Changed
+
+- **Admin UI**: replaced misleading **Stress tools** catalog with **Load test** wizard (sipstress-style `invite_media` job: director, calls/CPS/concurrency, trunk identity, health gates, WAV).
+- **Scenarios**: **Prep** panel for `pcap2scenario` and CSV `infindex` tool jobs (moved out of load-test nav).
+- **Worker jobs**: engine overrides now accept `sip_from`, `sip_pai`, `sip_provider`, and health thresholds; jobs auto-write `report.html` alongside `summary.json`.
+
 ## [0.1.46] — 2026-05-19
 
 ### Fixed

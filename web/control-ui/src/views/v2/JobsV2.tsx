@@ -335,9 +335,8 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
         <div>
           <h2 className="text-sm font-semibold">Jobs</h2>
           <p className="text-muted-foreground text-xs">
-            Isolated <code>gossipper worker</code> runs from server/client profiles or stress tools (
-            <code>profile_kind=tool</code>). Status updates via live WebSocket
-            {connected ? ' (connected)' : ' (reconnecting…)'}.
+            Isolated <code>gossipper worker</code> runs from client/server profiles (including Load test wizard
+            jobs). Status via live WebSocket{connected ? ' (connected)' : ' (reconnecting…)'}.
           </p>
         </div>
         <div className="flex gap-2">

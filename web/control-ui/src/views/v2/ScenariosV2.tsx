@@ -19,6 +19,7 @@ import {
 } from '@/api/v2'
 import { lineDiff, sideBySideDiff, summariseDiff, type DiffLine, type SideBySideRow } from '@/lib/lineDiff'
 import { validateMediaRefs } from '@/lib/mediaRefs'
+import { PrepToolsPanel } from '@/components/v2/PrepToolsPanel'
 import { Button } from '@/components/ui/button'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
@@ -423,6 +424,7 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
           Drop a .xml scenario here…
         </div>
       ) : null}
+      <PrepToolsPanel bearer={bearer} run={run} compact />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">Scenarios</h2>
