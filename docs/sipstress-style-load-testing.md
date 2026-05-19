@@ -90,15 +90,46 @@ The **Vite/React** admin console (`gossipper ui` or `gossipper server` with `ui_
 
 | Area | Purpose |
 | --- | --- |
-| **Load test** | Sipstress-style wizard: director (SBC), `invite_media*` scenario, calls/CPS/concurrency, trunk identity (`sip_from` / `sip_pai` / `sip_provider`), health gates, WAV capture → supervisor job |
-| **Jobs** | Start/stop/isolate workers; live stats; artifacts (`summary.json`, `report.html`, recordings) |
-| **Reports** | Browse and download summary/HTML/PDF across jobs |
-| **Scenarios → Prep** | `pcap2scenario`, CSV `infindex` as tool jobs |
+| **Load test** | Sipstress-style wizard + **live monitor** after start; director, `invite_media*`, calls/CPS/concurrency (or **soak** `total_calls=0`), trunk identity, health gates, WAV, **localStorage presets** |
+| **Jobs** | Start/stop workers; kind filters; engine overrides; live stats; artifact download; **report preview** |
+| **Reports** | KPI from `summary.json`, HTML preview, compare two jobs, bulk ZIP export |
+| **Dashboard** | 24h timeline, alerts, clickable recent jobs; **hybrid `/api/v1` panel** (rate/pause/dynamic clients when `gossipper server` exposes v1) |
+| **Scenarios → Prep** | `pcap2scenario`, `infindex`, `rtp_send`, `report-html` as tool jobs; pcap import into library |
 | **Clients / Servers** | Persistent profiles for repeat runs |
 
 Build with **`make frontend`** so the UI is embedded; packages may also ship static files under **`/usr/local/gossipper/dist/`**. Developer notes: [`web/control-ui/README.md`](../web/control-ui/README.md).
 
-**Compared to [sipstress](https://github.com/achrafka/sipstress):** Gossipper uses XML scenarios and aggregate `summary.json` (not Python per-call Plotly dashboards). The **Load test** page maps the common sipstress one-liner (`--director`, `--calls`, `--cps`, `-j`, identity headers) to a **Jobs** run with the same engine flags.
+Deep links: `#/load/{jobId}`, `#/jobs/{jobId}`, `#/reports?report={jobId}`.
+
+### Load test API (`/api/v2/load-test`)
+
+Background sipstress-style runs (same path as the Load test wizard):
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/v2/load-test` | Built-in `invite_media*` scenarios, defaults, lifecycle hints |
+| POST | `/api/v2/load-test/run` | Start worker in background → **`202 Accepted`** + `{ "job": …, "async": true }` |
+
+Example:
+
+```bash
+curl -s -X POST http://127.0.0.1:8099/api/v2/load-test/run \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "director": "10.0.0.1:5060",
+    "scenario_id": "invite_media",
+    "total_calls": 20,
+    "rate": 4,
+    "max_concurrent": 2,
+    "health_enabled": true,
+    "health_min_success_ratio": 0.95
+  }'
+```
+
+Poll **`GET /api/v2/jobs/{id}`**, stop with **`POST /api/v2/jobs/{id}/stop`**. Soak: `"total_calls": 0` (run until stop).
+
+**Compared to [sipstress](https://github.com/achrafka/sipstress):** Gossipper uses XML scenarios and aggregate `summary.json` / `report.html` (not Python per-call Plotly dashboards). The **Load test** page and API map the common sipstress knobs (`director`, calls, CPS, concurrency, identity headers) to a **supervisor job** with the same engine flags.
 
 ## 7. systemd quick map
 

@@ -396,6 +396,27 @@ func TestV2AuthLoginFlow(t *testing.T) {
 	h.token = prev
 }
 
+func TestV2ChangeMyPassword(t *testing.T) {
+	h := newHarness(t, true)
+	resp := h.do(http.MethodPost, "/api/v2/me/password", map[string]string{
+		"current_password": "admin0000",
+		"new_password":     "admin0000xx",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("change password status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	// restore password for other tests
+	resp = h.do(http.MethodPost, "/api/v2/me/password", map[string]string{
+		"current_password": "admin0000xx",
+		"new_password":     "admin0000",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("restore password status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
 func TestV2BuiltinScenarios(t *testing.T) {
 	h := newHarness(t, false)
 	resp := h.do(http.MethodGet, "/api/v2/builtin-scenarios", nil)

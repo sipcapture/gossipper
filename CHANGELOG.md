@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.50] — 2026-05-19
+
+### Added
+
+- **Docs**: `docs/sipstress-style-load-testing.md` — Load test API (`POST /api/v2/load-test/run`), soak, UI features; `docs/ui-mode.md` and `web/control-ui/README.md` updated for v2 (no legacy UI fallback).
+- **Tests**: soak load-test API (`total_calls=0`), `POST /api/v2/me/password`.
+
 ## [0.1.49] — 2026-05-19
 
 ### Added

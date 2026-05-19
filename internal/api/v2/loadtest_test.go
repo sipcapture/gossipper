@@ -44,3 +44,18 @@ func TestV2RunLoadTestAsync(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+func TestV2RunLoadTestSoak(t *testing.T) {
+	h := newHarness(t, false)
+	resp := h.do(http.MethodPost, "/api/v2/load-test/run", map[string]any{
+		"director":       "127.0.0.1:5060",
+		"scenario_id":    "invite_media",
+		"total_calls":    0,
+		"rate":           1,
+		"max_concurrent": 1,
+	})
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status=%d want 202 for soak", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
