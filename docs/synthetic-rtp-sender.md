@@ -20,6 +20,9 @@ Run Gossipper as a pure RTP generator by passing `-rtp_send`.  The SIP scenario
 engine is bypassed entirely. You may prefix the same flag tail with **`gossipper sipp`**
 if you want the SIPp-oriented entry point; behavior is identical to the root command.
 
+For thousands of parallel streams on one host, add **`-media_scale`** and **`-rtp_streams N`**
+(see **[`docs/media-scale.md`](media-scale.md)**).
+
 ### Required flag
 
 | Flag | Description |

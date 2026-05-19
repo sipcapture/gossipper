@@ -137,6 +137,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		CallRecordsJSONL: cfg.CallRecordsJSONL,
 		MediaRejectSRTP:  cfg.MediaRejectSRTP,
 		MediaSRTP:        cfg.MediaSRTP,
+		MediaScale:       cfg.MediaScale,
 		TURNServer:       cfg.TURNServer,
 		TURNUser:         cfg.TURNUser,
 		TURNPass:         cfg.TURNPass,

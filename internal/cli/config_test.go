@@ -1620,6 +1620,28 @@ func TestParseServerModeRejectsRTPSend(t *testing.T) {
 	}
 }
 
+func TestParseMediaScaleIncompatibleWithSRTP(t *testing.T) {
+	t.Parallel()
+	_, err := Parse([]string{"-media_scale", "-media_srtp", "-sf", "testdata/scenarios/uac.xml"})
+	if err == nil {
+		t.Fatal("expected error for media_scale with media_srtp")
+	}
+	if !strings.Contains(err.Error(), "media_scale") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestParseRTPStreamsRequiresMediaScale(t *testing.T) {
+	t.Parallel()
+	_, err := Parse([]string{"-rtp_send", "-rtp_addr", "127.0.0.1:5000", "-rtp_streams", "10"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "media_scale") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestParseServerSubcommandRejectsLegacyConfigClientFlag(t *testing.T) {
 	t.Parallel()
 	_, err := Parse([]string{InternalServerSubcommandArgv, "-config-client", "/tmp/x.json"})

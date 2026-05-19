@@ -173,6 +173,8 @@ type Config struct {
 	MediaRejectSRTP bool
 	// MediaSRTP enables SDES SRTP (a=crypto inline) for rtp_stream start/mic when the peer offers SRTP.
 	MediaSRTP bool
+	// MediaScale enables the high-scale cleartext synthetic RTP engine (see internal/media/scale_engine.go).
+	MediaScale bool
 	// TURNServer is host:port for TURN/STUN (long-term credentials); used when ICE selects typ relay.
 	TURNServer string
 	TURNUser   string
@@ -231,6 +233,9 @@ type Engine struct {
 
 	// normalizedCache caches normalizeSIPScenarioLineIndent results per template text.
 	normalizedCache sync.Map
+
+	scaleMu     sync.Mutex
+	scaleEngine *media.ScaleEngine
 }
 
 func New(cfg Config) *Engine {
@@ -489,6 +494,10 @@ func (e *Engine) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 	defer e.stopCommandNetwork()
+	if e.cfg.MediaScale {
+		e.startScaleEngine(ctx)
+		defer e.stopScaleEngine()
+	}
 	if err := e.runInit(ctx); err != nil {
 		return err
 	}
@@ -2001,7 +2010,11 @@ func (e *Engine) executeCall(
 		if !success {
 			e.stats.AddFailureClass(classifyCallFailure(runErr, sawUnexpectedSIP))
 		}
-		e.stats.AddMediaStats(mediaSession.Snapshot())
+		if e.cfg.MediaScale {
+			e.stats.AddMediaStats(e.scaleUnregisterCall(callID))
+		} else {
+			e.stats.AddMediaStats(mediaSession.Snapshot())
+		}
 		if e.hep != nil {
 			e.hep.SendFinalReports(callID)
 		}

@@ -37,6 +37,12 @@ Gossipper keeps RTP as a separate milestone layered on top of the SIP engine.
 
 1. **RTCP / QoS in engine summary** — **done** for both cleartext and **`-media_srtp`** paths: aggregation from inbound RR and local RTP loss/jitter estimates is in **`internal/stats.MediaSummary`**, surfaced in JSON, HTML, and health thresholds. **Not** extended to the legacy **periodic `-trace_stat` CSV** row format (still basic RTP/RTCP counters only).
 
+## High-scale cleartext RTP (load generator)
+
+- **`-media_scale`** uses [`internal/media/scale_engine.go`](../internal/media/scale_engine.go): central scheduler, batched UDP send, no per-stream tickers or RTCP/recv loops.
+- Documented in **[`docs/high-scale-cleartext-rtp.md`](high-scale-cleartext-rtp.md)** (full design) and **[`docs/media-scale.md`](media-scale.md)** (quick reference).
+- Not mixed with SRTP/DTLS milestones below.
+
 ## Planned milestones (media)
 
 1. **Optional:** extend **periodic `-trace_stat` CSV** (and any other narrow text exports) with the same QoS columns as JSON, if operators need time-series without parsing JSON.

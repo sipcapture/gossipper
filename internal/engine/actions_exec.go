@@ -54,11 +54,29 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		}
 		switch command {
 		case "pause":
-			mediaSession.Pause()
+			if e.cfg.MediaScale {
+				if se := e.scaleMedia(); se != nil {
+					se.PauseCall(renderCtx.CallID)
+				}
+			} else {
+				mediaSession.Pause()
+			}
 		case "resume":
-			mediaSession.Resume()
+			if e.cfg.MediaScale {
+				if se := e.scaleMedia(); se != nil {
+					se.ResumeCall(renderCtx.CallID)
+				}
+			} else {
+				mediaSession.Resume()
+			}
 		case "stop":
-			mediaSession.Stop()
+			if e.cfg.MediaScale {
+				if se := e.scaleMedia(); se != nil {
+					_ = se.UnregisterCall(renderCtx.CallID)
+				}
+			} else {
+				mediaSession.Stop()
+			}
 			mediaSession.ClearSDESSRTP()
 		case "echo":
 			mediaSession.ClearSDESSRTP()
@@ -85,6 +103,26 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			}
 		case "start":
 			last := mustParseLastMessage(renderCtx)
+			if e.cfg.MediaScale {
+				if !cfg.Synthetic {
+					return fmt.Errorf("media_scale requires rtp_stream synthetic")
+				}
+				endpoint, err := media.ParseAudioEndpoint(last, renderCtx.RemoteIP)
+				if err != nil {
+					return err
+				}
+				se := e.scaleMedia()
+				if se == nil {
+					return fmt.Errorf("scale media engine not running")
+				}
+				if e.cfg.TraceMessages {
+					fmt.Fprintf(os.Stdout, "rtp_stream start (scale) synthetic -> %s:%d\n", endpoint.IP, endpoint.Port)
+				}
+				if err := se.RegisterStream(ctx, renderCtx.CallID, endpoint, cfg, renderCtx.LocalIP, renderCtx.MediaPort); err != nil {
+					return err
+				}
+				break
+			}
 			if err := configureMediaSRTPForRTPStream(e, mediaSession, last, "start"); err != nil {
 				return err
 			}

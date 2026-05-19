@@ -18,6 +18,9 @@ import (
 //
 // A short summary is printed to stdout when the sender stops.
 func RunRTPSender(ctx context.Context, cfg cli.Config) error {
+	if cfg.MediaScale {
+		return RunRTPSenderScale(ctx, cfg)
+	}
 	host, portStr, err := net.SplitHostPort(cfg.RTPAddr)
 	if err != nil {
 		return fmt.Errorf("invalid rtp_addr %q: %w", cfg.RTPAddr, err)

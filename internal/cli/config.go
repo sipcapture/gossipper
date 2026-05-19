@@ -159,6 +159,7 @@ type Config struct {
 	RTPFreqMs   int    // -rtp_freq  packet interval ms (default 20)
 	RTPDurMs    int    // -rtp_dur   total duration ms (0 = unlimited)
 	RTPChannels int    // -rtp_ch    audio channels (default 1)
+	RTPStreams  int    // -rtp_streams parallel streams for -rtp_send with -media_scale
 
 	// Structured event logging (universal Logger + OTLP).
 	LogStdout       bool              // -log_stdout: emit text events to stderr
@@ -196,6 +197,9 @@ type Config struct {
 	MediaRejectSRTP bool
 	// MediaSRTP enables SDES SRTP (a=crypto inline) for rtp_stream start/mic when the peer offers SRTP.
 	MediaSRTP bool
+	// MediaScale uses the high-scale cleartext RTP engine (central scheduler, batch UDP send).
+	// Requires synthetic rtp_stream or -rtp_send; incompatible with -media_srtp.
+	MediaScale bool
 	// TURN (optional): host:port and credentials for ICE typ relay paths.
 	TURNServer string
 	TURNUser   string
@@ -404,6 +408,7 @@ func Parse(args []string) (Config, error) {
 	fs.StringVar(&cfg.CallRecordsJSONL, "call_records_jsonl", "", "append one JSON call record per finished call to this path")
 	fs.BoolVar(&cfg.MediaRejectSRTP, "media_reject_srtp", false, "fail rtp_stream start/mic when remote SDP suggests SRTP (RTP/SAVP, a=crypto, a=fingerprint)")
 	fs.BoolVar(&cfg.MediaSRTP, "media_srtp", false, "when remote SDP offers SRTP: SDES (a=crypto inline) and/or DTLS-SRTP client (a=fingerprint sha-256); encrypt RTP/SRTCP outbound, decrypt inbound; RTCP stays on RTP port+1 unless peer muxes")
+	fs.BoolVar(&cfg.MediaScale, "media_scale", false, "high-scale cleartext synthetic RTP: central scheduler and batched UDP send (no per-stream tickers/RTCP); use with rtp_stream synthetic or -rtp_send")
 	fs.StringVar(&cfg.TURNServer, "turn_server", "", "TURN/STUN server host:port for ICE relay (typ relay) RTP/RTCP")
 	fs.StringVar(&cfg.TURNUser, "turn_user", "", "TURN long-term credential username")
 	fs.StringVar(&cfg.TURNPass, "turn_pass", "", "TURN long-term credential password")
@@ -468,6 +473,7 @@ func Parse(args []string) (Config, error) {
 	fs.IntVar(&cfg.RTPFreqMs, "rtp_freq", cfg.RTPFreqMs, "packet interval in milliseconds for standalone RTP sender")
 	fs.IntVar(&cfg.RTPDurMs, "rtp_dur", 0, "total duration in milliseconds for standalone RTP sender (0 = run until interrupted)")
 	fs.IntVar(&cfg.RTPChannels, "rtp_ch", cfg.RTPChannels, "number of audio channels for standalone RTP sender (1 = mono)")
+	fs.IntVar(&cfg.RTPStreams, "rtp_streams", 1, "number of parallel RTP streams for -rtp_send with -media_scale (local ports increment by 2)")
 
 	logAttrs := newKVFlag("log_attr")
 	logHeaders := newKVFlag("log_otel_header")
@@ -757,6 +763,21 @@ func Parse(args []string) (Config, error) {
 		}
 		if cfg.RTPDurMs < 0 {
 			return Config{}, errors.New("rtp_dur must be greater than or equal to zero")
+		}
+		if cfg.RTPStreams < 1 {
+			return Config{}, errors.New("rtp_streams must be at least 1")
+		}
+		if cfg.RTPStreams > 1 && !cfg.MediaScale {
+			return Config{}, errors.New("rtp_streams > 1 requires -media_scale")
+		}
+	}
+
+	if cfg.MediaScale {
+		if cfg.MediaSRTP {
+			return Config{}, errors.New("media_scale is incompatible with media_srtp")
+		}
+		if cfg.RTPStreams < 1 {
+			return Config{}, errors.New("rtp_streams must be at least 1")
 		}
 	}
 
