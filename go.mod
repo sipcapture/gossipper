@@ -17,6 +17,7 @@ require (
 	github.com/pion/srtp/v3 v3.0.10
 	github.com/pion/stun/v3 v3.1.2
 	github.com/pion/turn/v4 v4.1.4
+	github.com/pion/webrtc/v4 v4.2.12
 	github.com/rivo/tview v0.42.0
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.19.0
@@ -26,6 +27,7 @@ require (
 	go.opentelemetry.io/otel/sdk/log v0.19.0
 	go.opentelemetry.io/otel/trace v1.43.0
 	golang.org/x/crypto v0.49.0
+	golang.org/x/net v0.52.0
 	golang.org/x/sys v0.42.0
 	golang.org/x/text v0.35.0
 	modernc.org/sqlite v1.50.1
@@ -55,17 +57,14 @@ require (
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/sctp v1.9.5 // indirect
 	github.com/pion/sdp/v3 v3.0.18 // indirect
-	github.com/pion/transport/v3 v3.1.1 // indirect
 	github.com/pion/transport/v4 v4.0.1 // indirect
 	github.com/pion/turn/v5 v5.0.3 // indirect
-	github.com/pion/webrtc/v4 v4.2.12 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
-	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/term v0.41.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect

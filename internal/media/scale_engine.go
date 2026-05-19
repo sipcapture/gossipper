@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,6 +51,7 @@ type scaleStream struct {
 	remote   *net.UDPAddr
 	cfg      StreamConfig
 	packet   []byte
+	sendBuf  []byte
 	sequence uint16
 	timestamp uint32
 	interval time.Duration
@@ -82,16 +84,21 @@ func (e *ScaleEngine) Run(ctx context.Context) {
 	child, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 
-	workers := 4
-	if workers < 1 {
-		workers = 1
-	}
-	for i := 0; i < workers; i++ {
-		e.wg.Add(1)
-		go func() {
-			defer e.wg.Done()
-			e.senderLoop(child)
-		}()
+	if !ScaleDirectSend() {
+		workers := runtime.GOMAXPROCS(0)
+		if workers < 1 {
+			workers = 1
+		}
+		if workers > 8 {
+			workers = 8
+		}
+		for i := 0; i < workers; i++ {
+			e.wg.Add(1)
+			go func() {
+				defer e.wg.Done()
+				e.senderLoop(child)
+			}()
+		}
 	}
 	e.wg.Add(1)
 	go func() {
@@ -109,6 +116,7 @@ func (e *ScaleEngine) Stop() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for id, st := range e.streams {
+		forgetBatchWriter(st.conn)
 		_ = st.conn.Close()
 		delete(e.streams, id)
 	}
@@ -165,6 +173,8 @@ func (e *ScaleEngine) RegisterStream(_ context.Context, callID string, endpoint 
 	e.nextID++
 	id := e.nextID
 	now := time.Now()
+	sendBuf := make([]byte, len(pkt))
+	copy(sendBuf, pkt)
 	st := &scaleStream{
 		id:        id,
 		callID:    callID,
@@ -172,6 +182,7 @@ func (e *ScaleEngine) RegisterStream(_ context.Context, callID string, endpoint 
 		remote:    remote,
 		cfg:       cfg,
 		packet:    pkt,
+		sendBuf:   sendBuf,
 		sequence:  cfg.Sequence,
 		timestamp: cfg.Timestamp,
 		interval:  cfg.PacketDuration,
@@ -199,6 +210,7 @@ func (e *ScaleEngine) UnregisterCall(callID string) Stats {
 			heap.Remove(&e.heap, st.heapIdx)
 		}
 		delete(e.streams, id)
+		forgetBatchWriter(st.conn)
 		_ = st.conn.Close()
 		total.RTPPacketsSent += uint32(st.packetsSent)
 		total.RTPOctetsSent += uint32(st.packetsSent) * st.cfg.SamplesPerPkt
@@ -284,9 +296,13 @@ func (e *ScaleEngine) tick(now time.Time) {
 
 	byConn := make(map[*net.UDPConn][]udpSendMsg)
 	for _, st := range due {
-		buf, bp := allocScalePacket(st.packet)
-		patchRTPPacket(buf, st.sequence, st.timestamp)
-		byConn[st.conn] = append(byConn[st.conn], udpSendMsg{Addr: st.remote, Buf: buf, pool: bp})
+		patchRTPPacket(st.sendBuf, st.sequence, st.timestamp)
+		if ScaleDirectSend() {
+			byConn[st.conn] = append(byConn[st.conn], udpSendMsg{Addr: st.remote, Buf: st.sendBuf})
+		} else {
+			buf, bp := allocScalePacket(st.sendBuf)
+			byConn[st.conn] = append(byConn[st.conn], udpSendMsg{Addr: st.remote, Buf: buf, pool: bp})
+		}
 		st.sequence++
 		st.timestamp += st.cfg.SamplesPerPkt
 		st.packetsSent++
@@ -299,6 +315,11 @@ func (e *ScaleEngine) tick(now time.Time) {
 				end = len(msgs)
 			}
 			batch := msgs[off:end]
+			if ScaleDirectSend() {
+				n, _ := udpSendBatch(conn, batch)
+				e.addSent(n, batch)
+				continue
+			}
 			select {
 			case e.sendCh <- scaleSendJob{conn: conn, msgs: batch}:
 			default:

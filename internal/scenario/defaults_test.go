@@ -13,6 +13,17 @@ func TestLoadNamedInviteMedia(t *testing.T) {
 	}
 }
 
+func TestLoadNamedInviteMediaScale(t *testing.T) {
+	t.Parallel()
+	sc, err := LoadNamed("invite_media_scale")
+	if err != nil {
+		t.Fatalf("LoadNamed(invite_media_scale): %v", err)
+	}
+	if sc.Name != "invite_media_scale" {
+		t.Fatalf("scenario name = %q", sc.Name)
+	}
+}
+
 func TestLoadNamedInviteMediaEarly(t *testing.T) {
 	t.Parallel()
 	sc, err := LoadNamed("invite_media_early")

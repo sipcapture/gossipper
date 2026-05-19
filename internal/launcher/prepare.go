@@ -6,6 +6,7 @@ import (
 
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/engine"
+	"github.com/sipcapture/gossipper/internal/media"
 	"github.com/sipcapture/gossipper/internal/scenario"
 	"github.com/sipcapture/gossipper/internal/stats"
 )
@@ -53,6 +54,8 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 	if err := Validate3PCCRole(cfg, sc); err != nil {
 		return Prepared{}, err
 	}
+	applyBuiltinScenarioFlags(&cfg, sc)
+	applyScaleMediaFlags(&cfg)
 
 	totalCalls := cfg.TotalCalls
 	unlimited := cfg.TotalCallsSetExplicitly && cfg.TotalCalls == 0
@@ -138,6 +141,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		MediaRejectSRTP:  cfg.MediaRejectSRTP,
 		MediaSRTP:        cfg.MediaSRTP,
 		MediaScale:       cfg.MediaScale,
+		MediaIOUring:     cfg.MediaIOUring,
 		TURNServer:       cfg.TURNServer,
 		TURNUser:         cfg.TURNUser,
 		TURNPass:         cfg.TURNPass,
@@ -247,6 +251,22 @@ func serverListenersForEngine(cfg *cli.Config) ([]engine.ServerListener, error) 
 	}
 	return out, nil
 }
+
+// applyBuiltinScenarioFlags turns on engine options implied by built-in scenario names.
+func applyBuiltinScenarioFlags(cfg *cli.Config, sc scenario.Scenario) {
+	if strings.EqualFold(sc.Name, scenario.BuiltinInviteMediaScale) ||
+		strings.EqualFold(cfg.ScenarioName, scenario.BuiltinInviteMediaScale) {
+		cfg.MediaScale = true
+		if cfg.Transport == "" || strings.EqualFold(cfg.Transport, cli.DefaultTransport) {
+			cfg.Transport = "u1"
+		}
+	}
+}
+
+func applyScaleMediaFlags(cfg *cli.Config) {
+	media.EnableScaleDirectSend(cfg.MediaIOUring)
+}
+
 
 func Validate3PCCRole(cfg cli.Config, sc scenario.Scenario) error {
 	if cfg.CommandRole != "slave" {

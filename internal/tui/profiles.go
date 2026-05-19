@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/sipcapture/gossipper/internal/scenario"
 )
 
 type profile struct {
@@ -36,6 +38,12 @@ func loadProfiles() []profile {
 			ScenarioName: "invite_media",
 			Description:  "Built-in INVITE with SDP, synthetic RTP hold, BYE",
 		},
+		{
+			Name:         "builtin-invite-media-scale",
+			Mode:         "client",
+			ScenarioName: scenario.BuiltinInviteMediaScale,
+			Description:  "10k-style UAC: SIP + cleartext synthetic RTP (ScaleEngine, -media_scale auto)",
+		},
 	}
 
 	entries, err := os.ReadDir("testdata/scenarios")
@@ -54,7 +62,7 @@ func loadProfiles() []profile {
 		}
 	}
 
-	slices.SortFunc(profiles[2:], func(a, b profile) int {
+	slices.SortFunc(profiles[4:], func(a, b profile) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 

@@ -15,13 +15,14 @@ func (e *Engine) startHEP() error {
 	if e.cfg.HEPAddr == "" {
 		return nil
 	}
+	sendMediaReport := e.cfg.SendMediaReport && !e.cfg.MediaScale
 	client, err := hep.New(hep.Config{
 		Addr:            e.cfg.HEPAddr,
 		CaptureID:       e.cfg.HEPCaptureID,
 		Password:        e.cfg.HEPPassword,
 		RawRTCP:         e.cfg.HEPRawRTCP,
 		HomerLakeRTCP:   e.cfg.HEPHomerLakeRTCP,
-		SendMediaReport: e.cfg.SendMediaReport,
+		SendMediaReport: sendMediaReport,
 	})
 	if err != nil {
 		return err

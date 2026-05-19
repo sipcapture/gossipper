@@ -200,6 +200,8 @@ type Config struct {
 	// MediaScale uses the high-scale cleartext RTP engine (central scheduler, batch UDP send).
 	// Requires synthetic rtp_stream or -rtp_send; incompatible with -media_srtp.
 	MediaScale bool
+	// MediaIOUring enables experimental in-scheduler UDP batch send (Linux sendmmsg; fewer goroutines).
+	MediaIOUring bool
 	// TURN (optional): host:port and credentials for ICE typ relay paths.
 	TURNServer string
 	TURNUser   string
@@ -363,7 +365,7 @@ func Parse(args []string) (Config, error) {
 		writeFlagDefaultsForHelp(fs, fs.Output())
 	}
 	fs.StringVar(&cfg.ScenarioFile, "sf", cfg.ScenarioFile, "path to XML scenario file")
-	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas, management, invite_media, invite_media_early, invite_media_early_180)")
+	fs.StringVar(&cfg.ScenarioName, "sn", cfg.ScenarioName, "built-in scenario name (uac, uas, management, invite_media, invite_media_scale, invite_media_early, invite_media_early_180)")
 	fs.StringVar(&cfg.Service, "s", cfg.Service, "service name used in templates")
 	fs.StringVar(&cfg.Transport, "t", cfg.Transport, "transport: u1/un/ui, t1/tn, l1/ln; client TLS aliases cl/cln; server UDP s1/sn; server TLS sl")
 	fs.StringVar(&cfg.LocalIP, "i", cfg.LocalIP, "local IP address")
@@ -409,6 +411,7 @@ func Parse(args []string) (Config, error) {
 	fs.BoolVar(&cfg.MediaRejectSRTP, "media_reject_srtp", false, "fail rtp_stream start/mic when remote SDP suggests SRTP (RTP/SAVP, a=crypto, a=fingerprint)")
 	fs.BoolVar(&cfg.MediaSRTP, "media_srtp", false, "when remote SDP offers SRTP: SDES (a=crypto inline) and/or DTLS-SRTP client (a=fingerprint sha-256); encrypt RTP/SRTCP outbound, decrypt inbound; RTCP stays on RTP port+1 unless peer muxes")
 	fs.BoolVar(&cfg.MediaScale, "media_scale", false, "high-scale cleartext synthetic RTP: central scheduler and batched UDP send (no per-stream tickers/RTCP); use with rtp_stream synthetic or -rtp_send")
+	fs.BoolVar(&cfg.MediaIOUring, "media_iouring", false, "with -media_scale: send RTP batches from the scheduler thread (Linux sendmmsg); lowers userspace overhead vs queued senders")
 	fs.StringVar(&cfg.TURNServer, "turn_server", "", "TURN/STUN server host:port for ICE relay (typ relay) RTP/RTCP")
 	fs.StringVar(&cfg.TURNUser, "turn_user", "", "TURN long-term credential username")
 	fs.StringVar(&cfg.TURNPass, "turn_pass", "", "TURN long-term credential password")
@@ -779,6 +782,9 @@ func Parse(args []string) (Config, error) {
 		if cfg.RTPStreams < 1 {
 			return Config{}, errors.New("rtp_streams must be at least 1")
 		}
+	}
+	if cfg.MediaIOUring && !cfg.MediaScale {
+		return Config{}, errors.New("media_iouring requires media_scale")
 	}
 
 	return cfg, nil

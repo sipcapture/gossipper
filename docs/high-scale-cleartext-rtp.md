@@ -107,6 +107,26 @@ Engine wiring: [`internal/engine/engine_scale.go`](../internal/engine/engine_sca
 
 ---
 
+## Built-in scenario: `invite_media_scale`
+
+The standard **SIP + RTP** path for thousands of calls is the built-in scenario **`-sn invite_media_scale`** (same XML as [`testdata/scenarios/uac_invite_media_scale.xml`](../testdata/scenarios/uac_invite_media_scale.xml)).
+
+- INVITE with SDP (`m=audio [media_port] RTP/AVP 0`)
+- On `200 OK`: `exec rtp_stream="synthetic,0,0,PCMU/8000,20"` (ScaleEngine)
+- 30 s media hold (`pause`), then `rtp_stream stop` and BYE
+
+**`-media_scale` is enabled automatically** when you use `-sn invite_media_scale` (or any scenario whose XML name is `invite_media_scale`). For `-sf` you must still pass **`-media_scale`** explicitly.
+
+Example toward one SBC:
+
+```bash
+gossipper sipp -sn invite_media_scale \
+  -rsa 10.0.0.5:5060 -i 10.0.0.1 -p 5060 \
+  -m 10000 -l 10000 -r 20 -t u1
+```
+
+Tune `-m`, `-l`, `-r`, and the scenario `pause` for your lab (shorter pause = faster call churn).
+
 ## Usage examples
 
 ### Standalone generator (no SIP)
@@ -160,6 +180,8 @@ Increase kernel buffer limits (same order of magnitude as Homer):
 
 ```bash
 sudo scripts/tune-udp-sysctl.sh
+# persistent: sudo cp examples/sysctl/gossipper-high-scale.conf /etc/sysctl.d/99-gossipper.conf && sudo sysctl --system
+ulimit -n 1048576
 ```
 
 Or manually:
@@ -169,6 +191,8 @@ sudo sysctl -w net.core.rmem_max=33554432
 sudo sysctl -w net.core.wmem_max=33554432
 sudo sysctl -w net.core.wmem_default=4194304
 sudo sysctl -w net.core.netdev_max_backlog=250000
+sudo sysctl -w net.ipv4.udp_mem="262144 524288 1048576"
+sudo sysctl -w fs.file-max=2097152
 ```
 
 Media scale sockets also set large `SO_SNDBUF` / `SO_RCVBUF` in [`scale_socket.go`](../internal/media/scale_socket.go).
@@ -195,7 +219,7 @@ Use these checks in the lab before production load tests:
 
 - **SRTP / DTLS-SRTP** — use the normal `Session` path with `-media_srtp`.
 - **PCAP replay, microphone, echo, `rtpcheck`** — unchanged classic media paths only.
-- **Per-packet HEP RTP** — disable or avoid on hot path; mirror at capture layer if needed.
+- **Per-packet HEP RTP** — automatically off when `-media_scale` is set (`SendMediaReport` is not passed to HEP for scale runs). Use SIP HEP (`-hep_addr`) only if you need signaling capture.
 - **RTCP** — not sent in scale mode (enable only if your SBC strictly requires it; would be a future optional aggregated worker).
 
 ---
@@ -231,10 +255,18 @@ go test ./internal/engine/... -run TestApplyExecRTPStreamScale
 
 ---
 
+## Performance options (Linux)
+
+| Flag / env | Effect |
+|------------|--------|
+| `-media_scale` | Central scheduler, per-stream UDP socket, batched send via `sendmmsg` (`golang.org/x/net/ipv4.WriteBatch`) |
+| `-media_iouring` or `GOSSIPPER_MEDIA_IOURING=1` | Send batches inline from the scheduler (no sender worker queue); lower goroutine count |
+| `-t u1` | Single UDP socket for SIP (recommended for 10k calls) |
+| `GOMAXPROCS` | Set to physical core count on the generator |
+
 ## Future work (only if scale mode is insufficient)
 
-1. True **`sendmmsg`** on Linux when available in the toolchain/stdlib used by the project.
-2. **`io_uring`** UDP send (experimental sidecar) for extreme syscall reduction.
-3. **XDP** only for **ingress mirror** to Homer, not for RTP generation.
+1. **XDP** only for **ingress mirror** to Homer, not for RTP generation.
+2. Kernel **io_uring** `IORING_OP_SENDMSG` pool (not wired yet; `-media_iouring` is userspace direct-batch mode today).
 
 See [`media-roadmap.md`](media-roadmap.md) for SRTP/ICE/WebRTC milestones (separate from this load-generator path).

@@ -2,6 +2,9 @@ package scenario
 
 import "strings"
 
+// BuiltinInviteMediaScale is the built-in UAC for high-scale cleartext RTP (requires ScaleEngine).
+const BuiltinInviteMediaScale = "invite_media_scale"
+
 // BuiltinInfo describes a read-only scenario baked into the engine binary.
 type BuiltinInfo struct {
 	ID          string `json:"id"`
@@ -15,6 +18,7 @@ var builtinCatalog = []BuiltinInfo{
 	{ID: "uac", Name: "Basic Gossip UAC", Role: "uac", Description: "Minimal INVITE / ACK / BYE UAC flow.", Source: "builtin"},
 	{ID: "uas", Name: "Basic Gossip UAS", Role: "uas", Description: "Answer INVITE with 200 OK and handle BYE.", Source: "builtin"},
 	{ID: "invite_media", Name: "invite_media", Role: "uac", Description: "UAC INVITE with SDP and RTP media.", Source: "builtin"},
+	{ID: BuiltinInviteMediaScale, Name: BuiltinInviteMediaScale, Role: "uac", Description: "UAC INVITE with SDP and cleartext synthetic RTP for high-scale load (-media_scale auto).", Source: "builtin"},
 	{ID: "invite_media_early", Name: "invite_media_early", Role: "uac", Description: "UAC media flow with early media (183).", Source: "builtin"},
 	{ID: "invite_media_savpf", Name: "invite_media_savpf", Role: "uac", Description: "UAC media flow with SAVPF SDP profile.", Source: "builtin"},
 	{ID: "invite_media_early_180", Name: "invite_media_early_180", Role: "uac", Description: "UAC media flow with 180 Ringing early media.", Source: "builtin"},
@@ -38,6 +42,8 @@ func BuiltinXML(id string) (string, error) {
 		return defaultUAS, nil
 	case "invite_media":
 		return defaultInviteMedia, nil
+	case BuiltinInviteMediaScale:
+		return defaultInviteMediaScale, nil
 	case "invite_media_early":
 		return defaultInviteMediaEarly, nil
 	case "invite_media_savpf":

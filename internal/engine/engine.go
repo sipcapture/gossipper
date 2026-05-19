@@ -175,6 +175,8 @@ type Config struct {
 	MediaSRTP bool
 	// MediaScale enables the high-scale cleartext synthetic RTP engine (see internal/media/scale_engine.go).
 	MediaScale bool
+	// MediaIOUring enables in-scheduler UDP batch send (Linux sendmmsg; see -media_iouring).
+	MediaIOUring bool
 	// TURNServer is host:port for TURN/STUN (long-term credentials); used when ICE selects typ relay.
 	TURNServer string
 	TURNUser   string
@@ -1984,7 +1986,7 @@ func (e *Engine) executeCall(
 	mediaSession := media.NewSession()
 	mediaSession.SetPCAPLinkLayer(e.cfg.PCAPLinkLayer)
 	mediaSession.SetTURN(e.cfg.TURNServer, e.cfg.TURNUser, e.cfg.TURNPass, e.cfg.TURNRealm)
-	if e.hep != nil {
+	if e.hep != nil && !e.cfg.MediaScale {
 		mediaSession.SetHEPObserver(e.hep)
 	}
 	mediaSession.SetCallID(callID)

@@ -19,6 +19,7 @@ This path does **not** use XDP/eBPF. Throughput is improved by a central schedul
 | Flag | Description |
 |------|-------------|
 | `-media_scale` | Enable the scale RTP engine |
+| `-media_iouring` | With `-media_scale`: send RTP batches from the scheduler (Linux `sendmmsg`; fewer goroutines). Or `GOSSIPPER_MEDIA_IOURING=1` |
 | `-rtp_streams N` | With `-rtp_send -media_scale`, start **N** parallel streams (local ports step by 2) |
 
 `-media_scale` cannot be combined with `-media_srtp`.
@@ -31,13 +32,21 @@ gossipper sipp -rtp_send -media_scale -rtp_streams 1000 \
   -rtp_addr 10.0.0.5:30000 -rtp_codec PCMU/8000 -rtp_freq 20 -i 10.0.0.1
 ```
 
-## Scenario example
+## Standard scenario (SIP + 10k RTP)
+
+```bash
+gossipper sipp -sn invite_media_scale -rsa SBC:5060 -i LOCAL -p 5060 -m 10000 -l 10000 -r 20
+```
+
+`-media_scale` is turned on automatically for `-sn invite_media_scale`. See [`high-scale-cleartext-rtp.md`](high-scale-cleartext-rtp.md).
+
+## Custom scenario example
 
 ```xml
 <exec rtp_stream="synthetic,0,0,PCMU/8000,20"/>
 ```
 
-Run with `-media_scale`. Remote RTP address still comes from SDP (`ParseAudioEndpoint`).
+Run with `-media_scale` (or use the built-in name above). Remote RTP address comes from SDP (`ParseAudioEndpoint`).
 
 ## OS tuning
 
@@ -53,7 +62,7 @@ sudo sysctl -w net.core.wmem_default=4194304
 sudo sysctl -w net.core.netdev_max_backlog=250000
 ```
 
-Or use [`scripts/tune-udp-sysctl.sh`](scripts/tune-udp-sysctl.sh).
+Or use [`scripts/tune-udp-sysctl.sh`](scripts/tune-udp-sysctl.sh) / [`examples/sysctl/gossipper-high-scale.conf`](examples/sysctl/gossipper-high-scale.conf).
 
 3. **CPU:** set `GOMAXPROCS` to the number of physical cores on the generator host.
 
