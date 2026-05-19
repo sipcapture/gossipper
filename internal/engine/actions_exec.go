@@ -169,12 +169,6 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 	}
 
 	if action.RTPRecord != "" {
-		if callMedia.usesWebRTC() {
-			return media.ErrUnsupportedOverWebRTC
-		}
-		if mediaSession == nil {
-			return fmt.Errorf("rtp_record is not available in this context")
-		}
 		spec, err := templ.RenderMessageStrict(action.RTPRecord, renderCtx)
 		if err != nil {
 			return err
@@ -185,14 +179,14 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 		}
 		switch cmd {
 		case "stop":
-			if err := mediaSession.StopRecording(); err != nil {
+			if err := callMedia.stopRecording(); err != nil {
 				return err
 			}
 		case "start":
 			if e.cfg.TraceMessages {
 				fmt.Fprintf(os.Stdout, "rtp_record start duplex=%v -> %s\n", duplex, path)
 			}
-			if err := mediaSession.StartRecording(path, duplex, renderCtx.BasePath); err != nil {
+			if err := callMedia.startRecording(path, duplex, renderCtx.BasePath); err != nil {
 				return err
 			}
 		}

@@ -264,6 +264,7 @@ func (r *ExecRunner) waitWorker(rw *runningWorker) {
 				rememberArtifact(ctx, r.Store, rw.jobID, "stats", filepath.Join(rw.spec.ArtifactsDir, "stats.jsonl"))
 				rememberArtifact(ctx, r.Store, rw.jobID, "log", filepath.Join(rw.spec.ArtifactsDir, "worker.log"))
 				rememberArtifact(ctx, r.Store, rw.jobID, "summary", filepath.Join(rw.spec.ArtifactsDir, "summary.json"))
+				rememberArtifact(ctx, r.Store, rw.jobID, "call_records", filepath.Join(rw.spec.ArtifactsDir, "call_records.jsonl"))
 				rememberRecordings(ctx, r.Store, rw.jobID, filepath.Join(rw.spec.ArtifactsDir, "recordings"))
 			}
 		}

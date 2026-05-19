@@ -252,4 +252,8 @@ func TestBuildConfigFromSpecSummaryHTML(t *testing.T) {
 	if cfg.SummaryHTML != wantHTML {
 		t.Fatalf("SummaryHTML=%q want %q", cfg.SummaryHTML, wantHTML)
 	}
+	wantCR := filepath.Join(art, "call_records.jsonl")
+	if cfg.CallRecordsJSONL != wantCR {
+		t.Fatalf("CallRecordsJSONL=%q want %q", cfg.CallRecordsJSONL, wantCR)
+	}
 }

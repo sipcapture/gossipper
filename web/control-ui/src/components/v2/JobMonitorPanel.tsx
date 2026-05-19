@@ -3,7 +3,8 @@ import { JobStatsChart } from '@/components/v2/JobStatsChart'
 import { SummaryKPICards } from '@/components/v2/SummaryKPI'
 import { WebRTCDiagnosticsStrip } from '@/components/v2/WebRTCDiagnosticsStrip'
 import { Button } from '@/components/ui/button'
-import { fetchArtifactJSON } from '@/lib/artifacts'
+import { fetchArtifactJSON, fetchArtifactText } from '@/lib/artifacts'
+import { parseCallRecordsWebRTC, type CallRecordLine } from '@/lib/callRecords'
 import { parseStatsLines } from '@/lib/jobsLive'
 import { iceServersFromProfile, profileHasWebRTC } from '@/lib/profileHelpers'
 import { parseSummaryJSON } from '@/lib/summaryParse'
@@ -34,6 +35,7 @@ export function JobMonitorPanel({
   const [error, setError] = useState<string | null>(null)
   const [iceServers, setIceServers] = useState<string[]>([])
   const [webrtcProfile, setWebrtcProfile] = useState(false)
+  const [callRecords, setCallRecords] = useState<CallRecordLine[]>([])
 
   const refresh = useCallback(async () => {
     const d = await getJob(jobId, { bearer })
@@ -141,6 +143,13 @@ export function JobMonitorPanel({
   const running = job?.status === 'running' || job?.status === 'pending'
   const showWebRTC = webrtcProfile || lines.some((l) => /webrtc/i.test(l))
 
+  useEffect(() => {
+    if (!showWebRTC) return
+    void fetchArtifactText(jobId, 'call_records', bearer)
+      .then((text) => setCallRecords(parseCallRecordsWebRTC(text)))
+      .catch(() => setCallRecords([]))
+  }, [jobId, bearer, job?.status, showWebRTC])
+
   const onStopClick = () => {
     void stopJob(jobId, { bearer }).then(() => {
       onStop?.()
@@ -176,7 +185,7 @@ export function JobMonitorPanel({
         </div>
       </div>
       {summary ? <SummaryKPICards kpi={summary} /> : null}
-      {showWebRTC ? <WebRTCDiagnosticsStrip lines={lines} iceServers={iceServers} /> : null}
+      {showWebRTC ? <WebRTCDiagnosticsStrip lines={lines} iceServers={iceServers} callRecords={callRecords} /> : null}
       <JobStatsChart points={chartPoints} />
       {error ? <p className="text-destructive text-[11px]">{error}</p> : null}
       {!compact ? (

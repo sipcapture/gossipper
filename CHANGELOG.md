@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.56] — 2026-05-19
+
+### Added
+
+- **WebRTC Phase 4.2 (recording + artifacts)**: G.711 WAV capture on WebRTC path (`rtp_record`, profile `record_wav`); auto `call_records.jsonl` in job artifacts; UI reads webrtc blocks from artifact; `[media_transport]` template keyword.
+
 ## [0.1.55] — 2026-05-19
 
 ### Added

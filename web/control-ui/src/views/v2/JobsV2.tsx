@@ -35,7 +35,8 @@ import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Modal } from '@/components/ui/modal'
-import { validateJobID } from '@/lib/jobId'
+import { fetchArtifactText } from '@/lib/artifacts'
+import { parseCallRecordsWebRTC, type CallRecordLine } from '@/lib/callRecords'
 import { jobMatchesKindFilter, type JobKindFilter } from '@/lib/jobKind'
 import { isProfilePortBlocked, iceServersFromProfile, profileHasWebRTC } from '@/lib/profileHelpers'
 import { mergeLiveJobs, parseStatsLines, useLiveJobs } from '@/lib/jobsLive'
@@ -681,6 +682,7 @@ function JobStatsTail({ job, bearer }: { job: Job; bearer?: string }) {
   const [error, setError] = useState<string | null>(null)
   const [iceServers, setIceServers] = useState<string[]>([])
   const [webrtcProfile, setWebrtcProfile] = useState(false)
+  const [callRecords, setCallRecords] = useState<CallRecordLine[]>([])
   const tailN = 25
 
   useEffect(() => {
@@ -751,10 +753,17 @@ function JobStatsTail({ job, bearer }: { job: Job; bearer?: string }) {
   const chartPoints = useMemo(() => parseStatsLines(lines), [lines])
   const showWebRTC = webrtcProfile || lines.some((l) => /webrtc/i.test(l))
 
+  useEffect(() => {
+    if (!showWebRTC) return
+    void fetchArtifactText(job.id, 'call_records', bearer)
+      .then((text) => setCallRecords(parseCallRecordsWebRTC(text)))
+      .catch(() => setCallRecords([]))
+  }, [job.id, bearer, job.status, showWebRTC])
+
   return (
     <div>
       <div className="text-muted-foreground mb-1 font-medium">Worker stats</div>
-      {showWebRTC ? <WebRTCDiagnosticsStrip lines={lines} iceServers={iceServers} /> : null}
+      {showWebRTC ? <WebRTCDiagnosticsStrip lines={lines} iceServers={iceServers} callRecords={callRecords} /> : null}
       <JobStatsChart points={chartPoints} />
       {error ? <p className="text-destructive mt-1 text-[11px]">{error}</p> : null}
       <pre className="bg-muted/40 mt-2 max-h-48 overflow-auto rounded p-2 font-mono text-[10px] whitespace-pre-wrap">

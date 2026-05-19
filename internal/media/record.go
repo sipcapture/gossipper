@@ -61,6 +61,11 @@ func sanitizeCallIDForFilename(callID string) string {
 	return s
 }
 
+// SanitizeCallIDForFilename is the exported alias used by WebRTC WAV auto-record.
+func SanitizeCallIDForFilename(callID string) string {
+	return sanitizeCallIDForFilename(callID)
+}
+
 // SetAutoRecord enables automatic WAV capture when a media session starts.
 // dir is the output directory (empty disables). When duplex is true, uses stereo duplex layout.
 func (s *Session) SetAutoRecord(dir string, duplex bool) {

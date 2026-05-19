@@ -114,6 +114,9 @@ func BuildConfigFromSpec(spec Spec) (cli.Config, func(), error) {
 	if strings.TrimSpace(cfg.SummaryHTML) == "" && strings.TrimSpace(spec.ArtifactsDir) != "" {
 		cfg.SummaryHTML = filepath.Join(spec.ArtifactsDir, "report.html")
 	}
+	if strings.TrimSpace(cfg.CallRecordsJSONL) == "" && strings.TrimSpace(spec.ArtifactsDir) != "" {
+		cfg.CallRecordsJSONL = filepath.Join(spec.ArtifactsDir, "call_records.jsonl")
+	}
 
 	if spec.RecordWAV && strings.TrimSpace(spec.ArtifactsDir) != "" {
 		recDir := filepath.Join(spec.ArtifactsDir, "recordings")

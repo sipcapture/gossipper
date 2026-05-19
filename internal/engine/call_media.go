@@ -2,6 +2,9 @@ package engine
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +27,10 @@ type webrtcCallMedia struct {
 	cancel          context.CancelFunc
 	localOffer      string
 	answerAccepted  bool
+	recorder        media.G711WAVRecorder
+	autoRecordDir   string
+	autoRecordDuplex bool
+	callID          string
 }
 
 func newCallMedia(e *Engine, scen scenario.Scenario, callID string) (*callMedia, error) {
@@ -38,7 +45,10 @@ func newCallMedia(e *Engine, scen scenario.Scenario, callID string) (*callMedia,
 		br.OnPCMA(func(payload []byte) {
 			cm.wrtc.mu.Lock()
 			cm.wrtc.recv++
+			codec := br.Codec()
+			cm.wrtc.recorder.AppendReceived(payload, codec)
 			cm.wrtc.mu.Unlock()
+			cm.wrtc.maybeAutoRecord()
 		})
 		return cm, nil
 	}
@@ -60,6 +70,11 @@ func (cm *callMedia) sessionOrNil() *media.Session {
 }
 
 func (cm *callMedia) configure(e *Engine, callID string) {
+	if cm.wrtc != nil {
+		cm.wrtc.callID = callID
+		cm.wrtc.autoRecordDir = strings.TrimSpace(e.cfg.RecordWAVDir)
+		cm.wrtc.autoRecordDuplex = e.cfg.RecordWAVDuplex
+	}
 	if cm.session == nil {
 		return
 	}
@@ -111,6 +126,45 @@ func (cm *callMedia) stop() {
 	}
 }
 
+func (cm *callMedia) startRecording(path string, duplex bool, basePath string) error {
+	if cm.wrtc != nil {
+		return cm.wrtc.recorder.StartRecording(path, duplex, basePath)
+	}
+	if cm.session == nil {
+		return fmt.Errorf("rtp_record: no active media session (start RTP first)")
+	}
+	return cm.session.StartRecording(path, duplex, basePath)
+}
+
+func (cm *callMedia) stopRecording() error {
+	if cm.wrtc != nil {
+		return cm.wrtc.recorder.StopRecording()
+	}
+	if cm.session == nil {
+		return nil
+	}
+	return cm.session.StopRecording()
+}
+
+func (w *webrtcCallMedia) maybeAutoRecord() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.maybeAutoRecordLocked()
+}
+
+func (w *webrtcCallMedia) maybeAutoRecordLocked() {
+	if w.autoRecordDir == "" || w.callID == "" || w.recorder.Recording() {
+		return
+	}
+	base := filepath.Join(w.autoRecordDir, media.SanitizeCallIDForFilename(w.callID)+".wav")
+	_ = w.recorder.StartRecording(base, w.autoRecordDuplex, "")
+}
+
+func (w *webrtcCallMedia) appendSent(payload []byte) {
+	codec := w.bridge.Codec()
+	w.recorder.AppendSent(payload, codec)
+}
+
 func (w *webrtcCallMedia) createOffer(ctx context.Context) (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -141,6 +195,7 @@ func (w *webrtcCallMedia) acceptAnswer(answerSDP string) error {
 		return err
 	}
 	w.answerAccepted = true
+	w.maybeAutoRecordLocked()
 	return nil
 }
 
@@ -192,7 +247,9 @@ func (w *webrtcCallMedia) startSynthetic(ctx context.Context, cfg media.StreamCo
 				}
 				w.mu.Lock()
 				w.sent++
+				w.appendSent(frame)
 				w.mu.Unlock()
+				w.maybeAutoRecord()
 			}
 		}
 	}()
@@ -200,6 +257,7 @@ func (w *webrtcCallMedia) startSynthetic(ctx context.Context, cfg media.StreamCo
 }
 
 func (w *webrtcCallMedia) stop() {
+	_ = w.recorder.StopRecording()
 	if w.cancel != nil {
 		w.cancel()
 		w.cancel = nil

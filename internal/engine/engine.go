@@ -2078,6 +2078,9 @@ func (e *Engine) executeCall(
 		BasePath:          scen.BasePath,
 		InjectionFile:     e.cfg.InjectionFile,
 	}
+	if callMedia.usesWebRTC() {
+		renderCtx.ExtraKeywords["media_transport"] = "webrtc"
+	}
 	applySIPIdentityKeywords(renderCtx.ExtraKeywords, e.cfg, localIP, localPort)
 	currentRemoteHost := remoteHost
 	currentRemoteIP := remoteHost

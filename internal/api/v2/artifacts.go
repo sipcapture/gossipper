@@ -11,11 +11,12 @@ import (
 )
 
 var artifactKindFallback = map[string]string{
-	"summary":     "summary.json",
-	"report_html": "report.html",
-	"report_pdf":  "report.pdf",
-	"log":         "worker.log",
-	"stats":       "stats.jsonl",
+	"summary":      "summary.json",
+	"report_html":  "report.html",
+	"report_pdf":   "report.pdf",
+	"log":          "worker.log",
+	"stats":        "stats.jsonl",
+	"call_records": "call_records.jsonl",
 }
 
 func (s *Server) handleDownloadJobArtifact(w http.ResponseWriter, r *http.Request) {
