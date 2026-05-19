@@ -100,3 +100,51 @@ func TestV2AuditLogRecordsMutations(t *testing.T) {
 		t.Fatalf("server.create not in audit log: %+v", out["audit"])
 	}
 }
+
+func TestV2AdminEndpointsRequireAdminRole(t *testing.T) {
+	h := newHarness(t, true)
+
+	resp := h.do(http.MethodPost, "/api/v2/users", map[string]any{
+		"username": "bob", "password": "bobpassword1", "role": "operator",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("create operator: status=%d body=%s", resp.StatusCode, string(raw))
+	}
+	resp.Body.Close()
+
+	opTok, _, err := h.auth.Login(h.t.Context(), "bob", "bobpassword1")
+	if err != nil {
+		t.Fatalf("login operator: %v", err)
+	}
+
+	for _, path := range []string{"/api/v2/users", "/api/v2/audit"} {
+		resp = h.doAs(opTok, http.MethodGet, path, nil)
+		if resp.StatusCode != http.StatusForbidden {
+			raw, _ := io.ReadAll(resp.Body)
+			t.Fatalf("GET %s as operator: want 403 got %d body=%s", path, resp.StatusCode, string(raw))
+		}
+		resp.Body.Close()
+	}
+
+	resp = h.doAs(opTok, http.MethodPost, "/api/v2/settings/rotate-jwt-secret", nil)
+	if resp.StatusCode != http.StatusForbidden {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("rotate jwt as operator: want 403 got %d body=%s", resp.StatusCode, string(raw))
+	}
+	resp.Body.Close()
+
+	resp = h.doAs(opTok, http.MethodGet, "/api/v2/scenarios", nil)
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("GET scenarios as operator: want 200 got %d body=%s", resp.StatusCode, string(raw))
+	}
+	resp.Body.Close()
+
+	resp = h.do(http.MethodGet, "/api/v2/users", nil)
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("GET users as admin: want 200 got %d body=%s", resp.StatusCode, string(raw))
+	}
+	resp.Body.Close()
+}

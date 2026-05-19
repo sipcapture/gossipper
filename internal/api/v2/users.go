@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/sipcapture/gossipper/internal/settingsauth"
 )
@@ -76,14 +77,18 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if body.Role != "" && created.ID != 0 {
-		if err := settingsauth.UpdateUserRole(r.Context(), db, created.ID, body.Role); err != nil {
+	role := strings.TrimSpace(body.Role)
+	if role == "" {
+		role = "operator"
+	}
+	if created.ID != 0 {
+		if err := settingsauth.UpdateUserRole(r.Context(), db, created.ID, role); err != nil {
 			s.writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		created.Role = body.Role
+		created.Role = role
 	}
-	s.writeAudit(r.Context(), r, "user.create", body.Username, body.Role)
+	s.writeAudit(r.Context(), r, "user.create", body.Username, role)
 	s.writeJSON(w, http.StatusCreated, created)
 }
 

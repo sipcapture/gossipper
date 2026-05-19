@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.52] — 2026-05-19
+
+### Added
+
+- **RBAC enforcement**: admin-only routes (`/users`, `/audit`, `POST /settings/rotate-jwt-secret`) return **403** for non-`admin` JWT roles; new users default to **`operator`** when role is omitted.
+- **Docs**: roles table and v1 per-engine control in `docs/ui-mode.md`; `import-from-pcap-job` in `docs/pcap2scenario.md`.
+
 ## [0.1.51] — 2026-05-19
 
 ### Added

@@ -117,6 +117,30 @@ func (h *harness) do(method, path string, body any) *http.Response {
 	return resp
 }
 
+func (h *harness) doAs(token string, method, path string, body any) *http.Response {
+	h.t.Helper()
+	var reader io.Reader
+	if body != nil {
+		raw, _ := json.Marshal(body)
+		reader = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequest(method, h.srv.URL+path, reader)
+	if err != nil {
+		h.t.Fatalf("new request: %v", err)
+	}
+	if reader != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.t.Fatalf("do %s %s: %v", method, path, err)
+	}
+	return resp
+}
+
 func decode[T any](t *testing.T, resp *http.Response) T {
 	t.Helper()
 	defer resp.Body.Close()

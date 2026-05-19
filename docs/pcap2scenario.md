@@ -384,6 +384,32 @@ gossipper pcap2scenario call.pcap -sip-port 5080
 
 ---
 
+## Control UI import (`POST /api/v2/scenarios/import-from-pcap-job`)
+
+After a **pcap2scenario** tool job succeeds in UI mode, import the generated XML into the scenario library without manual copy/paste:
+
+```bash
+curl -X POST http://localhost:8080/api/v2/scenarios/import-from-pcap-job \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "job_id": "<succeeded-job-uuid>",
+    "which": "both",
+    "scenario_id": "my_call_uac"
+  }'
+```
+
+| Field | Description |
+| --- | --- |
+| `job_id` | Succeeded supervisor job with `profile_id: pcap2scenario` |
+| `which` | `uac`, `uas`, or `both` (default `uac`) |
+| `scenario_id` | Target id for UAC scenario |
+| `uas_scenario_id` | Optional UAS id (defaults to `{scenario_id}_uas`) |
+
+Output files are read from the job artifact directory (`artifacts/jobs/<id>/scenarios/` by default). The Scenarios page exposes the same flow via **Import from pcap2scenario**.
+
+---
+
 ## Related Documentation
 
 - [RTP in scenarios](rtp-in-scenarios.md) — using `play_pcap_audio` and `rtp_stream` actions

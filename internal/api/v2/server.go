@@ -109,14 +109,14 @@ func (s *Server) Register(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/v2/live", s.handleLive)
 
-	mux.HandleFunc("GET /api/v2/users", s.auth(s.handleListUsers))
-	mux.HandleFunc("POST /api/v2/users", s.auth(s.handleCreateUser))
-	mux.HandleFunc("PUT /api/v2/users/{id}", s.auth(s.handleUpdateUser))
-	mux.HandleFunc("DELETE /api/v2/users/{id}", s.auth(s.handleDeleteUser))
-	mux.HandleFunc("GET /api/v2/audit", s.auth(s.handleListAudit))
+	mux.HandleFunc("GET /api/v2/users", s.authAdmin(s.handleListUsers))
+	mux.HandleFunc("POST /api/v2/users", s.authAdmin(s.handleCreateUser))
+	mux.HandleFunc("PUT /api/v2/users/{id}", s.authAdmin(s.handleUpdateUser))
+	mux.HandleFunc("DELETE /api/v2/users/{id}", s.authAdmin(s.handleDeleteUser))
+	mux.HandleFunc("GET /api/v2/audit", s.authAdmin(s.handleListAudit))
 
 	mux.HandleFunc("GET /api/v2/settings", s.auth(s.handleGetSettings))
-	mux.HandleFunc("POST /api/v2/settings/rotate-jwt-secret", s.auth(s.handleRotateJWTSecret))
+	mux.HandleFunc("POST /api/v2/settings/rotate-jwt-secret", s.authAdmin(s.handleRotateJWTSecret))
 }
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
@@ -129,6 +129,15 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+func (s *Server) authAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return s.auth(func(w http.ResponseWriter, r *http.Request) {
+		if !s.requireAdmin(w, r) {
+			return
+		}
+		next(w, r)
+	})
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, body any) {

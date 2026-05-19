@@ -2,6 +2,7 @@ package v2
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -85,25 +86,70 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	username, _ := mc["sub"].(string)
 	uid, _ := mc["uid"].(float64)
 	exp, _ := mc["exp"].(float64)
-	role, _ := mc["role"].(string)
-	if strings.TrimSpace(role) == "" {
-		role = "admin"
-		if uid > 0 {
-			db := s.cfg.Auth.DB()
-			if db != nil {
-				if u, err := settingsauth.GetUser(r.Context(), db, int64(uid)); err == nil && u.Role != "" {
-					role = u.Role
-				}
-			}
-		}
-	}
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"auth":       "internal",
 		"username":   username,
 		"user_id":    int64(uid),
 		"expires_at": int64(exp),
-		"role":       role,
+		"role":       roleFromClaims(mc, s.cfg.Auth, r),
 	})
+}
+
+func roleFromClaims(mc jwt.MapClaims, auth *settingsauth.Auth, r *http.Request) string {
+	role, _ := mc["role"].(string)
+	if strings.TrimSpace(role) != "" {
+		return strings.TrimSpace(role)
+	}
+	if auth == nil {
+		return "admin"
+	}
+	uid, _ := mc["uid"].(float64)
+	if uid > 0 {
+		if db := auth.DB(); db != nil {
+			if u, err := settingsauth.GetUser(r.Context(), db, int64(uid)); err == nil && u.Role != "" {
+				return u.Role
+			}
+		}
+	}
+	return "admin"
+}
+
+func isAdminRole(role string) bool {
+	return strings.EqualFold(strings.TrimSpace(role), "admin")
+}
+
+func (s *Server) roleFromRequest(r *http.Request) (string, error) {
+	if s.cfg.Auth == nil || !s.cfg.Auth.Enabled() {
+		return "admin", nil
+	}
+	token := bearerFromRequest(r)
+	if token == "" {
+		return "", errUnauthorized
+	}
+	claims, err := s.cfg.Auth.ParseToken(token)
+	if err != nil {
+		return "", err
+	}
+	mc, _ := claims.(jwt.MapClaims)
+	return roleFromClaims(mc, s.cfg.Auth, r), nil
+}
+
+var errUnauthorized = errors.New("unauthorized")
+
+func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if s.cfg.Auth == nil || !s.cfg.Auth.Enabled() {
+		return true
+	}
+	role, err := s.roleFromRequest(r)
+	if err != nil {
+		s.writeError(w, http.StatusUnauthorized, "unauthorized")
+		return false
+	}
+	if !isAdminRole(role) {
+		s.writeError(w, http.StatusForbidden, "admin role required")
+		return false
+	}
+	return true
 }
 
 type changePasswordBody struct {

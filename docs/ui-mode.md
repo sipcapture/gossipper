@@ -84,12 +84,37 @@ artefact lives. The layout is stable; nothing else writes into the directory.
 | `GET/POST/DELETE /media/{kind}[/{name}]` | WAV / PCAP library |
 | `GET/POST/DELETE /jobs[/{id}]`, `POST /jobs/{id}/stop` | jobs lifecycle (`engine` overrides on POST) |
 | `GET /jobs/{id}/recordings[/{name}]` | per-call WAV artifacts |
-| `GET/POST/PUT/DELETE /users[/{id}]` | admin user management |
-| `GET /audit`, `GET/POST /settings` | audit log + runtime info / JWT rotate |
+| `GET/POST/PUT/DELETE /users[/{id}]` | admin user management (**admin role** required) |
+| `GET /audit`, `GET /settings`, `POST /settings/rotate-jwt-secret` | audit log (**admin** for audit/rotate) + runtime info |
+| `POST /scenarios/import-from-pcap-job` | import `scenario_uac.xml` / `scenario_uas.xml` from a succeeded pcap2scenario job |
 
 Hash routes in the browser: `#/dashboard`, `#/load`, `#/jobs/{id}`, `#/reports?report={id}`, etc.
 
-When **`gossipper server`** also exposes **`/api/v1/*`** (hybrid management), the Dashboard shows a **v1 control panel** (rate/pause, dynamic clients) alongside v2 jobs.
+When **`gossipper server`** also exposes **`/api/v1/*`** (hybrid management), the Dashboard shows a **v1 control panel** (rate/pause per engine, dynamic clients) alongside v2 jobs.
+
+### Roles (internal auth)
+
+| Role | Access |
+| --- | --- |
+| `admin` | Full v2 API including users, audit log, JWT secret rotation |
+| `operator` | Profiles, scenarios, jobs, load tests, tools, media, own password change |
+
+The JWT issued by `POST /auth/login` includes a `role` claim. UI nav hides admin pages for non-admin users; the API returns **403 Forbidden** on admin-only routes when the token role is not `admin`.
+
+New users created without an explicit role default to **`operator`**.
+
+### Hybrid v1 control (`POST /api/v1/control`)
+
+When the live engine API is mounted (e.g. `gossipper server -api_addr`), rate and pause can target a single engine:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/control \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"engine_id":"side","rate":10.0}'
+```
+
+Omit `engine_id` to apply to all engines. Response mirrors `GET /api/v1/control` (multi-engine list when extras are configured).
 
 All mutating endpoints append to `audit_log` (when `auth.type: internal`).
 
