@@ -10,7 +10,7 @@ OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildDate=$(BUILD_DATE) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT) -X main.GoVersion=$(GO_VERSION) -X main.BuildOS=$(OS) -X main.BuildArch=$(ARCH)"
 
-.PHONY: all build build-go dynamic frontend package package-deb package-rpm benchmark bench-transport clean
+.PHONY: all build build-go dynamic frontend package package-deb package-rpm benchmark bench-transport clean smoke
 
 # Default `make`: Control UI (embed) then static binary in dist/.
 .DEFAULT_GOAL := all
@@ -46,6 +46,10 @@ benchmark:
 # UDP SharedUDP / reuseport benches (see scripts/bench_transport.sh).
 bench-transport:
 	bash scripts/bench_transport.sh
+
+# Real-process /api/v2 smoke (requires dist/gossipper from build-go; frontend for GET /).
+smoke:
+	bash scripts/smoke-api-v2.sh
 
 clean:
 	rm -rf $(DIST)

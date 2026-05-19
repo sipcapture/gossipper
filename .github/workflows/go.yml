@@ -47,3 +47,4 @@ jobs:
             ./internal/supervisor/... \
             ./internal/uistore/...
           make build-go
+          make smoke

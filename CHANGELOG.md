@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.53] — 2026-05-19
+
+### Added
+
+- **E2E smoke** (`scripts/smoke-api-v2.sh`, `make smoke`): starts real `gossipper ui`, checks health/login/scenarios/RBAC and embedded UI; runs in CI after `make build-go`.
+
 ## [0.1.52] — 2026-05-19
 
 ### Added

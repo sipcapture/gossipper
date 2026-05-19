@@ -19,6 +19,10 @@ Then open <http://localhost:8080> and sign in with the default admin user
 `GOSSIPPER_BOOTSTRAP_PASSWORD`). On first start the settings DB is created
 automatically with users and JWT settings.
 
+After building (`make frontend && make build-go`), run **`make smoke`** to
+exercise a real `gossipper ui` process against `/healthz`, login, scenarios,
+RBAC, and the embedded Control UI (`scripts/smoke-api-v2.sh`).
+
 The UI talks to **`/api/v2`** on the same listener. There is no automatic fallback to a legacy v1-only React shell — build with **`make frontend`** so `GET /` serves the embedded admin console.
 
 ## Data layout
