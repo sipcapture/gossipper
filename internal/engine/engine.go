@@ -2080,6 +2080,7 @@ func (e *Engine) executeCall(
 	}
 	if callMedia.usesWebRTC() {
 		renderCtx.ExtraKeywords["media_transport"] = "webrtc"
+		renderCtx.ExtraKeywords["contact_transport"] = "WSS"
 	}
 	applySIPIdentityKeywords(renderCtx.ExtraKeywords, e.cfg, localIP, localPort)
 	currentRemoteHost := remoteHost

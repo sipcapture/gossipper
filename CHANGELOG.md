@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.57] — 2026-05-19
+
+### Added
+
+- **WebRTC Phase 4.2 (stats + Contact transport)**: pion RTP/RTCP stats into `media.Stats` and call records; `[contact_transport]` / `[sip_transport]` template keywords.
+
 ## [0.1.56] — 2026-05-19
 
 ### Added

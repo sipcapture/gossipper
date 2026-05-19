@@ -102,6 +102,24 @@ func TestRenderTransportUIIsUDP(t *testing.T) {
 	}
 }
 
+func TestRenderContactTransportWebRTC(t *testing.T) {
+	t.Parallel()
+	ctx := Context{
+		Transport: "u1",
+		ExtraKeywords: map[string]string{
+			"contact_transport": "WSS",
+			"media_transport":   "webrtc",
+		},
+	}
+	got := RenderMessage("Contact: <sip:a@h;transport=[contact_transport]>\r\nMedia: [media_transport]\r\n\r\n", ctx)
+	if !strings.Contains(got, "transport=WSS") {
+		t.Fatalf("expected WSS contact transport, got %q", got)
+	}
+	if !strings.Contains(got, "Media: webrtc") {
+		t.Fatalf("expected media_transport webrtc, got %q", got)
+	}
+}
+
 func TestRenderFileAndFieldTokens(t *testing.T) {
 	t.Parallel()
 

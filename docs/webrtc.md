@@ -43,7 +43,9 @@ outbound audio track and lets the SIP scenario:
 - **Accept answer (UAC)**: after receiving 200/183 with SDP body, the engine calls `Bridge.AcceptAnswer` when an offer was created earlier in the call.
 - **Call records**: `call_records.jsonl` includes a `webrtc` diagnostics block (codec, ICE state, RTP counters, offer/answer flags). Jobs auto-write this file under the artifacts dir; the Control UI job monitor reads it via `GET .../artifacts/call_records`.
 - **WAV capture**: `rtp_record` and profile `record_wav` auto-capture work on the WebRTC bridge path (G.711 decode to WAV).
-- **`[media_transport]`** template keyword renders `webrtc` when the bridge is active (for Contact / custom headers).
+- **`[media_transport]`** renders `webrtc` when the bridge is active.
+- **`[contact_transport]`** renders `WSS` when the bridge is active — use in Contact headers (`transport=[contact_transport]`). Keep `[transport]` / `[sip_transport]` for Via (UDP/TCP/TLS signaling).
+- **RTP/RTCP stats**: pion `GetStats()` feeds `media.Stats` and call-record `webrtc` block (`fraction_lost`, `jitter_ms`, `rtp_packets_lost`).
 - **`rtp_stream` synthetic** over WebRTC sends silence frames through `Bridge.WritePCMA` / `WritePCMU`.
 - **`Options.ICEGatherTimeout`** on the bridge (default 5s).
 - **Control UI**: job monitor shows a WebRTC diagnostics strip (ICE servers from profile + recent worker log lines).
@@ -84,10 +86,8 @@ Content-Length: [len]
 
 ## What is *not* yet wired
 
-- The SIP engine does not yet attach a `Bridge` per call when the scenario asks for `[transport]=webrtc` only (use `webrtc="true"` on `<scenario>` or an enabled `webrtc` profile row today).
 - No SDP munging is performed between SIP and WebRTC offers beyond template injection. Scenario authors that need custom SIP SDP headers should still inline bridge output via `[webrtc_offer]` / `[webrtc_answer]`.
 - TURN credentials are passed through verbatim; we do not refresh short-lived credentials.
-- RTCP loss stats on the WebRTC path are not wired yet.
 
 ## Runtime integration roadmap (Phase 4.2)
 

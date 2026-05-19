@@ -318,6 +318,22 @@ func (c Context) resolveToken(token string) (string, bool, bool) {
 		return strconv.Itoa(c.LocalPort + delta), true, false
 	case "transport":
 		return strings.ToUpper(transportName(c.Transport)), true, false
+	case "sip_transport":
+		return strings.ToUpper(transportName(c.Transport)), true, false
+	case "contact_transport":
+		if c.ExtraKeywords != nil {
+			if v, ok := c.ExtraKeywords["contact_transport"]; ok && strings.TrimSpace(v) != "" {
+				return strings.ToUpper(v), true, false
+			}
+		}
+		return strings.ToUpper(transportName(c.Transport)), true, false
+	case "media_transport":
+		if c.ExtraKeywords != nil {
+			if v, ok := c.ExtraKeywords["media_transport"]; ok && strings.TrimSpace(v) != "" {
+				return strings.ToLower(v), true, false
+			}
+		}
+		return strings.ToLower(transportName(c.Transport)), true, false
 	case "media_ip":
 		return c.MediaIP, true, false
 	case "media_ip_type":
@@ -463,6 +479,22 @@ func (c Context) resolveTokenStrict(token string) (string, bool, error) {
 		return strconv.Itoa(c.LocalPort + delta), false, nil
 	case "transport":
 		return strings.ToUpper(transportName(c.Transport)), false, nil
+	case "sip_transport":
+		return strings.ToUpper(transportName(c.Transport)), false, nil
+	case "contact_transport":
+		if c.ExtraKeywords != nil {
+			if v, ok := c.ExtraKeywords["contact_transport"]; ok && strings.TrimSpace(v) != "" {
+				return strings.ToUpper(v), false, nil
+			}
+		}
+		return strings.ToUpper(transportName(c.Transport)), false, nil
+	case "media_transport":
+		if c.ExtraKeywords != nil {
+			if v, ok := c.ExtraKeywords["media_transport"]; ok && strings.TrimSpace(v) != "" {
+				return strings.ToLower(v), false, nil
+			}
+		}
+		return strings.ToLower(transportName(c.Transport)), false, nil
 	case "media_ip":
 		return c.MediaIP, false, nil
 	case "media_ip_type":
@@ -616,13 +648,15 @@ func parseArithmetic(value string) (string, int) {
 }
 
 func transportName(mode string) string {
-	switch mode {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "u1", "un", "ui":
 		return "udp"
 	case "t1", "tn":
 		return "tcp"
 	case "l1", "ln":
 		return "tls"
+	case "webrtc", "wss", "ws":
+		return "wss"
 	default:
 		return mode
 	}

@@ -3,6 +3,9 @@ export type CallRecordWebRTC = {
   ice_state?: string
   rtp_packets_sent?: number
   rtp_packets_recv?: number
+  rtp_packets_lost?: number
+  jitter_ms?: number
+  fraction_lost?: number
   offer_created?: boolean
   answer_accepted?: boolean
 }

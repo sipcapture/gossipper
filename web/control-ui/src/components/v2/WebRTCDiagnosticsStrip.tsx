@@ -37,6 +37,10 @@ export function WebRTCDiagnosticsStrip({ lines, iceServers, callRecords }: WebRT
             <span key={`${r.call_id}-${r.call_number}`} className="font-mono">
               {r.call_id?.slice(0, 10) ?? '?'} · {r.webrtc?.codec ?? '?'} · ICE {r.webrtc?.ice_state ?? '?'} · sent{' '}
               {r.webrtc?.rtp_packets_sent ?? 0} recv {r.webrtc?.rtp_packets_recv ?? 0}
+              {typeof r.webrtc?.fraction_lost === 'number'
+                ? ` · loss ${(r.webrtc.fraction_lost * 100).toFixed(1)}%`
+                : ''}
+              {typeof r.webrtc?.jitter_ms === 'number' ? ` · jitter ${r.webrtc.jitter_ms.toFixed(1)}ms` : ''}
             </span>
           ))}
         </div>

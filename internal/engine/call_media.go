@@ -106,10 +106,35 @@ func (cm *callMedia) snapshot() media.Stats {
 	if cm.wrtc != nil {
 		cm.wrtc.mu.Lock()
 		defer cm.wrtc.mu.Unlock()
-		return media.Stats{
-			RTPPacketsSent:     cm.wrtc.sent,
-			RTPPacketsReceived: cm.wrtc.recv,
+		rs := cm.wrtc.bridge.RTPStats()
+		sent, recv := cm.wrtc.sent, cm.wrtc.recv
+		if rs.PacketsSent > sent {
+			sent = rs.PacketsSent
 		}
+		if rs.PacketsReceived > recv {
+			recv = rs.PacketsReceived
+		}
+		st := media.Stats{
+			RTPPacketsSent:     sent,
+			RTPPacketsReceived: recv,
+		}
+		if rs.PacketsLost > 0 {
+			st.RTPRecvMaxCumulativeLost = uint32(rs.PacketsLost)
+		}
+		if rs.JitterSeconds > 0 {
+			jitterTS := uint32(rs.JitterSeconds * 8000)
+			st.RTPRecvInterarrivalJitterPeak = jitterTS
+			st.RTCPMaxJitter = jitterTS
+		}
+		if rs.RemoteFractionOK {
+			st.RTCPReceiverReports = 1
+			fl := rs.FractionLost * 255
+			if fl > 255 {
+				fl = 255
+			}
+			st.RTCPMaxFractionLost = uint8(fl)
+		}
+		return st
 	}
 	if cm.session != nil {
 		return cm.session.Snapshot()
@@ -209,6 +234,16 @@ func (w *webrtcCallMedia) diagnostics() map[string]any {
 		"rtp_packets_recv": w.recv,
 		"offer_created":    w.localOffer != "",
 		"answer_accepted":  w.answerAccepted,
+	}
+	rs := w.bridge.RTPStats()
+	if rs.PacketsLost > 0 {
+		out["rtp_packets_lost"] = rs.PacketsLost
+	}
+	if rs.JitterSeconds > 0 {
+		out["jitter_ms"] = rs.JitterSeconds * 1000
+	}
+	if rs.RemoteFractionOK {
+		out["fraction_lost"] = rs.FractionLost
 	}
 	return out
 }
