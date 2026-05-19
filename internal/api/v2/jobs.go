@@ -30,6 +30,8 @@ type startJobBody struct {
 	RecordWAVDuplex bool `json:"record_wav_duplex,omitempty"`
 	// Engine carries opaque CLI overrides forwarded to the worker spec.
 	Engine map[string]any `json:"engine,omitempty"`
+	// ToolArgs is required when profile_kind is "tool" (profile_id = tool name).
+	ToolArgs map[string]any `json:"tool_args,omitempty"`
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
@@ -88,6 +90,31 @@ func (s *Server) handleStartJob(w http.ResponseWriter, r *http.Request) {
 	}
 	body.ProfileKind = strings.ToLower(strings.TrimSpace(body.ProfileKind))
 	body.ProfileID = strings.TrimSpace(body.ProfileID)
+
+	if body.ProfileKind == supervisor.ToolProfileKind {
+		if body.ProfileID == "" {
+			s.writeError(w, http.StatusBadRequest, "profile_id (tool name) is required for tool jobs")
+			return
+		}
+		if !supervisor.ValidateToolID(body.ProfileID) {
+			s.writeError(w, http.StatusBadRequest, "unknown tool")
+			return
+		}
+		args := body.ToolArgs
+		if args == nil {
+			args = map[string]any{}
+		}
+		out, err := s.startToolJob(r, body.ProfileID, body.ID, args)
+		if err != nil {
+			code, msg := mapStartToolError(err)
+			s.writeError(w, code, msg)
+			return
+		}
+		s.writeAudit(r.Context(), r, "job.start", out.ID, "tool/"+body.ProfileID)
+		s.writeJSON(w, http.StatusCreated, out)
+		return
+	}
+
 	var profileSource string
 	switch body.ProfileKind {
 	case string(uistore.KindServer):
@@ -107,7 +134,7 @@ func (s *Server) handleStartJob(w http.ResponseWriter, r *http.Request) {
 		}
 		profileSource = p.Source
 	default:
-		s.writeError(w, http.StatusBadRequest, `profile_kind must be "server" or "client"`)
+		s.writeError(w, http.StatusBadRequest, `profile_kind must be "server", "client", or "tool"`)
 		return
 	}
 	if profileSource == uistore.SourceBuiltIn {

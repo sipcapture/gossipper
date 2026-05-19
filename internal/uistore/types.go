@@ -8,6 +8,7 @@ type ProfileKind string
 const (
 	KindServer ProfileKind = "server"
 	KindClient ProfileKind = "client"
+	KindTool   ProfileKind = "tool"
 )
 
 // TransportSpec is a single SIP listener (server) or bind (client) entry.

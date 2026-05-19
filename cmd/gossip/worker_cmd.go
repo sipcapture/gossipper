@@ -15,6 +15,7 @@ import (
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/launcher"
 	"github.com/sipcapture/gossipper/internal/supervisor"
+	"github.com/sipcapture/gossipper/internal/toolrun"
 )
 
 // runWorkerCommand implements `gossipper worker --spec=<file>` — the engine
@@ -65,6 +66,13 @@ Flags:
 		return errors.New("worker: spec.job_id is required")
 	}
 
+	baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if spec.IsToolJob() {
+		return runToolWorker(baseCtx, spec, *quiet)
+	}
+
 	cfg, cleanup, err := supervisor.BuildConfigFromSpec(spec)
 	if err != nil {
 		emitWorkerEvent("error", map[string]any{"job_id": spec.JobID, "error": err.Error()})
@@ -78,8 +86,6 @@ Flags:
 			spec.JobID, spec.ProfileKind, spec.ProfileID, cfg.ScenarioFile)
 	}
 
-	baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	ctx := baseCtx
 	if cfg.GlobalTimeout > 0 {
 		var cancel context.CancelFunc
@@ -122,6 +128,20 @@ Flags:
 		return runErr
 	}
 	emitWorkerEvent("exit", map[string]any{"job_id": spec.JobID})
+	return nil
+}
+
+func runToolWorker(ctx context.Context, spec supervisor.Spec, quiet bool) error {
+	if !quiet {
+		fmt.Fprintf(os.Stderr, "gossipper worker: tool job_id=%s tool=%s\n", spec.JobID, spec.ToolID())
+	}
+	emitWorkerEvent("started", map[string]any{"job_id": spec.JobID, "tool": spec.ToolID(), "pid": os.Getpid()})
+	runErr := toolrun.Run(ctx, spec)
+	if runErr != nil && !errors.Is(runErr, context.Canceled) {
+		emitWorkerEvent("exit", map[string]any{"job_id": spec.JobID, "error": runErr.Error()})
+		return runErr
+	}
+	emitWorkerEvent("exit", map[string]any{"job_id": spec.JobID, "tool": spec.ToolID()})
 	return nil
 }
 

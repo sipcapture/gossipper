@@ -13,9 +13,11 @@ import { ClientsV2 } from '@/views/v2/ClientsV2'
 import { DashboardV2 } from '@/views/v2/DashboardV2'
 import { JobsV2 } from '@/views/v2/JobsV2'
 import { MediaV2 } from '@/views/v2/MediaV2'
+import { ReportsV2 } from '@/views/v2/ReportsV2'
 import { ScenariosV2 } from '@/views/v2/ScenariosV2'
 import { ServersV2 } from '@/views/v2/ServersV2'
 import { SettingsV2 } from '@/views/v2/SettingsV2'
+import { StressToolsV2 } from '@/views/v2/StressToolsV2'
 import { UsersV2 } from '@/views/v2/UsersV2'
 
 const LS_JWT = 'gossipper_v2_jwt'
@@ -27,6 +29,8 @@ type NavId =
   | 'clients'
   | 'scenarios'
   | 'jobs'
+  | 'reports'
+  | 'stress'
   | 'media'
   | 'audit'
   | 'users'
@@ -39,6 +43,8 @@ const NAV: { id: NavId; label: string; hint: string }[] = [
   { id: 'clients', label: 'Clients', hint: 'UAC profiles' },
   { id: 'scenarios', label: 'Scenarios', hint: 'XML scenarios + sidecar meta' },
   { id: 'jobs', label: 'Jobs', hint: 'worker runs (start / stop / inspect)' },
+  { id: 'reports', label: 'Reports', hint: 'summary JSON, HTML and PDF from jobs' },
+  { id: 'stress', label: 'Stress tools', hint: 'sipstress-style utilities & load patterns' },
   { id: 'media', label: 'Media', hint: 'WAV and PCAP upload library' },
   { id: 'audit', label: 'Audit', hint: 'mutating API actions log' },
   { id: 'users', label: 'Users', hint: 'admin users' },
@@ -79,6 +85,7 @@ function AdminAppInner() {
   const [loginPass, setLoginPass] = useState('')
   const [busy, setBusy] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
+  const [inspectJobId, setInspectJobId] = useState<string | null>(null)
 
   useLayoutEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
@@ -252,7 +259,29 @@ function AdminAppInner() {
           {nav === 'servers' && <ServersV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
           {nav === 'clients' && <ClientsV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
           {nav === 'scenarios' && <ScenariosV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
-          {nav === 'jobs' && <JobsV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
+          {nav === 'jobs' && (
+            <JobsV2
+              bearer={bearer}
+              busy={busy}
+              run={run}
+              errorText={lastError}
+              inspectJobId={inspectJobId}
+              onInspectJobHandled={() => setInspectJobId(null)}
+            />
+          )}
+          {nav === 'reports' && (
+            <ReportsV2
+              bearer={bearer}
+              run={run}
+              onOpenJob={(id) => {
+                setInspectJobId(id)
+                setNav('jobs')
+              }}
+            />
+          )}
+          {nav === 'stress' && (
+            <StressToolsV2 bearer={bearer} busy={busy} run={run} onNavigate={setNav} />
+          )}
           {nav === 'media' && <MediaV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
           {nav === 'audit' && <AuditV2 bearer={bearer} />}
           {nav === 'users' && <UsersV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}

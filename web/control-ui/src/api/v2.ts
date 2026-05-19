@@ -173,6 +173,14 @@ export type JobArtifact = {
   created_at: string
 }
 
+export type ToolMeta = {
+  id: string
+  title: string
+  summary: string
+  args_schema?: Record<string, unknown>
+  example_args?: Record<string, unknown>
+}
+
 // --------- endpoints ----------
 
 export type HealthV2 = { status: string; version?: string; auth: 'none' | 'internal' }
@@ -326,14 +334,30 @@ export const startJob = (
   body: {
     id?: string
     profile_id: string
-    profile_kind: 'server' | 'client'
+    profile_kind: 'server' | 'client' | 'tool'
     scenario_id?: string
     record_wav?: boolean
     record_wav_duplex?: boolean
     engine?: Record<string, unknown>
+    tool_args?: Record<string, unknown>
   },
   opts: Opts,
 ) => request<Job>('POST', '/jobs', body, opts)
+
+export const listTools = (opts: Opts) =>
+  request<{ tools: ToolMeta[] }>('GET', '/tools', undefined, opts)
+
+export const runTool = (
+  toolId: string,
+  body: { id?: string; args: Record<string, unknown> },
+  opts: Opts,
+) =>
+  request<{ job: Job }>(
+    'POST',
+    `/tools/${encodeURIComponent(toolId)}/run`,
+    body,
+    opts,
+  )
 
 // Per-profile shortcuts. Body fields mirror startJob() minus profile_id /
 // profile_kind which are taken from the URL.
@@ -377,6 +401,32 @@ export const deleteJobV2 = (id: string, opts: Opts) =>
   request<void>('DELETE', `/jobs/${encodeURIComponent(id)}`, undefined, opts)
 
 export type Recording = { name: string; size_bytes: number; mod_time: string }
+
+export type ReportRow = {
+  job_id: string
+  profile_kind?: string
+  profile_id?: string
+  job_status: string
+  finished_at?: string
+  artifact: JobArtifact
+}
+
+export const listReports = (opts: Opts, limit?: number) =>
+  request<{ reports: ReportRow[] }>(
+    'GET',
+    limit ? `/reports?limit=${limit}` : '/reports',
+    undefined,
+    opts,
+  )
+
+export const artifactURL = (jobID: string, kind: string, bearer?: string): string => {
+  const u = new URL(
+    url(`/jobs/${encodeURIComponent(jobID)}/artifacts/${encodeURIComponent(kind)}`),
+    window.location.origin,
+  )
+  if (bearer) u.searchParams.set('token', bearer)
+  return u.toString()
+}
 
 export const listRecordings = (jobID: string, opts: Opts) =>
   request<{ recordings: Recording[] }>(

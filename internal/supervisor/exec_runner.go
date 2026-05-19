@@ -257,13 +257,15 @@ func (r *ExecRunner) waitWorker(rw *runningWorker) {
 		defer cancel()
 		exitPtr := exit
 		_ = r.Store.UpdateStatus(ctx, rw.jobID, status, &exitPtr, failMsg)
-		// Record durable artifacts (stats.jsonl / worker.log / per-call WAV
-		// recordings) when present.
 		if rw.spec.ArtifactsDir != "" {
-			rememberArtifact(ctx, r.Store, rw.jobID, "stats", filepath.Join(rw.spec.ArtifactsDir, "stats.jsonl"))
-			rememberArtifact(ctx, r.Store, rw.jobID, "log", filepath.Join(rw.spec.ArtifactsDir, "worker.log"))
-			rememberArtifact(ctx, r.Store, rw.jobID, "summary", filepath.Join(rw.spec.ArtifactsDir, "summary.json"))
-			rememberRecordings(ctx, r.Store, rw.jobID, filepath.Join(rw.spec.ArtifactsDir, "recordings"))
+			if rw.spec.IsToolJob() {
+				RememberToolArtifacts(ctx, r.Store, rw.jobID, rw.spec.ArtifactsDir, rw.spec.ToolID())
+			} else {
+				rememberArtifact(ctx, r.Store, rw.jobID, "stats", filepath.Join(rw.spec.ArtifactsDir, "stats.jsonl"))
+				rememberArtifact(ctx, r.Store, rw.jobID, "log", filepath.Join(rw.spec.ArtifactsDir, "worker.log"))
+				rememberArtifact(ctx, r.Store, rw.jobID, "summary", filepath.Join(rw.spec.ArtifactsDir, "summary.json"))
+				rememberRecordings(ctx, r.Store, rw.jobID, filepath.Join(rw.spec.ArtifactsDir, "recordings"))
+			}
 		}
 	}
 	r.Logger.Info("supervisor: worker exited", "job_id", rw.jobID, "exit", exit, "status", status)

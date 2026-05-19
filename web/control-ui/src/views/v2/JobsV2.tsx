@@ -11,6 +11,7 @@ import {
   listServers,
   jobEventsURL,
   recordingURL,
+  runTool,
   startJob,
   stopJob,
   type BuiltinScenarioMeta,
@@ -24,6 +25,7 @@ import {
 } from '@/api/v2'
 import { JobStatsChart } from '@/components/v2/JobStatsChart'
 import { ScenarioPreview, ScenarioSelect } from '@/components/v2/ScenarioSelect'
+import { JobReportsPanel } from '@/views/v2/ReportsV2'
 import { Button } from '@/components/ui/button'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
@@ -47,9 +49,11 @@ export type JobsV2Props = {
   busy: boolean
   run: <T>(fn: () => Promise<T>) => Promise<T | undefined>
   errorText?: string | null
+  inspectJobId?: string | null
+  onInspectJobHandled?: () => void
 }
 
-export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
+export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJobHandled }: JobsV2Props) {
   const { toast } = useToast()
   const { liveJobs, connected } = useLiveJobs(bearer)
   const [rows, setRows] = useState<Job[]>([])
@@ -97,6 +101,18 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
   useEffect(() => {
     void run(() => refresh())
   }, [run, refresh])
+
+  useEffect(() => {
+    if (!inspectJobId) return
+    void run(async () => {
+      const [d, recs] = await Promise.all([
+        getJob(inspectJobId, { bearer }),
+        listRecordings(inspectJobId, { bearer }).catch(() => ({ recordings: [] as Recording[] })),
+      ])
+      setDetail({ ...d, recordings: recs.recordings ?? [] })
+      onInspectJobHandled?.()
+    })
+  }, [inspectJobId, bearer, run, onInspectJobHandled])
 
   const mergedRows = useMemo(() => mergeLiveJobs(rows, liveJobs), [rows, liveJobs])
 
@@ -169,6 +185,23 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
 
   const onRestart = (job: Job) => {
     if (!job.profile_id || !job.profile_kind) return
+    if (job.profile_kind === 'tool') {
+      let args: Record<string, unknown> = {}
+      if (job.args_json) {
+        try {
+          args = JSON.parse(job.args_json) as Record<string, unknown>
+        } catch {
+          toast('Could not parse tool args for restart', 'error')
+          return
+        }
+      }
+      void run(async () => {
+        await runTool(job.profile_id!, { args }, { bearer })
+        toast('Tool job restarted', 'success')
+        await refresh()
+      })
+      return
+    }
     openStartModal({
       profile_kind: job.profile_kind as 'server' | 'client',
       profile_id: job.profile_id,
@@ -221,14 +254,26 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
         header: 'Profile',
         render: (r) => (
           <span className="text-xs">
-            <code>{r.profile_kind ?? '?'}</code> · {r.profile_id ?? '—'}
+            <code>{r.profile_kind ?? '?'}</code>
+            {r.profile_kind === 'tool' ? (
+              <> · {r.profile_id ?? '—'}</>
+            ) : (
+              <> · {r.profile_id ?? '—'}</>
+            )}
           </span>
         ),
       },
       {
         key: 'scenario',
         header: 'Scenario',
-        render: (r) => (r.scenario_id ? <code className="text-xs">{r.scenario_id}</code> : '—'),
+        render: (r) =>
+          r.profile_kind === 'tool' ? (
+            <span className="text-muted-foreground text-xs">—</span>
+          ) : r.scenario_id ? (
+            <code className="text-xs">{r.scenario_id}</code>
+          ) : (
+            '—'
+          ),
       },
       {
         key: 'status',
@@ -241,6 +286,7 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
               {r.status}
             </span>
             {(() => {
+              if (r.profile_kind === 'tool') return null
               const prof =
                 r.profile_kind === 'server'
                   ? servers.find((s) => s.id === r.profile_id)
@@ -289,8 +335,9 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
         <div>
           <h2 className="text-sm font-semibold">Jobs</h2>
           <p className="text-muted-foreground text-xs">
-            Isolated <code>gossipper worker</code> runs forked from server/client profiles. Status updates
-            via live WebSocket{connected ? ' (connected)' : ' (reconnecting…)'}.
+            Isolated <code>gossipper worker</code> runs from server/client profiles or stress tools (
+            <code>profile_kind=tool</code>). Status updates via live WebSocket
+            {connected ? ' (connected)' : ' (reconnecting…)'}.
           </p>
         </div>
         <div className="flex gap-2">
@@ -476,7 +523,7 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
               rows={[
                 ['Status', detail.job.status],
                 ['Profile', `${detail.job.profile_kind ?? '?'} / ${detail.job.profile_id ?? '—'}`],
-                ['Scenario', detail.job.scenario_id ?? '—'],
+                ['Scenario', detail.job.profile_kind === 'tool' ? '—' : (detail.job.scenario_id ?? '—')],
                 ['Created', new Date(detail.job.created_at).toLocaleString()],
                 ['Started', detail.job.started_at ? new Date(detail.job.started_at).toLocaleString() : '—'],
                 ['Finished', detail.job.finished_at ? new Date(detail.job.finished_at).toLocaleString() : '—'],
@@ -492,8 +539,15 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
                 {detail.job.args_json ?? '{}'}
               </pre>
             </div>
+            <JobReportsPanel
+              jobId={detail.job.id}
+              artifacts={detail.artifacts}
+              bearer={bearer}
+              run={run}
+              onGenerated={() => onInspect(detail.job.id)}
+            />
             <div>
-              <div className="text-muted-foreground mb-1 font-medium">Artifacts ({detail.artifacts.length})</div>
+              <div className="text-muted-foreground mb-1 font-medium">All artifacts ({detail.artifacts.length})</div>
               {detail.artifacts.length === 0 ? (
                 <p className="text-muted-foreground">No files yet.</p>
               ) : (
@@ -541,7 +595,7 @@ export function JobsV2({ bearer, busy, run, errorText }: JobsV2Props) {
             </div>
             {detail.job.status === 'failed' || detail.job.status === 'stopped' ? (
               <Button type="button" size="sm" variant="outline" onClick={() => onRestart(detail.job)}>
-                Restart with same profile
+                {detail.job.profile_kind === 'tool' ? 'Restart tool job' : 'Restart with same profile'}
               </Button>
             ) : null}
           </div>

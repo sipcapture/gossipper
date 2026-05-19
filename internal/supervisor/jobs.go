@@ -202,6 +202,66 @@ WHERE job_id = ? ORDER BY created_at ASC, id ASC`, jobID)
 	return out, rows.Err()
 }
 
+// ReportRow is a summary/report artifact with its parent job metadata.
+type ReportRow struct {
+	JobID       string    `json:"job_id"`
+	ProfileKind string    `json:"profile_kind,omitempty"`
+	ProfileID   string    `json:"profile_id,omitempty"`
+	JobStatus   string    `json:"job_status"`
+	FinishedAt  time.Time `json:"finished_at,omitempty"`
+	Artifact    Artifact  `json:"artifact"`
+}
+
+// ListReportArtifacts returns summary/HTML/PDF artifacts across jobs, newest first.
+func (s *JobsStore) ListReportArtifacts(ctx context.Context, limit int) ([]ReportRow, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT j.id, j.profile_kind, j.profile_id, j.status, j.finished_at,
+       a.id, a.job_id, a.kind, a.path, a.size_bytes, a.created_at
+FROM job_artifacts a
+JOIN jobs j ON j.id = a.job_id
+WHERE a.kind IN ('summary', 'report_html', 'report_pdf')
+ORDER BY a.created_at DESC, a.id DESC
+LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ReportRow
+	for rows.Next() {
+		var (
+			row        ReportRow
+			profileKind sql.NullString
+			profileID   sql.NullString
+			finished    sql.NullString
+			created     string
+		)
+		if err := rows.Scan(
+			&row.JobID, &profileKind, &profileID, &row.JobStatus, &finished,
+			&row.Artifact.ID, &row.Artifact.JobID, &row.Artifact.Kind, &row.Artifact.Path, &row.Artifact.SizeBytes, &created,
+		); err != nil {
+			return nil, err
+		}
+		row.ProfileKind = profileKind.String
+		row.ProfileID = profileID.String
+		if finished.Valid && finished.String != "" {
+			if t, err := time.Parse(time.RFC3339Nano, finished.String); err == nil {
+				row.FinishedAt = t.UTC()
+			}
+		}
+		if t, err := time.Parse(time.RFC3339Nano, created); err == nil {
+			row.Artifact.CreatedAt = t.UTC()
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 // ErrNotFound is returned when an entity (job, artifact) does not exist.
 var ErrNotFound = errors.New("supervisor: not found")
 

@@ -18,10 +18,13 @@ type Spec struct {
 	DataDir string `json:"data_dir,omitempty"`
 	// ProfileID is the originating server / client profile id.
 	ProfileID string `json:"profile_id,omitempty"`
-	// ProfileKind is one of "server" / "client".
+	// ProfileKind is one of "server" / "client" / "tool".
 	ProfileKind string `json:"profile_kind,omitempty"`
 	// ScenarioID overrides the profile's default scenario when set.
 	ScenarioID string `json:"scenario_id,omitempty"`
+	// ToolArgs carries structured parameters when ProfileKind is "tool"
+	// (ProfileID is the tool id: pcap2scenario, report-html, …).
+	ToolArgs map[string]any `json:"tool_args,omitempty"`
 	// ArtifactsDir is the per-job directory under data-dir/artifacts/jobs/.
 	ArtifactsDir string `json:"artifacts_dir,omitempty"`
 	// StatsIntervalMs controls how often the worker emits a JSON-lines stats

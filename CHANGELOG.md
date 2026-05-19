@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.45] — 2026-05-19
+
+### Added
+
+- **Stress tool jobs API**: `GET /api/v2/tools`, `POST /api/v2/tools/{id}/run`, and `POST /api/v2/jobs` with `profile_kind: "tool"` for `pcap2scenario`, `report-html`, `summary-to-pdf`, `rtp_send`, `infindex`.
+- **Reports in admin UI**: new **Reports** nav page (`GET /api/v2/reports`) listing summary/HTML/PDF artifacts; job detail download/open via `GET /api/v2/jobs/{id}/artifacts/{kind}`; **Generate HTML/PDF** actions on completed load jobs.
+- **Stress tools** page: catalog + **Run as job** forms wired to the tools API.
+
+### Changed
+
+- Worker tool execution moved to `internal/toolrun` (avoids import cycle with API package).
+
 ## [0.1.44] — 2026-05-19
 
 ### Added
