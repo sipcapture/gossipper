@@ -43,6 +43,18 @@ const (
 	expectedTraceRTTHeader  = "timestamp,call,name,value_ms"
 	expectedTraceErrCodes   = "timestamp,call,code,reason,call_id,expected"
 	expectedTraceScreen     = "timestamp,total_calls,success_calls,failed_calls,active_calls,success_ratio,calls_per_second,interval_ms,interval_calls_per_second,avg_call_ms,avg_invite_ms,retransmits,timeouts,failure_timeout,failure_unexpected_sip"
+
+	// udpMockServerIdleTimeout is the mock SIP peer read deadline in UDP engine tests.
+	// Tests run with t.Parallel(); under CI load the UAC can take longer than 2s between
+	// steps, so a short idle timeout makes the mock server exit before the client finishes.
+	udpMockServerIdleTimeout = 60 * time.Second
+
+	// defaultEngineTestRecvTO is the scenario recv timeout in engine integration tests.
+	// One second is too tight when tests run in parallel on loaded CI runners.
+	defaultEngineTestRecvTO = 5 * time.Second
+
+	// defaultEngineTestRunTimeout bounds Engine.Run in UDP integration tests.
+	defaultEngineTestRunTimeout = 30 * time.Second
 )
 
 func TestEngineRunsBasicUACScenario(t *testing.T) {
@@ -59,7 +71,7 @@ func TestEngineRunsBasicUACScenario(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -114,10 +126,10 @@ func TestEngineRunsBasicUACScenario(t *testing.T) {
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 
 	if err := app.Run(ctx); err != nil {
@@ -149,7 +161,7 @@ func TestEngineAppliesBaseCSeqToRenderedToken(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -206,10 +218,10 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -355,7 +367,7 @@ func TestEngineMirrorsSIPToHEP(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -410,13 +422,13 @@ func TestEngineMirrorsSIPToHEP(t *testing.T) {
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		HEPAddr:       hepConn.LocalAddr().String(),
 		HEPCaptureID:  1001,
 		HEPPassword:   "secret",
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -550,7 +562,7 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		TraceStats:    true,
 		MessageFile:   messagePath,
 	})
@@ -754,7 +766,7 @@ func TestEngineFailureClassesUnexpectedSIP(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -811,10 +823,10 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 	if err := app.Run(ctx); err == nil {
 		t.Fatal("expected Run() to fail on unexpected SIP response")
@@ -855,7 +867,7 @@ func TestEngineWarningActionWritesErrorTrace(t *testing.T) {
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		TraceErrors:   true,
 		ErrorFile:     errorPath,
 	})
@@ -966,7 +978,7 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		TraceRTT:      true,
 		MessageFile:   messagePath,
 	})
@@ -1361,7 +1373,7 @@ func TestEngineCollectsNamedRTDStats(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -1419,10 +1431,10 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 
 	if err := app.Run(ctx); err != nil {
@@ -1457,7 +1469,7 @@ func TestEngineCollectsCounterAndDisplayStats(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -1514,10 +1526,10 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 
 	if err := app.Run(ctx); err != nil {
@@ -1598,10 +1610,10 @@ func TestEngineRunsTCPScenario(t *testing.T) {
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 
 	if err := app.Run(ctx); err != nil {
@@ -1630,7 +1642,7 @@ func TestEngineAppliesActionsAndVariables(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -1684,10 +1696,10 @@ func TestEngineAppliesActionsAndVariables(t *testing.T) {
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 
 	if err := app.Run(ctx); err != nil {
@@ -1729,7 +1741,7 @@ func TestEngineLookupActionFeedsFieldToken(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -1813,10 +1825,10 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 
 	if err := app.Run(ctx); err != nil {
@@ -1848,7 +1860,7 @@ func TestEngineUACPauseDistribution(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -1928,10 +1940,10 @@ func TestEngineUACPauseDistribution(t *testing.T) {
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 
 	if err := app.Run(ctx); err != nil {
@@ -1977,7 +1989,7 @@ func TestEngineAppliesStrCmpAndExtendedTestComparisons(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -2067,10 +2079,10 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 
 	if err := app.Run(ctx); err != nil {
@@ -2113,7 +2125,7 @@ func TestEngineSupportsArithmeticJumpAndHelperActions(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -2214,10 +2226,10 @@ Content-Length: 0
 		MaxConcurrent: 1,
 		Users:         4,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -2319,7 +2331,7 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -2345,7 +2357,7 @@ func TestEngineRunsSendCmdRecvCmdScenario(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -2433,10 +2445,10 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 
 	if err := app.Run(ctx); err != nil {
@@ -2476,7 +2488,7 @@ func TestEngineRunsExternalSendCmdRecvCmdScenario(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -2586,7 +2598,7 @@ X-Reply: [$1]-ack
 			TotalCalls:    1,
 			MaxConcurrent: 1,
 			DefaultPause:  10 * time.Millisecond,
-			DefaultRecvTO: time.Second,
+			DefaultRecvTO: defaultEngineTestRecvTO,
 			CommandName:   "s1",
 			CommandPeers:  peers,
 		})
@@ -2606,7 +2618,7 @@ X-Reply: [$1]-ack
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		CommandName:   "m",
 		CommandPeers:  peers,
 	})
@@ -2693,7 +2705,7 @@ X-Reply: [$1]-ok
 			TotalCalls:    1,
 			MaxConcurrent: 1,
 			DefaultPause:  10 * time.Millisecond,
-			DefaultRecvTO: time.Second,
+			DefaultRecvTO: defaultEngineTestRecvTO,
 			CommandName:   "s1",
 			CommandPeers:  peers,
 		})
@@ -2711,7 +2723,7 @@ X-Reply: [$1]-ok
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		CommandName:   "m",
 		CommandPeers:  peers,
 	})
@@ -2797,11 +2809,11 @@ func TestEngineRunsTLSScenario(t *testing.T) {
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		TLSSkipVerify: true,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -2813,8 +2825,7 @@ func TestEngineRunsTLSScenario(t *testing.T) {
 }
 
 func TestEngineInitInjectionAndUserScope(t *testing.T) {
-	t.Parallel()
-
+	// Serial: init + two-call UAC with shared mock server; flakes when parallel with other UDP tests.
 	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	if err != nil {
 		t.Fatalf("ListenUDP() error = %v", err)
@@ -2834,7 +2845,7 @@ func TestEngineInitInjectionAndUserScope(t *testing.T) {
 		buffer := make([]byte, 65535)
 		byeCount := 0
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -2890,10 +2901,10 @@ func TestEngineInitInjectionAndUserScope(t *testing.T) {
 		MaxConcurrent: 1,
 		Users:         1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -2920,8 +2931,7 @@ func TestEngineInitInjectionAndUserScope(t *testing.T) {
 }
 
 func TestEngineInitExternalSendCmdRecvCmdScope(t *testing.T) {
-	t.Parallel()
-
+	// Serial: shares command broker state; avoid parallel UDP engine tests starving the mock peer.
 	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	if err != nil {
 		t.Fatalf("ListenUDP() error = %v", err)
@@ -2941,7 +2951,7 @@ func TestEngineInitExternalSendCmdRecvCmdScope(t *testing.T) {
 		defer close(done)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -3048,7 +3058,7 @@ Content-Length: 0
 			TotalCalls:    1,
 			MaxConcurrent: 1,
 			DefaultPause:  10 * time.Millisecond,
-			DefaultRecvTO: time.Second,
+			DefaultRecvTO: defaultEngineTestRecvTO,
 			CommandName:   "s1",
 			CommandPeers:  peers,
 		})
@@ -3066,7 +3076,7 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		CommandName:   "m",
 		CommandPeers:  peers,
 	})
@@ -3177,7 +3187,7 @@ Content-Length: 0
 		defer close(sipDone)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -3223,10 +3233,10 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -3309,7 +3319,7 @@ Content-Length: 0
 		defer close(sipDone)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -3385,7 +3395,7 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -3491,7 +3501,7 @@ Content-Length: 0
 		defer close(sipDone)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -3537,10 +3547,10 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -3638,7 +3648,7 @@ Content-Length: 0
 		defer close(sipDone)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -3683,10 +3693,10 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -3798,7 +3808,7 @@ Content-Length: 0
 		defer close(sipDone)
 		buffer := make([]byte, 65535)
 		for {
-			_ = serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = serverConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 			n, addr, err := serverConn.ReadFromUDP(buffer)
 			if err != nil {
 				return
@@ -3847,10 +3857,10 @@ Content-Length: 0
 		TotalCalls:    1,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -4006,7 +4016,7 @@ Content-Length: 0
 		TotalCalls:    totalCalls,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		UISourceIPs:   []string{"127.0.0.2", "127.0.0.3"},
 	})
 
@@ -4071,7 +4081,7 @@ Content-Length: 0
 		TotalCalls:    2,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		UISourceIPs:   []string{"127.0.0.2", "127.0.0.3"},
 	})
 
@@ -4103,7 +4113,7 @@ Content-Length: 0
 		}
 
 		buffer := make([]byte, 65535)
-		_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_ = clientConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 		n, addr, err := clientConn.ReadFromUDP(buffer)
 		if err != nil {
 			t.Fatalf("ReadFromUDP() error = %v", err)
@@ -4204,7 +4214,7 @@ Content-Length: 0
 		TotalCalls:    2,
 		MaxConcurrent: 1,
 		DefaultPause:  10 * time.Millisecond,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		UISourceIPs:   []string{"127.0.0.2", "127.0.0.2", "127.0.0.3"},
 	})
 
@@ -4236,7 +4246,7 @@ Content-Length: 0
 		}
 
 		buffer := make([]byte, 65535)
-		_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_ = clientConn.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout))
 		n, addr, err := clientConn.ReadFromUDP(buffer)
 		if err != nil {
 			t.Fatalf("ReadFromUDP() error = %v", err)
@@ -4308,7 +4318,7 @@ Content-Length: 0
 		Rate:          10,
 		TotalCalls:    1,
 		MaxConcurrent: 1,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		UISourceIPs:   []string{"127.0.0.1", "127.0.0.2"},
 	})
 
@@ -4353,7 +4363,7 @@ Content-Length: 0
 		Rate:          10,
 		TotalCalls:    1,
 		MaxConcurrent: 1,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		UISourceIPs:   []string{"127.0.0.1:invalid"},
 	})
 
@@ -4406,7 +4416,7 @@ Content-Length: 0
 		Rate:          10,
 		TotalCalls:    1,
 		MaxConcurrent: 1,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		UISourceIPs:   []string{"127.0.0.1", "127.0.0.2"},
 	})
 
@@ -4452,7 +4462,7 @@ Content-Length: 0
 		Rate:          10,
 		TotalCalls:    1,
 		MaxConcurrent: 1,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 		UISourceIPs:   []string{"127.0.0.1:invalid"},
 	})
 
@@ -4485,7 +4495,7 @@ func TestEngineSetDestUpdatesUDPDestination(t *testing.T) {
 	serverErr := make(chan error, 1)
 	go func() {
 		buffer := make([]byte, 8192)
-		if err := listenerB.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		if err := listenerB.SetReadDeadline(time.Now().Add(udpMockServerIdleTimeout)); err != nil {
 			serverErr <- err
 			return
 		}
@@ -4547,10 +4557,10 @@ Content-Length: 0
 		Rate:          1,
 		TotalCalls:    1,
 		MaxConcurrent: 1,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEngineTestRunTimeout)
 	defer cancel()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -4596,7 +4606,7 @@ Content-Length: 0
 		Rate:          1,
 		TotalCalls:    1,
 		MaxConcurrent: 1,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -4722,7 +4732,7 @@ Content-Length: 0
 		Rate:          1,
 		TotalCalls:    1,
 		MaxConcurrent: 1,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -4836,7 +4846,7 @@ Content-Length: 0
 		Rate:          1,
 		TotalCalls:    1,
 		MaxConcurrent: 1,
-		DefaultRecvTO: time.Second,
+		DefaultRecvTO: defaultEngineTestRecvTO,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
