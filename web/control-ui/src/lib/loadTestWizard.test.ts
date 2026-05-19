@@ -32,6 +32,7 @@ describe('buildLoadTestEngine', () => {
       health_enabled: true,
       health_min_success_ratio: 0.9,
       health_max_failed_calls: 0,
+      soak_unlimited: false,
     })
     expect(engine).toMatchObject({
       total_calls: 5,

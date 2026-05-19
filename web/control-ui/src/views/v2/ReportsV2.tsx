@@ -7,24 +7,57 @@ import {
   type JobArtifact,
   type ReportRow,
 } from '@/api/v2'
-import { REPORT_KIND_LABEL, type ReportArtifactKind } from '@/lib/jobArtifacts'
+import { ReportPreview } from '@/components/v2/ReportPreview'
+import { SummaryKPICards } from '@/components/v2/SummaryKPI'
 import { Button } from '@/components/ui/button'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
+import { Modal } from '@/components/ui/modal'
+import { fetchArtifactBytes, fetchArtifactJSON } from '@/lib/artifacts'
+import { REPORT_KIND_LABEL, type ReportArtifactKind } from '@/lib/jobArtifacts'
+import { parseSummaryJSON } from '@/lib/summaryParse'
+import { buildZip } from '@/lib/simpleZip'
+import { formatRatio } from '@/lib/summaryParse'
 
 export type ReportsV2Props = {
   bearer?: string
   run: <T>(fn: () => Promise<T>) => Promise<T | undefined>
   onOpenJob?: (jobId: string) => void
+  initialJobFilter?: string | null
 }
 
-export function ReportsV2({ bearer, run, onOpenJob }: ReportsV2Props) {
+type RowKPI = { success_ratio?: number; total_calls?: number; health_ok?: boolean | null }
+
+export function ReportsV2({ bearer, run, onOpenJob, initialJobFilter }: ReportsV2Props) {
   const [rows, setRows] = useState<ReportRow[]>([])
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialJobFilter ?? '')
+  const [kpiMap, setKpiMap] = useState<Record<string, RowKPI>>({})
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [compareA, setCompareA] = useState<string>('')
+  const [compareB, setCompareB] = useState<string>('')
+  const [previewJobId, setPreviewJobId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (initialJobFilter) setQuery(initialJobFilter)
+  }, [initialJobFilter])
 
   const refresh = useCallback(async () => {
     const r = await listReports({ bearer }, 200)
     setRows(r.reports ?? [])
+    const summaries = (r.reports ?? []).filter((x) => x.artifact.kind === 'summary')
+    const next: Record<string, RowKPI> = {}
+    await Promise.all(
+      summaries.map(async (row) => {
+        try {
+          const raw = await fetchArtifactJSON(row.job_id, 'summary', bearer)
+          const k = parseSummaryJSON(raw)
+          if (k) next[row.job_id] = { success_ratio: k.success_ratio, total_calls: k.total_calls, health_ok: k.health_ok }
+        } catch {
+          /* ignore */
+        }
+      }),
+    )
+    setKpiMap(next)
   }, [bearer])
 
   useEffect(() => {
@@ -42,8 +75,46 @@ export function ReportsV2({ bearer, run, onOpenJob }: ReportsV2Props) {
     )
   }, [rows, query])
 
+  const toggleSelect = (key: string) => {
+    setSelected((prev) => {
+      const n = new Set(prev)
+      if (n.has(key)) n.delete(key)
+      else n.add(key)
+      return n
+    })
+  }
+
+  const onBulkZip = () => {
+    void run(async () => {
+      const picks = visible.filter((r) => selected.has(`${r.job_id}-${r.artifact.id}`))
+      if (picks.length === 0) return
+      const files: { name: string; data: Uint8Array }[] = []
+      for (const p of picks) {
+        const bytes = await fetchArtifactBytes(p.job_id, p.artifact.kind, bearer)
+        files.push({ name: `${p.job_id.slice(0, 8)}-${p.artifact.kind}`, data: bytes })
+      }
+      const blob = await buildZip(files)
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `gossipper-reports-${Date.now()}.zip`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    })
+  }
+
   const columns: Column<ReportRow>[] = useMemo(
     () => [
+      {
+        key: 'sel',
+        header: '',
+        render: (r) => (
+          <input
+            type="checkbox"
+            checked={selected.has(`${r.job_id}-${r.artifact.id}`)}
+            onChange={() => toggleSelect(`${r.job_id}-${r.artifact.id}`)}
+          />
+        ),
+      },
       {
         key: 'kind',
         header: 'Type',
@@ -52,6 +123,20 @@ export function ReportsV2({ bearer, run, onOpenJob }: ReportsV2Props) {
             {REPORT_KIND_LABEL[r.artifact.kind as ReportArtifactKind] ?? r.artifact.kind}
           </span>
         ),
+      },
+      {
+        key: 'kpi',
+        header: 'KPI',
+        render: (r) => {
+          const k = kpiMap[r.job_id]
+          if (!k || r.artifact.kind !== 'summary') return <span className="text-muted-foreground">—</span>
+          return (
+            <span className="text-xs">
+              {k.total_calls ?? '—'} calls · {formatRatio(k.success_ratio ?? 0)}
+              {k.health_ok === false ? ' · FAIL' : k.health_ok ? ' · OK' : ''}
+            </span>
+          )
+        },
       },
       {
         key: 'job',
@@ -86,22 +171,18 @@ export function ReportsV2({ bearer, run, onOpenJob }: ReportsV2Props) {
         render: (r) => new Date(r.artifact.created_at).toLocaleString(),
       },
       {
-        key: 'size',
-        header: 'Size',
-        render: (r) => <span className="text-muted-foreground text-xs">{r.artifact.size_bytes} B</span>,
-      },
-      {
         key: 'actions',
         header: '',
         align: 'right',
         render: (r) => (
           <div className="flex justify-end gap-1">
+            {r.artifact.kind === 'report_html' || r.artifact.kind === 'summary' ? (
+              <Button type="button" size="xs" variant="secondary" onClick={() => setPreviewJobId(r.job_id)}>
+                Preview
+              </Button>
+            ) : null}
             <Button type="button" size="xs" variant="outline" asChild>
-              <a
-                href={artifactURL(r.job_id, r.artifact.kind, bearer)}
-                target="_blank"
-                rel="noreferrer noopener"
-              >
+              <a href={artifactURL(r.job_id, r.artifact.kind, bearer)} target="_blank" rel="noreferrer noopener">
                 Open
               </a>
             </Button>
@@ -114,7 +195,7 @@ export function ReportsV2({ bearer, run, onOpenJob }: ReportsV2Props) {
         ),
       },
     ],
-    [bearer, onOpenJob],
+    [bearer, kpiMap, onOpenJob, selected],
   )
 
   return (
@@ -123,13 +204,17 @@ export function ReportsV2({ bearer, run, onOpenJob }: ReportsV2Props) {
         <div>
           <h2 className="text-sm font-semibold">Reports</h2>
           <p className="text-muted-foreground text-xs">
-            Summary JSON, HTML, and PDF artifacts from completed jobs. Generate HTML/PDF from a job detail
-            on the Jobs page, or use prep utilities under <strong className="text-foreground/80">Scenarios</strong>.
+            Summary JSON, HTML, and PDF from jobs. Select rows for bulk ZIP export; compare two summary jobs below.
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={() => void run(() => refresh())}>
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={selected.size === 0} onClick={onBulkZip}>
+            Download ZIP ({selected.size})
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => void run(() => refresh())}>
+            Refresh
+          </Button>
+        </div>
       </div>
       <Input
         value={query}
@@ -137,13 +222,59 @@ export function ReportsV2({ bearer, run, onOpenJob }: ReportsV2Props) {
         placeholder="Filter by job id, profile, kind…"
         className="max-w-sm text-xs"
       />
+
+      <div className="border-border grid grid-cols-1 gap-2 rounded-md border p-3 md:grid-cols-2">
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-medium">Compare job A</label>
+          <Input value={compareA} onChange={(e) => setCompareA(e.target.value)} placeholder="job uuid" className="font-mono text-xs" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] font-medium">Compare job B</label>
+          <Input value={compareB} onChange={(e) => setCompareB(e.target.value)} placeholder="job uuid" className="font-mono text-xs" />
+        </div>
+        {compareA.trim() && compareB.trim() ? <CompareSummaries a={compareA.trim()} b={compareB.trim()} bearer={bearer} /> : null}
+      </div>
+
       <DataTable
         columns={columns}
         rows={visible}
         rowKey={(r) => `${r.job_id}-${r.artifact.id}`}
         empty="No reports yet — run a load job with summary output."
       />
+
+      <Modal open={previewJobId !== null} onClose={() => setPreviewJobId(null)} title="Report preview" size="lg">
+        {previewJobId ? <ReportPreview jobId={previewJobId} bearer={bearer} /> : null}
+      </Modal>
     </section>
+  )
+}
+
+function CompareSummaries({ a, b, bearer }: { a: string; b: string; bearer?: string }) {
+  const [ka, setKa] = useState<ReturnType<typeof parseSummaryJSON>>(null)
+  const [kb, setKb] = useState<ReturnType<typeof parseSummaryJSON>>(null)
+  useEffect(() => {
+    void (async () => {
+      try {
+        setKa(parseSummaryJSON(await fetchArtifactJSON(a, 'summary', bearer)))
+        setKb(parseSummaryJSON(await fetchArtifactJSON(b, 'summary', bearer)))
+      } catch {
+        setKa(null)
+        setKb(null)
+      }
+    })()
+  }, [a, b, bearer])
+  if (!ka || !kb) return <p className="text-muted-foreground col-span-2 text-xs">Load summaries for both jobs…</p>
+  return (
+    <div className="col-span-2 grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div>
+        <div className="mb-1 font-mono text-[10px]">{a.slice(0, 12)}…</div>
+        <SummaryKPICards kpi={ka} />
+      </div>
+      <div>
+        <div className="mb-1 font-mono text-[10px]">{b.slice(0, 12)}…</div>
+        <SummaryKPICards kpi={kb} />
+      </div>
+    </div>
   )
 }
 

@@ -24,6 +24,9 @@ import {
   type ServerProfile,
 } from '@/api/v2'
 import { JobStatsChart } from '@/components/v2/JobStatsChart'
+import { ArtifactLinks } from '@/components/v2/ArtifactLinks'
+import { buildEnginePayload, EngineOverridesForm, type EngineOverrides } from '@/components/v2/EngineOverridesForm'
+import { ReportPreview } from '@/components/v2/ReportPreview'
 import { ScenarioPreview, ScenarioSelect } from '@/components/v2/ScenarioSelect'
 import { JobReportsPanel } from '@/views/v2/ReportsV2'
 import { Button } from '@/components/ui/button'
@@ -32,6 +35,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Modal } from '@/components/ui/modal'
 import { validateJobID } from '@/lib/jobId'
+import { jobMatchesKindFilter, type JobKindFilter } from '@/lib/jobKind'
 import { isProfilePortBlocked, profileHasWebRTC } from '@/lib/profileHelpers'
 import { mergeLiveJobs, parseStatsLines, useLiveJobs } from '@/lib/jobsLive'
 import { useToast } from '@/lib/toast'
@@ -81,7 +85,11 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
     { job: Job; artifacts: JobArtifact[]; recordings: Recording[] } | null
   >(null)
   const [statusFilter, setStatusFilter] = useState<'all' | JobStatus>('all')
+  const [kindFilter, setKindFilter] = useState<JobKindFilter>('all')
   const [query, setQuery] = useState('')
+  const [engineEnabled, setEngineEnabled] = useState(false)
+  const [engineOverrides, setEngineOverrides] = useState<EngineOverrides>({})
+  const [detailTab, setDetailTab] = useState<'info' | 'preview'>('info')
 
   const refresh = useCallback(async () => {
     const [r, s, c, sc, bi] = await Promise.all([
@@ -114,6 +122,21 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
     })
   }, [inspectJobId, bearer, run, onInspectJobHandled])
 
+  useEffect(() => {
+    if (!detail?.job) return
+    if (detail.job.status !== 'running' && detail.job.status !== 'pending') return
+    const t = setInterval(() => {
+      void getJob(detail.job.id, { bearer })
+        .then((d) =>
+          listRecordings(detail.job.id, { bearer })
+            .catch(() => ({ recordings: [] as Recording[] }))
+            .then((recs) => setDetail({ ...d, recordings: recs.recordings ?? [] })),
+        )
+        .catch(() => {})
+    }, 3000)
+    return () => clearInterval(t)
+  }, [detail?.job.id, detail?.job.status, bearer])
+
   const mergedRows = useMemo(() => mergeLiveJobs(rows, liveJobs), [rows, liveJobs])
 
   const candidateProfiles = useMemo(
@@ -132,6 +155,7 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
     const q = query.trim().toLowerCase()
     return mergedRows.filter((j) => {
       if (statusFilter !== 'all' && j.status !== statusFilter) return false
+      if (!jobMatchesKindFilter(j, kindFilter)) return false
       if (!q) return true
       return (
         j.id.toLowerCase().includes(q) ||
@@ -140,7 +164,7 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
         (j.profile_kind ?? '').toLowerCase().includes(q)
       )
     })
-  }, [mergedRows, statusFilter, query])
+  }, [mergedRows, statusFilter, kindFilter, query])
 
   const statusCounts = useMemo(() => {
     const out: Record<string, number> = { all: mergedRows.length }
@@ -174,6 +198,7 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
           scenario_id: draft.scenario_id || undefined,
           record_wav: draft.record_wav || undefined,
           record_wav_duplex: draft.record_wav && draft.record_wav_duplex ? true : undefined,
+          engine: engineEnabled ? buildEnginePayload(engineOverrides) : undefined,
         },
         { bearer },
       )
@@ -206,6 +231,17 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
       profile_kind: job.profile_kind as 'server' | 'client',
       profile_id: job.profile_id,
       scenario_id: job.scenario_id ?? '',
+    })
+  }
+
+  const onStopAllRunning = () => {
+    const running = mergedRows.filter((j) => j.status === 'running' || j.status === 'pending')
+    if (running.length === 0) return
+    if (!window.confirm(`Stop ${running.length} running job(s)?`)) return
+    void run(async () => {
+      for (const j of running) await stopJob(j.id, { bearer })
+      toast('Stop requested for all running jobs', 'info')
+      await refresh()
     })
   }
 
@@ -343,6 +379,9 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
           <Button type="button" variant="outline" size="sm" onClick={() => void run(() => refresh())}>
             Refresh
           </Button>
+          <Button type="button" variant="outline" size="sm" onClick={onStopAllRunning}>
+            Stop all running
+          </Button>
           <Button type="button" size="sm" onClick={() => openStartModal()}>
             + Start job
           </Button>
@@ -369,6 +408,22 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
               }`}
             >
               {s} <span className="text-[10px] opacity-75">({statusCounts[s] ?? 0})</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {(['all', 'load_test', 'tool', 'server', 'client', 'running'] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setKindFilter(k)}
+              className={`rounded px-2 py-0.5 text-[11px] ${
+                kindFilter === k
+                  ? 'bg-primary/80 text-primary-foreground'
+                  : 'border-border bg-background hover:bg-muted border'
+              }`}
+            >
+              {k}
             </button>
           ))}
         </div>
@@ -507,17 +562,42 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
               </label>
             ) : null}
           </div>
+          <EngineOverridesForm
+            value={engineOverrides}
+            onChange={setEngineOverrides}
+            enabled={engineEnabled}
+            onEnabledChange={setEngineEnabled}
+          />
         </div>
       </Modal>
 
       <Modal
         open={detail !== null}
-        onClose={() => setDetail(null)}
+        onClose={() => {
+          setDetail(null)
+          setDetailTab('info')
+        }}
         size="lg"
         title={detail ? `Job · ${detail.job.id}` : 'Job'}
       >
         {detail ? (
           <div className="flex flex-col gap-3 text-xs">
+            <div className="flex gap-1">
+              {(['info', 'preview'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setDetailTab(t)}
+                  className={`rounded px-2 py-0.5 text-[11px] ${detailTab === t ? 'bg-primary text-primary-foreground' : 'border border-border'}`}
+                >
+                  {t === 'info' ? 'Details' : 'Report preview'}
+                </button>
+              ))}
+            </div>
+            {detailTab === 'preview' ? (
+              <ReportPreview jobId={detail.job.id} bearer={bearer} />
+            ) : (
+              <>
             <DescList
               rows={[
                 ['Status', detail.job.status],
@@ -547,18 +627,7 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
             />
             <div>
               <div className="text-muted-foreground mb-1 font-medium">All artifacts ({detail.artifacts.length})</div>
-              {detail.artifacts.length === 0 ? (
-                <p className="text-muted-foreground">No files yet.</p>
-              ) : (
-                <ul className="space-y-1">
-                  {detail.artifacts.map((a) => (
-                    <li key={a.id} className="font-mono">
-                      <span className="text-foreground/80 mr-2">[{a.kind}]</span>
-                      {a.path} <span className="text-muted-foreground">({a.size_bytes} B)</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <ArtifactLinks jobId={detail.job.id} artifacts={detail.artifacts} bearer={bearer} />
             </div>
             <JobStatsTail jobId={detail.job.id} bearer={bearer} status={detail.job.status} />
             <div>
@@ -597,6 +666,8 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
                 {detail.job.profile_kind === 'tool' ? 'Restart tool job' : 'Restart with same profile'}
               </Button>
             ) : null}
+              </>
+            )}
           </div>
         ) : null}
       </Modal>

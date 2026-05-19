@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 
-import { getAuthStatusV2, loginV2 } from '@/api/v2'
+import { getAuthStatusV2, getMeV2, loginV2, setUnauthorizedHandler, type MeV2 } from '@/api/v2'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ThemeToggle, type ThemeMode } from '@/components/ThemeToggle'
 import { cn } from '@/lib/utils'
+import { parseHashRoute, setHashRoute, type NavId } from '@/lib/routing'
 import { ToastProvider, useToast } from '@/lib/toast'
 import { AboutV2 } from '@/views/v2/AboutV2'
 import { AuditV2 } from '@/views/v2/AuditV2'
@@ -23,21 +24,7 @@ import { UsersV2 } from '@/views/v2/UsersV2'
 const LS_JWT = 'gossipper_v2_jwt'
 const LS_THEME = 'gossipper_control_theme'
 
-type NavId =
-  | 'dashboard'
-  | 'servers'
-  | 'clients'
-  | 'scenarios'
-  | 'jobs'
-  | 'reports'
-  | 'load'
-  | 'media'
-  | 'audit'
-  | 'users'
-  | 'settings'
-  | 'about'
-
-const NAV: { id: NavId; label: string; hint: string }[] = [
+const NAV: { id: NavId; label: string; hint: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Dashboard', hint: 'overview and recent jobs' },
   { id: 'servers', label: 'Servers', hint: 'UAS profiles' },
   { id: 'clients', label: 'Clients', hint: 'UAC profiles' },
@@ -46,8 +33,8 @@ const NAV: { id: NavId; label: string; hint: string }[] = [
   { id: 'reports', label: 'Reports', hint: 'summary JSON, HTML and PDF from jobs' },
   { id: 'load', label: 'Load test', hint: 'sipstress-style invite_media job wizard' },
   { id: 'media', label: 'Media', hint: 'WAV and PCAP upload library' },
-  { id: 'audit', label: 'Audit', hint: 'mutating API actions log' },
-  { id: 'users', label: 'Users', hint: 'admin users' },
+  { id: 'audit', label: 'Audit', hint: 'mutating API actions log', adminOnly: true },
+  { id: 'users', label: 'Users', hint: 'admin users', adminOnly: true },
   { id: 'settings', label: 'Settings', hint: 'system info, theme, sign out' },
   { id: 'about', label: 'About', hint: 'version, capabilities, links' },
 ]
@@ -77,15 +64,28 @@ export function AdminApp(_: AdminAppProps = {}) {
 
 function AdminAppInner() {
   const { toast } = useToast()
-  const [nav, setNav] = useState<NavId>('dashboard')
+  const initialRoute = parseHashRoute()
+  const [nav, setNavState] = useState<NavId>(initialRoute.nav)
   const [theme, setTheme] = useState<ThemeMode>(readTheme)
   const [authKind, setAuthKind] = useState<'none' | 'internal' | null>(null)
   const [jwt, setJwt] = useState(() => readStored(LS_JWT))
+  const [me, setMe] = useState<MeV2 | null>(null)
   const [loginUser, setLoginUser] = useState('')
   const [loginPass, setLoginPass] = useState('')
   const [busy, setBusy] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
-  const [inspectJobId, setInspectJobId] = useState<string | null>(null)
+  const [inspectJobId, setInspectJobId] = useState<string | null>(initialRoute.jobId ?? null)
+  const [reportFilterJobId, setReportFilterJobId] = useState<string | null>(initialRoute.reportJobId ?? null)
+  const [loadJobId, setLoadJobId] = useState<string | null>(initialRoute.nav === 'load' ? initialRoute.jobId ?? null : null)
+  const [sessionExpired, setSessionExpired] = useState(false)
+
+  const setNav = useCallback((id: NavId, opts?: { jobId?: string; report?: string }) => {
+    setNavState(id)
+    setHashRoute(id, opts)
+    if (id === 'jobs' && opts?.jobId) setInspectJobId(opts.jobId)
+    if (id === 'load' && opts?.jobId) setLoadJobId(opts.jobId)
+    if (id === 'reports' && opts?.report) setReportFilterJobId(opts.report)
+  }, [])
 
   useLayoutEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
@@ -95,6 +95,20 @@ function AdminAppInner() {
       /* ignore */
     }
   }, [theme])
+
+  useEffect(() => {
+    const onHash = () => {
+      const r = parseHashRoute()
+      setNavState(r.nav)
+      if (r.jobId) {
+        if (r.nav === 'jobs') setInspectJobId(r.jobId)
+        if (r.nav === 'load') setLoadJobId(r.jobId)
+      }
+      if (r.reportJobId) setReportFilterJobId(r.reportJobId)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   useEffect(() => {
     void (async () => {
@@ -109,25 +123,51 @@ function AdminAppInner() {
 
   const bearer = authKind === 'internal' ? (jwt.trim() || undefined) : undefined
 
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setSessionExpired(true)
+      setJwt('')
+      try {
+        localStorage.removeItem(LS_JWT)
+      } catch {
+        /* ignore */
+      }
+      toast('Session expired — sign in again', 'error')
+    })
+    return () => setUnauthorizedHandler(undefined)
+  }, [toast])
+
+  useEffect(() => {
+    if (!bearer) {
+      setMe(null)
+      return
+    }
+    void getMeV2({ bearer })
+      .then(setMe)
+      .catch(() => setMe(null))
+  }, [bearer])
+
   const run = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
     setBusy(true)
     setLastError(null)
     try {
       return await fn()
     } catch (e) {
+      const status = e && typeof e === 'object' && 'status' in e ? (e as { status?: number }).status : undefined
       const msg =
         e && typeof e === 'object' && 'message' in e
-          ? `${(e as { status?: number }).status ?? ''}: ${(e as { message: string }).message}`
+          ? `${status ?? ''}: ${(e as { message: string }).message}`
           : e instanceof Error
-          ? e.message
-          : String(e)
+            ? e.message
+            : String(e)
+      if (status === 401) setSessionExpired(true)
       setLastError(msg)
       toast(msg, 'error')
       return undefined
     } finally {
       setBusy(false)
     }
-  }, [])
+  }, [toast])
 
   const onLogin = () => {
     void run(async () => {
@@ -139,6 +179,7 @@ function AdminAppInner() {
       }
       setJwt(r.token)
       setLoginPass('')
+      setSessionExpired(false)
     })
   }
 
@@ -149,8 +190,11 @@ function AdminAppInner() {
       /* ignore */
     }
     setJwt('')
+    setMe(null)
   }
 
+  const isAdmin = !me?.role || me.role === 'admin'
+  const visibleNav = useMemo(() => NAV.filter((n) => !n.adminOnly || isAdmin), [isAdmin])
   const currentLabel = useMemo(() => NAV.find((n) => n.id === nav)?.label ?? nav, [nav])
 
   if (authKind === null) {
@@ -167,10 +211,16 @@ function AdminAppInner() {
         <div className="border-border bg-card mx-auto mt-16 w-full max-w-md rounded-lg border p-6">
           <h1 className="mb-1 text-base font-semibold tracking-tight">Sign in</h1>
           <p className="text-muted-foreground mb-4 text-xs leading-relaxed">
-            Internal auth (<code>auth.type: internal</code>) is enabled. Create users with{' '}
-            <code>gossipper auth user-add -config …</code>.
+            {sessionExpired ? (
+              <span className="text-destructive">Your session expired (JWT invalid or secret rotated).</span>
+            ) : (
+              <>
+                Internal auth (<code>auth.type: internal</code>) is enabled. Create users with{' '}
+                <code>gossipper auth user-add -config …</code>.
+              </>
+            )}
           </p>
-          {lastError ? (
+          {lastError && !sessionExpired ? (
             <div className="border-destructive/50 bg-destructive/10 text-destructive mb-3 rounded-md border px-3 py-2 text-xs">
               {lastError}
             </div>
@@ -210,7 +260,7 @@ function AdminAppInner() {
           <div className="text-muted-foreground mt-0.5 text-[10px] leading-tight">admin console (api v2)</div>
         </div>
         <nav className="flex flex-1 flex-col gap-0.5 p-2">
-          {NAV.map((item) => (
+          {visibleNav.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -239,9 +289,16 @@ function AdminAppInner() {
           <h1 className="text-sm font-semibold tracking-tight">{currentLabel}</h1>
           <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-[11px]">
             {busy ? <span className="text-warning">request…</span> : null}
-            <span>
-              auth: <span className="text-foreground">{authKind}</span>
-            </span>
+            {me?.username ? (
+              <span>
+                <span className="text-foreground">{me.username}</span>
+                {me.role ? <span className="opacity-70"> · {me.role}</span> : null}
+              </span>
+            ) : (
+              <span>
+                auth: <span className="text-foreground">{authKind}</span>
+              </span>
+            )}
           </div>
         </header>
 
@@ -255,7 +312,14 @@ function AdminAppInner() {
         ) : null}
 
         <main className="min-h-0 flex-1 overflow-auto p-4">
-          {nav === 'dashboard' && <DashboardV2 bearer={bearer} run={run} />}
+          {nav === 'dashboard' && (
+            <DashboardV2
+              bearer={bearer}
+              run={run}
+              onOpenJob={(id) => setNav('jobs', { jobId: id })}
+              onNavigate={setNav}
+            />
+          )}
           {nav === 'servers' && <ServersV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
           {nav === 'clients' && <ClientsV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
           {nav === 'scenarios' && <ScenariosV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
@@ -273,22 +337,24 @@ function AdminAppInner() {
             <ReportsV2
               bearer={bearer}
               run={run}
-              onOpenJob={(id) => {
-                setInspectJobId(id)
-                setNav('jobs')
-              }}
+              initialJobFilter={reportFilterJobId}
+              onOpenJob={(id) => setNav('jobs', { jobId: id })}
             />
           )}
           {nav === 'load' && (
             <LoadTestV2
               bearer={bearer}
               run={run}
-              onNavigate={(target) => setNav(target)}
+              initialJobId={loadJobId}
+              onNavigate={(target, jobId) => {
+                if (target === 'jobs') setNav('jobs', jobId ? { jobId } : undefined)
+                else setNav('reports', jobId ? { report: jobId } : undefined)
+              }}
             />
           )}
           {nav === 'media' && <MediaV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
-          {nav === 'audit' && <AuditV2 bearer={bearer} />}
-          {nav === 'users' && <UsersV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
+          {nav === 'audit' && isAdmin ? <AuditV2 bearer={bearer} /> : null}
+          {nav === 'users' && isAdmin ? <UsersV2 bearer={bearer} busy={busy} run={run} errorText={lastError} /> : null}
           {nav === 'settings' && (
             <SettingsV2
               bearer={bearer}
@@ -296,6 +362,8 @@ function AdminAppInner() {
               onThemeChange={setTheme}
               onSignOut={authKind === 'internal' ? onSignOut : undefined}
               authKind={authKind}
+              isAdmin={isAdmin}
+              onNavigate={setNav}
             />
           )}
           {nav === 'about' && <AboutV2 bearer={bearer} />}

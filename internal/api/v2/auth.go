@@ -7,6 +7,8 @@ import (
 	"net/http"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/sipcapture/gossipper/internal/settingsauth"
 )
 
 type healthResp struct {
@@ -68,6 +70,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, http.StatusOK, map[string]any{
 			"auth":     "none",
 			"username": "anonymous",
+			"role":     "admin",
 		})
 		return
 	}
@@ -81,13 +84,62 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	username, _ := mc["sub"].(string)
 	uid, _ := mc["uid"].(float64)
 	exp, _ := mc["exp"].(float64)
+	role := "admin"
+	if uid > 0 {
+		db := s.cfg.Auth.DB()
+		if db != nil {
+			if u, err := settingsauth.GetUser(r.Context(), db, int64(uid)); err == nil {
+				role = u.Role
+			}
+		}
+	}
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"auth":       "internal",
 		"username":   username,
 		"user_id":    int64(uid),
 		"expires_at": int64(exp),
-		"role":       "admin",
+		"role":       role,
 	})
+}
+
+type changePasswordBody struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+func (s *Server) handleChangeMyPassword(w http.ResponseWriter, r *http.Request) {
+	db, ok := s.requireAuthDB(w)
+	if !ok {
+		return
+	}
+	var body changePasswordBody
+	if err := s.decodeJSON(r, &body, 1<<16); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	token := bearerFromRequest(r)
+	claims, err := s.cfg.Auth.ParseToken(token)
+	if err != nil {
+		s.writeError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	mc, _ := claims.(jwt.MapClaims)
+	username, _ := mc["sub"].(string)
+	uidf, _ := mc["uid"].(float64)
+	if username == "" || uidf <= 0 {
+		s.writeError(w, http.StatusUnauthorized, "invalid token claims")
+		return
+	}
+	if _, err := settingsauth.VerifyUser(r.Context(), db, username, body.CurrentPassword); err != nil {
+		s.writeError(w, http.StatusUnauthorized, "current password is incorrect")
+		return
+	}
+	if err := settingsauth.UpdateUserPassword(r.Context(), db, int64(uidf), body.NewPassword); err != nil {
+		s.writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.writeAudit(r.Context(), r, "user.password_change", username, "")
+	s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // bearerFromRequest mirrors settingsauth.bearerFromRequest (unexported).

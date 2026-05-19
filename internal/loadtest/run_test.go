@@ -37,6 +37,19 @@ func TestRequestValidate(t *testing.T) {
 	}
 }
 
+func TestRequestValidateSoak(t *testing.T) {
+	req := Request{
+		Director:      "127.0.0.1:5060",
+		ScenarioID:    "invite_media",
+		TotalCalls:    0,
+		Rate:          2,
+		MaxConcurrent: 1,
+	}
+	if err := req.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStartBackgroundJob(t *testing.T) {
 	dir := t.TempDir()
 	store, err := uistore.Open(dir)

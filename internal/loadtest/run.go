@@ -110,8 +110,8 @@ func (req Request) Validate() error {
 	if !validScenario(scID) {
 		return fmt.Errorf("scenario_id: unknown or unsupported %q", scID)
 	}
-	if req.TotalCalls <= 0 {
-		return errors.New("total_calls must be > 0")
+	if req.TotalCalls < 0 {
+		return errors.New("total_calls must be >= 0 (0 = soak until stop)")
 	}
 	if req.Rate <= 0 {
 		return errors.New("rate must be > 0")

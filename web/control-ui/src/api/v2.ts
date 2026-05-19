@@ -5,6 +5,13 @@ export type ApiErrorV2 = { status: number; message: string }
 
 const BASE = '/api/v2'
 
+let unauthorizedHandler: (() => void) | undefined
+
+/** Called on HTTP 401 from API requests (e.g. expired JWT after secret rotation). */
+export function setUnauthorizedHandler(fn: (() => void) | undefined) {
+  unauthorizedHandler = fn
+}
+
 function url(path: string): string {
   return `${BASE}${path.startsWith('/') ? path : '/' + path}`
 }
@@ -31,6 +38,7 @@ async function parse<T>(res: Response): Promise<T> {
   }
   if (!res.ok) {
     const o = data as { error?: string }
+    if (res.status === 401) unauthorizedHandler?.()
     throw { status: res.status, message: o.error ?? res.statusText } satisfies ApiErrorV2
   }
   return data as T
@@ -230,6 +238,11 @@ export type MeV2 = {
   role?: string
 }
 export const getMeV2 = (opts: Opts) => request<MeV2>('GET', '/me', undefined, opts)
+
+export const changeMyPassword = (
+  body: { current_password: string; new_password: string },
+  opts: Opts,
+) => request<{ status: string }>('POST', '/me/password', body, opts)
 
 export const listServers = (opts: Opts) =>
   request<{ servers: ServerProfile[] }>('GET', '/servers', undefined, opts)

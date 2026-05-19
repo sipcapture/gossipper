@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.49] — 2026-05-19
+
+### Added
+
+- **Load test UI**: live monitor panel after start, localStorage presets, soak mode (`total_calls=0`), defaults from `GET /api/v2/load-test`.
+- **Jobs UI**: kind filters (load test / tool / server / client), Stop all running, engine overrides on Start job, artifact Open/Download, report preview tab, auto-refresh recordings while running.
+- **Reports UI**: summary KPI column, embedded HTML/summary preview, side-by-side compare, bulk ZIP export.
+- **Dashboard**: clickable recent jobs, alerts (running load tests, failed spike, disk usage), hybrid **/api/v1** management panel (rate/pause/dynamic clients when available).
+- **Scenarios**: pcap2scenario import panel; Prep tools expanded (`rtp_send`, `report-html`).
+- **Auth/settings**: `GET /me` in header, role-based nav (hide Users/Audit for non-admin), `POST /api/v2/me/password`, session expiry on 401, hash deep links (`#/jobs/{id}`, `#/load`, `#/reports?report=`).
+
 ## [0.1.48] — 2026-05-19
 
 ### Added

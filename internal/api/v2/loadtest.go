@@ -18,6 +18,7 @@ func (s *Server) handleGetLoadTest(w http.ResponseWriter, _ *http.Request) {
 			"health_enabled":           true,
 			"health_min_success_ratio": 0.95,
 			"health_max_failed_calls":  0,
+			"soak":                     "total_calls=0 runs until POST /api/v2/jobs/{id}/stop",
 		},
 		"lifecycle": map[string]string{
 			"start":  "POST /api/v2/load-test/run — forks gossipper worker in background, returns job",

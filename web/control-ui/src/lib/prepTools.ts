@@ -21,7 +21,7 @@ export const PREP_TOOLS: PrepToolEntry[] = [
     cli: 'gossipper pcap2scenario capture.pcap -out ./scenarios -sip-port 5060',
     docsPath: `${DOCS}/pcap2scenario.md`,
     apiToolId: 'pcap2scenario',
-    exampleArgs: { pcap: 'media/pcap/capture.pcap', sip_port: 5060 },
+    exampleArgs: { pcap: 'media/pcap/capture.pcap', out: 'artifacts/jobs/<job-id>/scenarios', sip_port: 5060 },
   },
   {
     id: 'infindex',
@@ -31,6 +31,23 @@ export const PREP_TOOLS: PrepToolEntry[] = [
     docsPath: `${DOCS}/compatibility.md`,
     apiToolId: 'infindex',
     exampleArgs: { csv: 'media/inject/users.csv', field: 0 },
+  },
+  {
+    id: 'rtp_send',
+    title: 'rtp_send',
+    summary: 'Synthetic RTP sender for media path validation.',
+    cli: 'gossipper rtp_send -h',
+    docsPath: `${DOCS}/synthetic-rtp-sender.md`,
+    apiToolId: 'rtp_send',
+    exampleArgs: { host: '127.0.0.1', port: 40000, duration_sec: 10 },
+  },
+  {
+    id: 'report-html',
+    title: 'report-html',
+    summary: 'Render summary.json to static HTML report.',
+    cli: 'gossipper report-html -in summary.json -out report.html',
+    apiToolId: 'report-html',
+    exampleArgs: { in: 'artifacts/jobs/<job-id>/summary.json', out: 'artifacts/jobs/<job-id>/report.html' },
   },
 ]
 

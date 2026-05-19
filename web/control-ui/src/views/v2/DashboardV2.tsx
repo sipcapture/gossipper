@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   getHealthV2,
+  getSettingsV2,
   listClients,
   listJobs,
   listMedia,
@@ -14,6 +15,7 @@ import {
   type ServerProfile,
 } from '@/api/v2'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ManagementV1Panel } from '@/components/v2/ManagementV1Panel'
 import { JobTimelineChart } from '@/components/v2/JobTimelineChart'
 import { findPortConflicts } from '@/lib/portConflicts'
 import { computeJobTimeline24h } from '@/lib/jobsLive'
@@ -27,6 +29,8 @@ type LiveSnap = {
 export type DashboardV2Props = {
   bearer?: string
   run: <T>(fn: () => Promise<T>) => Promise<T | undefined>
+  onOpenJob?: (jobId: string) => void
+  onNavigate?: (nav: 'jobs' | 'media' | 'settings') => void
 }
 
 type Counts = {
@@ -68,7 +72,7 @@ export function computeJobOutcomes24h(
   return { succeeded, failed }
 }
 
-export function DashboardV2({ bearer, run }: DashboardV2Props) {
+export function DashboardV2({ bearer, run, onOpenJob, onNavigate }: DashboardV2Props) {
   const [health, setHealth] = useState<HealthV2 | null>(null)
   const [counts, setCounts] = useState<Counts | null>(null)
   const [recent, setRecent] = useState<Job[]>([])
@@ -76,6 +80,7 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
   const [servers, setServers] = useState<ServerProfile[]>([])
   const [clients, setClients] = useState<ClientProfile[]>([])
   const [live, setLive] = useState<LiveSnap | null>(null)
+  const [diskBytes, setDiskBytes] = useState<number | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
 
   // Cross-profile port-conflict check (servers + clients in one bucket).
@@ -93,6 +98,12 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
   const refresh = useCallback(async () => {
     const h = await getHealthV2({ bearer })
     setHealth(h)
+    try {
+      const st = await getSettingsV2({ bearer })
+      setDiskBytes(st.disk_usage_bytes ?? null)
+    } catch {
+      setDiskBytes(null)
+    }
     const [s, c, sc, w, p, recentJobs, allJobs] = await Promise.all([
       listServers({ bearer }),
       listClients({ bearer }),
@@ -123,6 +134,23 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
   }, [bearer])
 
   const timeline = useMemo(() => computeJobTimeline24h(jobHistory), [jobHistory])
+
+  const alerts = useMemo(() => {
+    const out: string[] = []
+    const runningLoad = jobHistory.filter(
+      (j) => (j.status === 'running' || j.status === 'pending') && j.profile_id === '_load_wizard',
+    )
+    if (runningLoad.length > 0) {
+      out.push(`${runningLoad.length} load test job(s) still running — check Jobs or Load test monitor.`)
+    }
+    if ((counts?.failed24h ?? 0) >= 5) {
+      out.push(`${counts?.failed24h} failed jobs in the last 24h.`)
+    }
+    if (diskBytes != null && diskBytes > 2 * 1024 * 1024 * 1024) {
+      out.push(`Disk usage ${(diskBytes / (1024 * 1024 * 1024)).toFixed(1)} GiB — review Jobs artifacts and Media.`)
+    }
+    return out
+  }, [jobHistory, counts?.failed24h, diskBytes])
 
   useEffect(() => {
     void run(() => refresh())
@@ -199,6 +227,26 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
         <CountCard label="API" value={health?.status ?? '—'} />
       </div>
 
+      {alerts.length > 0 ? (
+        <Card className="border-warning/40 bg-warning/10">
+          <CardHeader>
+            <CardTitle className="text-warning-foreground text-sm">Alerts</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="text-warning-foreground/90 list-inside list-disc text-xs">
+              {alerts.map((a) => (
+                <li key={a}>{a}</li>
+              ))}
+            </ul>
+            {diskBytes != null && diskBytes > 2 * 1024 * 1024 * 1024 ? (
+              <button type="button" className="text-primary mt-2 text-xs underline" onClick={() => onNavigate?.('media')}>
+                Open Media library
+              </button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-sm">Jobs timeline (24h)</CardTitle>
@@ -258,11 +306,17 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
               {recent.map((j) => {
                 const liveStatus = live?.jobs.find((x) => x.id === j.id)?.status ?? j.status
                 return (
-                  <li key={j.id} className="flex justify-between gap-2 font-mono">
-                    <span>
-                      <span className="text-muted-foreground">[{liveStatus}]</span> {j.id.slice(0, 8)}…
-                    </span>
-                    <span className="text-muted-foreground">{new Date(j.created_at).toLocaleString()}</span>
+                  <li key={j.id}>
+                    <button
+                      type="button"
+                      className="flex w-full justify-between gap-2 font-mono hover:underline"
+                      onClick={() => onOpenJob?.(j.id)}
+                    >
+                      <span>
+                        <span className="text-muted-foreground">[{liveStatus}]</span> {j.id.slice(0, 8)}…
+                      </span>
+                      <span className="text-muted-foreground">{new Date(j.created_at).toLocaleString()}</span>
+                    </button>
                   </li>
                 )
               })}
@@ -278,6 +332,8 @@ export function DashboardV2({ bearer, run }: DashboardV2Props) {
           ) : null}
         </CardContent>
       </Card>
+
+      <ManagementV1Panel bearer={bearer} />
     </section>
   )
 }

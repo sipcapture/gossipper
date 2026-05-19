@@ -17,6 +17,7 @@ export type LoadTestDraft = {
   health_enabled: boolean
   health_min_success_ratio: number
   health_max_failed_calls: number
+  soak_unlimited: boolean
 }
 
 export const INVITE_MEDIA_SCENARIOS = [
@@ -44,6 +45,7 @@ export function defaultLoadTestDraft(): LoadTestDraft {
     health_enabled: true,
     health_min_success_ratio: 0.95,
     health_max_failed_calls: 0,
+    soak_unlimited: false,
   }
 }
 
@@ -114,7 +116,7 @@ export function draftToLoadTestRequest(draft: LoadTestDraft): Record<string, unk
   const body: Record<string, unknown> = {
     director: draft.director.trim(),
     scenario_id: draft.scenario_id,
-    total_calls: draft.total_calls,
+    total_calls: draft.soak_unlimited ? 0 : draft.total_calls,
     rate: draft.rate,
     max_concurrent: draft.max_concurrent,
     health_enabled: draft.health_enabled,

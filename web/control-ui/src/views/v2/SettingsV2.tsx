@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { getHealthV2, getSettingsV2, rotateJwtSecret, type HealthV2, type SettingsV2 as SettingsResp } from '@/api/v2'
+import { getHealthV2, getSettingsV2, rotateJwtSecret, changeMyPassword, type HealthV2, type SettingsV2 as SettingsResp } from '@/api/v2'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { ThemeToggle, type ThemeMode } from '@/components/ThemeToggle'
+import type { NavId } from '@/lib/routing'
 
 export type SettingsV2Props = {
   bearer?: string
@@ -11,14 +14,19 @@ export type SettingsV2Props = {
   onThemeChange: (m: ThemeMode) => void
   onSignOut?: () => void
   authKind: 'none' | 'internal' | null
+  isAdmin?: boolean
+  onNavigate?: (nav: NavId) => void
 }
 
-export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind }: SettingsV2Props) {
+export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind, isAdmin, onNavigate }: SettingsV2Props) {
   const [health, setHealth] = useState<HealthV2 | null>(null)
   const [runtime, setRuntime] = useState<SettingsResp | null>(null)
   const [rotated, setRotated] = useState<{ secret: string; warning: string } | null>(null)
   const [rotating, setRotating] = useState(false)
   const [rotateError, setRotateError] = useState<string | null>(null)
+  const [curPass, setCurPass] = useState('')
+  const [newPass, setNewPass] = useState('')
+  const [passMsg, setPassMsg] = useState<string | null>(null)
   const refresh = useCallback(async () => {
     try {
       setHealth(await getHealthV2({ bearer }))
@@ -49,6 +57,18 @@ export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind }
       setRotateError(err instanceof Error ? err.message : String(err))
     } finally {
       setRotating(false)
+    }
+  }
+
+  const onChangePassword = async () => {
+    setPassMsg(null)
+    try {
+      await changeMyPassword({ current_password: curPass, new_password: newPass }, { bearer })
+      setPassMsg('Password updated')
+      setCurPass('')
+      setNewPass('')
+    } catch (err) {
+      setPassMsg(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -96,6 +116,11 @@ export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind }
                 {runtime.disk_usage_bytes != null
                   ? `${(runtime.disk_usage_bytes / (1024 * 1024)).toFixed(2)} MiB`
                   : '—'}
+                {runtime.disk_usage_bytes != null && runtime.disk_usage_bytes > 512 * 1024 * 1024 ? (
+                  <button type="button" className="text-primary ml-2 underline" onClick={() => onNavigate?.('jobs')}>
+                    Manage jobs
+                  </button>
+                ) : null}
               </dd>
             </dl>
           </CardContent>
@@ -112,6 +137,28 @@ export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind }
       </Card>
 
       {authKind === 'internal' ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Change password</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 text-xs">
+            <div>
+              <Label className="text-[10px]">Current password</Label>
+              <Input type="password" className="mt-1" value={curPass} onChange={(e) => setCurPass(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-[10px]">New password (min 8 chars)</Label>
+              <Input type="password" className="mt-1" value={newPass} onChange={(e) => setNewPass(e.target.value)} />
+            </div>
+            <Button type="button" size="sm" className="self-start" onClick={() => void onChangePassword()}>
+              Update password
+            </Button>
+            {passMsg ? <p className="text-muted-foreground">{passMsg}</p> : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {authKind === 'internal' && isAdmin !== false ? (
         <Card>
           <CardHeader>
             <CardTitle>JWT signing secret</CardTitle>

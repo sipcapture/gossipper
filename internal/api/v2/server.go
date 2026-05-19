@@ -52,6 +52,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/auth/status", s.handleAuthStatus)
 	mux.HandleFunc("POST /api/v2/auth/login", s.handleAuthLogin)
 	mux.HandleFunc("GET /api/v2/me", s.auth(s.handleMe))
+	mux.HandleFunc("POST /api/v2/me/password", s.auth(s.handleChangeMyPassword))
 
 	mux.HandleFunc("GET /api/v2/servers", s.auth(s.handleListServerProfiles))
 	mux.HandleFunc("POST /api/v2/servers", s.auth(s.handleCreateServerProfile))

@@ -20,6 +20,7 @@ import {
 import { lineDiff, sideBySideDiff, summariseDiff, type DiffLine, type SideBySideRow } from '@/lib/lineDiff'
 import { validateMediaRefs } from '@/lib/mediaRefs'
 import { PrepToolsPanel } from '@/components/v2/PrepToolsPanel'
+import { PcapImportPanel } from '@/components/v2/PcapImportPanel'
 import { Button } from '@/components/ui/button'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
@@ -425,6 +426,7 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
         </div>
       ) : null}
       <PrepToolsPanel bearer={bearer} run={run} compact />
+      <PcapImportPanel bearer={bearer} run={run} onImported={() => void run(() => refresh())} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">Scenarios</h2>
