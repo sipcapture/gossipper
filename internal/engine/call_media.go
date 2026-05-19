@@ -245,6 +245,9 @@ func (w *webrtcCallMedia) diagnostics() map[string]any {
 	if rs.RemoteFractionOK {
 		out["fraction_lost"] = rs.FractionLost
 	}
+	for k, v := range w.bridge.ICEDiagnostics() {
+		out[k] = v
+	}
 	return out
 }
 

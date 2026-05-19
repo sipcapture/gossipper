@@ -34,6 +34,8 @@ func TestBuildConfigFromSpecPropagatesWebRTC(t *testing.T) {
 				ICEServers:    []string{"stun:stun.l.google.com:19302", "turn:turn.example.com:3478"},
 				ICEUsername:   "alice",
 				ICECredential: "s3cret",
+				ICEAuthSecret: "turn-rest-key",
+				ICEAuthTTLSec: 3600,
 				PrefersPCMA:   true,
 			},
 		},
@@ -61,6 +63,9 @@ func TestBuildConfigFromSpecPropagatesWebRTC(t *testing.T) {
 	}
 	if cfg.WebRTCICEUsername != "alice" || cfg.WebRTCICECredential != "s3cret" {
 		t.Fatalf("ICE creds mismatch: %q / %q", cfg.WebRTCICEUsername, cfg.WebRTCICECredential)
+	}
+	if cfg.WebRTCICEAuthSecret != "turn-rest-key" || cfg.WebRTCICEAuthTTLSec != 3600 {
+		t.Fatalf("ICE REST auth mismatch: secret=%q ttl=%d", cfg.WebRTCICEAuthSecret, cfg.WebRTCICEAuthTTLSec)
 	}
 	if !cfg.WebRTCPrefersPCMA {
 		t.Fatalf("PrefersPCMA not propagated")

@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **E2E WebRTC loopback CI**: `scripts/smoke-webrtc-loopback.sh` / `make smoke-webrtc` — UAS+UAC supervisor jobs with builtin `webrtc_uas`/`webrtc_uac`, validates `call_records.jsonl` webrtc block (offer/answer + RTP).
+
+## [0.1.59] — 2026-05-19
+
+### Added
+
+- **ICE/TURN auth**: inline `turn:user:pass@host` URLs, static TURN credentials, and coturn REST (`--use-auth-secret`) with per-bridge ephemeral credentials.
+- **ICE diagnostics**: gathering state, selected candidate pair IDs, TURN auth mode in call records and job monitor strip.
+- **Control UI**: TURN REST secret/TTL fields, Google STUN preset on WebRTC transport row.
+
+### Changed
+
+- `docs/webrtc.md` documents ICE URL formats and coturn REST setup.
+
 ## [0.1.58] — 2026-05-19
 
 ### Added

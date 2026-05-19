@@ -60,8 +60,7 @@ export function TransportListEditor({ value, onChange, defaultPort = 5060 }: Tra
     <div className="flex flex-col gap-2">
       {missingIce ? (
         <p className="border-warning/40 bg-warning/10 text-warning rounded-md border px-2 py-1.5 text-[11px]">
-          WebRTC transport enabled without ICE servers — add at least one STUN/TURN URL for connectivity.
-          Per-call bridge diagnostics (Phase 4.2) will appear in job detail once engine wiring lands.
+          WebRTC transport enabled without ICE servers — add STUN and/or TURN URLs for NAT traversal.
         </p>
       ) : null}
       {value.length === 0 ? (
@@ -154,7 +153,7 @@ export function TransportListEditor({ value, onChange, defaultPort = 5060 }: Tra
             <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-12">
               <div className="md:col-span-12">
                 <Label className="text-[10px]">
-                  ICE servers (one URL per line — stun:host:port or turn:host:port)
+                  ICE servers (one URL per line — stun:host:port, turn:host:port, or turn:user:pass@host:port)
                 </Label>
                 <textarea
                   value={(t.ice_servers ?? []).join('\n')}
@@ -167,23 +166,56 @@ export function TransportListEditor({ value, onChange, defaultPort = 5060 }: Tra
                     })
                   }
                   rows={3}
-                  placeholder="stun:stun.l.google.com:19302"
+                  placeholder={'stun:stun.l.google.com:19302\nturn:turn.example.com:3478?transport=udp'}
                   className="border-input bg-background mt-1 w-full rounded-md border px-2 py-1.5 font-mono text-xs"
                 />
+                <div className="mt-1 flex flex-wrap gap-1">
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    onClick={() =>
+                      update(idx, {
+                        ice_servers: ['stun:stun.l.google.com:19302'],
+                      })
+                    }
+                  >
+                    + Google STUN
+                  </Button>
+                </div>
               </div>
-              <div className="md:col-span-5">
-                <Label className="text-[10px]">TURN username (optional)</Label>
+              <div className="md:col-span-4">
+                <Label className="text-[10px]">TURN username (static or REST identity)</Label>
                 <Input
                   value={t.ice_username ?? ''}
                   onChange={(e) => update(idx, { ice_username: e.target.value })}
                   className="mt-1"
                 />
               </div>
-              <div className="md:col-span-5">
-                <Label className="text-[10px]">TURN credential (optional)</Label>
+              <div className="md:col-span-4">
+                <Label className="text-[10px]">TURN credential (static)</Label>
                 <Input
                   value={t.ice_credential ?? ''}
                   onChange={(e) => update(idx, { ice_credential: e.target.value })}
+                  className="mt-1"
+                />
+              </div>
+              <div className="md:col-span-4">
+                <Label className="text-[10px]">TURN REST secret (coturn)</Label>
+                <Input
+                  type="password"
+                  value={t.ice_auth_secret ?? ''}
+                  onChange={(e) => update(idx, { ice_auth_secret: e.target.value })}
+                  placeholder="use-auth-secret"
+                  className="mt-1"
+                />
+              </div>
+              <div className="md:col-span-3">
+                <Label className="text-[10px]">REST TTL (sec)</Label>
+                <Input
+                  type="number"
+                  value={t.ice_auth_ttl_sec ?? 86400}
+                  onChange={(e) => update(idx, { ice_auth_ttl_sec: Number(e.target.value) || 86400 })}
                   className="mt-1"
                 />
               </div>

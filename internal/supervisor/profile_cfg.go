@@ -261,6 +261,12 @@ func applyWebRTCToConfig(cfg *cli.Config, t uistore.TransportSpec) {
 	if t.ICECredential != "" && cfg.WebRTCICECredential == "" {
 		cfg.WebRTCICECredential = t.ICECredential
 	}
+	if t.ICEAuthSecret != "" && cfg.WebRTCICEAuthSecret == "" {
+		cfg.WebRTCICEAuthSecret = t.ICEAuthSecret
+	}
+	if t.ICEAuthTTLSec > 0 && cfg.WebRTCICEAuthTTLSec == 0 {
+		cfg.WebRTCICEAuthTTLSec = t.ICEAuthTTLSec
+	}
 	if t.PrefersPCMA {
 		cfg.WebRTCPrefersPCMA = true
 	}

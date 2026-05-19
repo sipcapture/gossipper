@@ -45,6 +45,11 @@ type Options struct {
 	// auth. Most STUN servers ignore them.
 	ICEUsername   string
 	ICECredential string
+	// ICEAuthSecret enables coturn REST-style ephemeral credentials ( --use-auth-secret ).
+	// When set, a fresh username/password is minted per Bridge for TURN URLs.
+	ICEAuthSecret string
+	// ICEAuthTTL bounds REST credential lifetime (default 24h).
+	ICEAuthTTL time.Duration
 	// PrefersPCMA picks PCMA (G.711 a-law, payload 8) over PCMU when both
 	// are offered. Default false → PCMU (payload 0).
 	PrefersPCMA bool
@@ -63,26 +68,29 @@ type Logger interface {
 
 // Bridge owns a single pion PeerConnection plus its outbound audio track.
 type Bridge struct {
-	pc                 *webrtc.PeerConnection
-	outbound           *webrtc.TrackLocalStaticSample
-	inboundOnce        sync.Once
-	inboundMu          sync.RWMutex
-	inboundCB           func(payload []byte)
-	codec              string // "PCMU" or "PCMA"
-	iceGatherTimeout   time.Duration
-	closed             chan struct{}
-	closeOnce          sync.Once
+	pc               *webrtc.PeerConnection
+	outbound         *webrtc.TrackLocalStaticSample
+	inboundOnce      sync.Once
+	inboundMu        sync.RWMutex
+	inboundCB        func(payload []byte)
+	codec            string // "PCMU" or "PCMA"
+	iceGatherTimeout time.Duration
+	iceServers       []string
+	iceAuthMode      string
+	closed           chan struct{}
+	closeOnce        sync.Once
+	stateMu          sync.RWMutex
+	gatheringState   string
+	connectionState  string
+	selectedLocal    string
+	selectedRemote   string
 }
 
 // NewBridge spins up a PeerConnection ready to answer an offer.
 func NewBridge(opts Options) (*Bridge, error) {
-	iceServers := []webrtc.ICEServer{}
-	for _, u := range opts.ICEServers {
-		iceServers = append(iceServers, webrtc.ICEServer{
-			URLs:       []string{u},
-			Username:   opts.ICEUsername,
-			Credential: opts.ICECredential,
-		})
+	iceServers, err := BuildICEServers(opts)
+	if err != nil {
+		return nil, err
 	}
 	cfg := webrtc.Configuration{ICEServers: iceServers}
 
@@ -121,8 +129,24 @@ func NewBridge(opts Options) (*Bridge, error) {
 		outbound:         outbound,
 		codec:            codec,
 		iceGatherTimeout: gatherTimeout(opts),
+		iceServers:       append([]string(nil), opts.ICEServers...),
+		iceAuthMode:      authMode(opts),
 		closed:           make(chan struct{}),
+		gatheringState:   pc.ICEGatheringState().String(),
+		connectionState:  pc.ICEConnectionState().String(),
 	}
+
+	pc.OnICEGatheringStateChange(func(s webrtc.ICEGatheringState) {
+		b.stateMu.Lock()
+		b.gatheringState = s.String()
+		b.stateMu.Unlock()
+	})
+	pc.OnICEConnectionStateChange(func(s webrtc.ICEConnectionState) {
+		b.stateMu.Lock()
+		b.connectionState = s.String()
+		b.stateMu.Unlock()
+		b.refreshSelectedCandidatePair()
+	})
 
 	pc.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		if remote.Kind() != webrtc.RTPCodecTypeAudio {
@@ -274,6 +298,43 @@ func (b *Bridge) Codec() string { return b.codec }
 
 // ConnectionState exposes the underlying ICE connection state for diagnostics.
 func (b *Bridge) ConnectionState() webrtc.ICEConnectionState { return b.pc.ICEConnectionState() }
+
+// ICEDiagnostics returns ICE/TURN runtime hints for logging and call records.
+func (b *Bridge) ICEDiagnostics() map[string]any {
+	b.refreshSelectedCandidatePair()
+	b.stateMu.RLock()
+	defer b.stateMu.RUnlock()
+	out := map[string]any{
+		"ice_gathering":  b.gatheringState,
+		"ice_connection": b.connectionState,
+		"ice_servers":    len(b.iceServers),
+		"turn_auth":      b.iceAuthMode,
+	}
+	if b.selectedLocal != "" {
+		out["selected_local"] = b.selectedLocal
+	}
+	if b.selectedRemote != "" {
+		out["selected_remote"] = b.selectedRemote
+	}
+	return out
+}
+
+func (b *Bridge) refreshSelectedCandidatePair() {
+	if b == nil || b.pc == nil {
+		return
+	}
+	for _, s := range b.pc.GetStats() {
+		pair, ok := s.(webrtc.ICECandidatePairStats)
+		if !ok || !pair.Nominated || pair.State != webrtc.StatsICECandidatePairStateSucceeded {
+			continue
+		}
+		local, remote := pair.LocalCandidateID, pair.RemoteCandidateID
+		b.stateMu.Lock()
+		b.selectedLocal, b.selectedRemote = local, remote
+		b.stateMu.Unlock()
+		return
+	}
+}
 
 // avoid unused import warning when the pkg is built without tests
 var _ = rtp.Packet{}

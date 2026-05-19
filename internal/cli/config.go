@@ -110,6 +110,8 @@ type Config struct {
 	WebRTCICEServers    []string
 	WebRTCICEUsername   string
 	WebRTCICECredential string
+	WebRTCICEAuthSecret string
+	WebRTCICEAuthTTLSec int
 	WebRTCPrefersPCMA   bool
 	// WebRTCMedia is true when the run profile includes an enabled webrtc transport row.
 	WebRTCMedia bool

@@ -76,6 +76,8 @@ export type TransportSpec = {
   ice_servers?: string[]
   ice_username?: string
   ice_credential?: string
+  ice_auth_secret?: string
+  ice_auth_ttl_sec?: number
   prefers_pcma?: boolean
 }
 

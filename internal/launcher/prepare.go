@@ -124,6 +124,8 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		WebRTCICEServers:    cfg.WebRTCICEServers,
 		WebRTCICEUsername:   cfg.WebRTCICEUsername,
 		WebRTCICECredential: cfg.WebRTCICECredential,
+		WebRTCICEAuthSecret: cfg.WebRTCICEAuthSecret,
+		WebRTCICEAuthTTLSec: cfg.WebRTCICEAuthTTLSec,
 		WebRTCPrefersPCMA:   cfg.WebRTCPrefersPCMA,
 		WebRTCMedia:         cfg.WebRTCMedia,
 		CommandName:      cfg.CommandName,

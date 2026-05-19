@@ -40,6 +40,8 @@ type TransportSpec struct {
 	ICEServers    []string `json:"ice_servers,omitempty"`
 	ICEUsername   string   `json:"ice_username,omitempty"`
 	ICECredential string   `json:"ice_credential,omitempty"`
+	ICEAuthSecret string   `json:"ice_auth_secret,omitempty"`
+	ICEAuthTTLSec int      `json:"ice_auth_ttl_sec,omitempty"`
 	// PrefersPCMA picks PCMA (G.711 a-law) over PCMU when both are offered.
 	PrefersPCMA bool `json:"prefers_pcma,omitempty"`
 }

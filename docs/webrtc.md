@@ -17,6 +17,11 @@ outbound audio track and lets the SIP scenario:
 - DTLS-SRTP, ICE candidate gathering and the standard pion media engine
   (PCMU/PCMA registered).
 - ICE servers (STUN / TURN) provided per bridge via `Options.ICEServers`.
+- **TURN auth modes** (`internal/webrtc/ice.go`):
+  - **inline URL** — `turn:alice:secret@turn.example.com:3478?transport=udp`
+  - **static** — profile `ice_username` / `ice_credential` applied to every TURN URL
+  - **coturn REST** — profile `ice_auth_secret` (+ optional identity in `ice_username`, TTL in `ice_auth_ttl_sec`) mints ephemeral credentials per Bridge
+- ICE diagnostics in call records: `ice_gathering`, `ice_connection`, `turn_auth`, selected candidate pair IDs.
 - Standalone unit test (`internal/webrtc/bridge_test.go`) that wires two
   bridges back to back, performs the offer/answer dance, and asserts that
   PCMA samples written on one side arrive on the other.
@@ -84,10 +89,39 @@ Content-Length: [len]
 </scenario>
 ```
 
+## ICE / TURN configuration
+
+Configure ICE on the profile's **webrtc** transport row (Control UI → Server/Client profile → transports).
+
+| Field | Purpose |
+|---|---|
+| `ice_servers` | One STUN/TURN URL per line |
+| `ice_username` / `ice_credential` | Static TURN credentials (all TURN URLs) |
+| `ice_auth_secret` | coturn `--use-auth-secret` shared key |
+| `ice_auth_ttl_sec` | REST credential lifetime (default 86400) |
+
+**URL formats**
+
+```
+stun:stun.l.google.com:19302
+turn:turn.example.com:3478?transport=udp
+turn:alice:secret@turn.example.com:3478?transport=udp
+turns:turn.example.com:5349?transport=tcp
+```
+
+**coturn REST** (per-call ephemeral credentials):
+
+1. In `/etc/turnserver.conf`: `use-auth-secret`, `static-auth-secret=<same as ice_auth_secret>`.
+2. On the profile: set `ice_auth_secret`; optionally set `ice_username` to a stable identity (default `gossipper`).
+3. Each WebRTC call mints `username=<expiry>:<identity>` and `password=base64(hmac-sha1(secret, username))`.
+
+STUN URLs never receive credentials. TURN URLs pick inline URL creds first, then REST, then static profile creds.
+
 ## What is *not* yet wired
 
 - No SDP munging is performed between SIP and WebRTC offers beyond template injection. Scenario authors that need custom SIP SDP headers should still inline bridge output via `[webrtc_offer]` / `[webrtc_answer]`.
-- TURN credentials are passed through verbatim; we do not refresh short-lived credentials.
+- Trickle ICE is not used — offers/answers wait for full ICE gathering.
+- Short-lived REST credentials are not refreshed mid-call if TTL expires before the dialog ends.
 
 ## Runtime integration roadmap (Phase 4.2)
 

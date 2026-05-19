@@ -1,6 +1,12 @@
 export type CallRecordWebRTC = {
   codec?: string
   ice_state?: string
+  ice_gathering?: string
+  ice_connection?: string
+  turn_auth?: string
+  selected_local?: string
+  selected_remote?: string
+  ice_servers?: number
   rtp_packets_sent?: number
   rtp_packets_recv?: number
   rtp_packets_lost?: number

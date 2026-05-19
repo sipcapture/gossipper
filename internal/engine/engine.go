@@ -149,6 +149,8 @@ type Config struct {
 	WebRTCICEServers    []string
 	WebRTCICEUsername   string
 	WebRTCICECredential string
+	WebRTCICEAuthSecret string
+	WebRTCICEAuthTTLSec int
 	WebRTCPrefersPCMA   bool
 	WebRTCMedia         bool
 	CommandName      string

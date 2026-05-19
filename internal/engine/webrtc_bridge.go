@@ -19,6 +19,8 @@ package engine
 // plumbing honest in the meantime.
 
 import (
+	"time"
+
 	"github.com/sipcapture/gossipper/internal/webrtc"
 )
 
@@ -32,6 +34,8 @@ func (e *Engine) NewWebRTCBridge() (*webrtc.Bridge, error) {
 		ICEServers:    e.cfg.WebRTCICEServers,
 		ICEUsername:   e.cfg.WebRTCICEUsername,
 		ICECredential: e.cfg.WebRTCICECredential,
+		ICEAuthSecret: e.cfg.WebRTCICEAuthSecret,
+		ICEAuthTTL:    time.Duration(e.cfg.WebRTCICEAuthTTLSec) * time.Second,
 		PrefersPCMA:   e.cfg.WebRTCPrefersPCMA,
 	})
 }

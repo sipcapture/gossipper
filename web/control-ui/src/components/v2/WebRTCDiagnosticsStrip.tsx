@@ -33,16 +33,25 @@ export function WebRTCDiagnosticsStrip({ lines, iceServers, callRecords }: WebRT
       {records.length > 0 ? (
         <div className="text-muted-foreground flex flex-col gap-0.5 text-[10px]">
           <span className="font-medium">Call records (webrtc)</span>
-          {records.slice(-3).map((r) => (
-            <span key={`${r.call_id}-${r.call_number}`} className="font-mono">
-              {r.call_id?.slice(0, 10) ?? '?'} · {r.webrtc?.codec ?? '?'} · ICE {r.webrtc?.ice_state ?? '?'} · sent{' '}
-              {r.webrtc?.rtp_packets_sent ?? 0} recv {r.webrtc?.rtp_packets_recv ?? 0}
-              {typeof r.webrtc?.fraction_lost === 'number'
-                ? ` · loss ${(r.webrtc.fraction_lost * 100).toFixed(1)}%`
-                : ''}
-              {typeof r.webrtc?.jitter_ms === 'number' ? ` · jitter ${r.webrtc.jitter_ms.toFixed(1)}ms` : ''}
-            </span>
-          ))}
+          {records.slice(-3).map((r) => {
+            const w = r.webrtc
+            const iceConn = w?.ice_connection ?? w?.ice_state ?? '?'
+            const pair =
+              w?.selected_local && w?.selected_remote
+                ? ` · pair ${w.selected_local.slice(0, 8)}↔${w.selected_remote.slice(0, 8)}`
+                : ''
+            const auth = w?.turn_auth && w.turn_auth !== 'none' ? ` · TURN ${w.turn_auth}` : ''
+            return (
+              <span key={`${r.call_id}-${r.call_number}`} className="font-mono">
+                {r.call_id?.slice(0, 10) ?? '?'} · {w?.codec ?? '?'} · ICE {iceConn}
+                {w?.ice_gathering ? ` · gather ${w.ice_gathering}` : ''}
+                {auth}
+                {pair} · sent {w?.rtp_packets_sent ?? 0} recv {w?.rtp_packets_recv ?? 0}
+                {typeof w?.fraction_lost === 'number' ? ` · loss ${(w.fraction_lost * 100).toFixed(1)}%` : ''}
+                {typeof w?.jitter_ms === 'number' ? ` · jitter ${w.jitter_ms.toFixed(1)}ms` : ''}
+              </span>
+            )
+          })}
         </div>
       ) : null}
       {webrtcLines.length > 0 ? (

@@ -48,3 +48,4 @@ jobs:
             ./internal/uistore/...
           make build-go
           make smoke
+          make smoke-webrtc
