@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.55] — 2026-05-19
+
+### Added
+
+- **WebRTC Phase 4.2 (UAC + profile)**: `[webrtc_offer]` template keyword; auto-enable bridge from enabled profile `webrtc` transport row (`WebRTCMedia`); `AcceptAnswer` on 200/183 after offer; `webrtc` diagnostics in call records; job monitor WebRTC strip (ICE + log lines).
+
 ## [0.1.54] — 2026-05-20
 
 ### Added

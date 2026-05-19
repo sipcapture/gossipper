@@ -150,6 +150,7 @@ type Config struct {
 	WebRTCICEUsername   string
 	WebRTCICECredential string
 	WebRTCPrefersPCMA   bool
+	WebRTCMedia         bool
 	CommandName      string
 	CommandPeers     map[string]string
 	UISourceIPs      []string
@@ -2019,7 +2020,7 @@ func (e *Engine) executeCall(
 		}
 		callMedia.stop()
 		duration := time.Since(startedAt)
-		e.appendCallRecordJSONL(callNumber, callID, success, duration, runErr, sawUnexpectedSIP, callMedia.snapshot())
+		e.appendCallRecordJSONL(callNumber, callID, success, duration, runErr, sawUnexpectedSIP, callMedia)
 		e.stats.FinishCall(success, duration)
 		e.traceCallCompleted()
 		result := "success"
@@ -2212,7 +2213,7 @@ func (e *Engine) executeCall(
 				return err
 			}
 		case scenario.CommandSend:
-			if err := prepareWebRTCAnswerKeyword(callMedia, &renderCtx, cmd.SendText); err != nil {
+			if err := prepareWebRTCSendKeywords(ctx, callMedia, &renderCtx, cmd.SendText); err != nil {
 				return err
 			}
 			renderCtx.BranchBase = randomBranch(callNumber, cmd.Index)
@@ -2444,6 +2445,9 @@ func (e *Engine) executeCall(
 
 			renderCtx.LastMessage = msg.Raw
 			renderCtx.LastHeaders = copyHeaders(msg.Headers)
+			if err := maybeAcceptWebRTCAnswer(callMedia, msg.Raw); err != nil {
+				return err
+			}
 			if cmd.RRS {
 				renderCtx.ExtraKeywords["routes"] = buildRouteHeaders(msg.Headers)
 			}
@@ -4077,20 +4081,22 @@ func scenarioNeedsSIPTransport(sc scenario.Scenario) bool {
 	return false
 }
 
-func (e *Engine) appendCallRecordJSONL(callNumber int, callID string, success bool, duration time.Duration, runErr error, sawUnexpectedSIP bool, snap media.Stats) {
+func (e *Engine) appendCallRecordJSONL(callNumber int, callID string, success bool, duration time.Duration, runErr error, sawUnexpectedSIP bool, cm *callMedia) {
 	path := strings.TrimSpace(e.cfg.CallRecordsJSONL)
 	if path == "" {
 		return
 	}
+	snap := cm.snapshot()
 	rec := struct {
-		Schema     string      `json:"schema_version"`
-		CallID     string      `json:"call_id"`
-		CallNumber int         `json:"call_number"`
-		Success    bool        `json:"success"`
-		DurationMs int64       `json:"duration_ms"`
-		Error      string      `json:"error,omitempty"`
-		Unexpected bool        `json:"sip_unexpected,omitempty"`
-		Media      media.Stats `json:"media"`
+		Schema     string         `json:"schema_version"`
+		CallID     string         `json:"call_id"`
+		CallNumber int            `json:"call_number"`
+		Success    bool           `json:"success"`
+		DurationMs int64          `json:"duration_ms"`
+		Error      string         `json:"error,omitempty"`
+		Unexpected bool           `json:"sip_unexpected,omitempty"`
+		Media      media.Stats    `json:"media"`
+		WebRTC     map[string]any `json:"webrtc,omitempty"`
 	}{
 		Schema:     "gossipper_call_record_v1",
 		CallID:     callID,
@@ -4099,6 +4105,9 @@ func (e *Engine) appendCallRecordJSONL(callNumber int, callID string, success bo
 		DurationMs: duration.Milliseconds(),
 		Unexpected: sawUnexpectedSIP,
 		Media:      snap,
+	}
+	if cm.usesWebRTC() {
+		rec.WebRTC = cm.wrtc.diagnostics()
 	}
 	if runErr != nil {
 		rec.Error = runErr.Error()

@@ -24,6 +24,7 @@ import {
   type ServerProfile,
 } from '@/api/v2'
 import { JobStatsChart } from '@/components/v2/JobStatsChart'
+import { WebRTCDiagnosticsStrip } from '@/components/v2/WebRTCDiagnosticsStrip'
 import { ArtifactLinks } from '@/components/v2/ArtifactLinks'
 import { buildEnginePayload, EngineOverridesForm, type EngineOverrides } from '@/components/v2/EngineOverridesForm'
 import { ReportPreview } from '@/components/v2/ReportPreview'
@@ -36,7 +37,7 @@ import { Label } from '@/components/ui/label'
 import { Modal } from '@/components/ui/modal'
 import { validateJobID } from '@/lib/jobId'
 import { jobMatchesKindFilter, type JobKindFilter } from '@/lib/jobKind'
-import { isProfilePortBlocked, profileHasWebRTC } from '@/lib/profileHelpers'
+import { isProfilePortBlocked, iceServersFromProfile, profileHasWebRTC } from '@/lib/profileHelpers'
 import { mergeLiveJobs, parseStatsLines, useLiveJobs } from '@/lib/jobsLive'
 import { useToast } from '@/lib/toast'
 
@@ -629,7 +630,7 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
               <div className="text-muted-foreground mb-1 font-medium">All artifacts ({detail.artifacts.length})</div>
               <ArtifactLinks jobId={detail.job.id} artifacts={detail.artifacts} bearer={bearer} />
             </div>
-            <JobStatsTail jobId={detail.job.id} bearer={bearer} status={detail.job.status} />
+            <JobStatsTail job={detail.job} bearer={bearer} />
             <div>
               <div className="text-muted-foreground mb-1 font-medium">
                 Recordings ({detail.recordings.length})
@@ -675,23 +676,44 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
   )
 }
 
-function JobStatsTail({
-  jobId,
-  bearer,
-  status,
-}: {
-  jobId: string
-  bearer?: string
-  status: string
-}) {
+function JobStatsTail({ job, bearer }: { job: Job; bearer?: string }) {
   const [lines, setLines] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [iceServers, setIceServers] = useState<string[]>([])
+  const [webrtcProfile, setWebrtcProfile] = useState(false)
   const tailN = 25
+
+  useEffect(() => {
+    if (!job.profile_id || !job.profile_kind) {
+      setIceServers([])
+      setWebrtcProfile(false)
+      return
+    }
+    void (async () => {
+      try {
+        if (job.profile_kind === 'server') {
+          const r = await listServers({ bearer })
+          const p = (r.servers ?? []).find((s) => s.id === job.profile_id)
+          setWebrtcProfile(profileHasWebRTC(p?.transports))
+          setIceServers(iceServersFromProfile(p?.transports))
+        } else if (job.profile_kind === 'client') {
+          const r = await listClients({ bearer })
+          const p = (r.clients ?? []).find((c) => c.id === job.profile_id)
+          setWebrtcProfile(profileHasWebRTC(p?.transports))
+          setIceServers(iceServersFromProfile(p?.transports))
+        }
+      } catch {
+        setIceServers([])
+        setWebrtcProfile(false)
+      }
+    })()
+  }, [job.profile_id, job.profile_kind, bearer])
+
   useEffect(() => {
     let cancelled = false
     const ctrl = new AbortController()
-    const follow = status === 'running' || status === 'pending'
-    const url = jobEventsURL(jobId, bearer, { tail: tailN, follow })
+    const follow = job.status === 'running' || job.status === 'pending'
+    const url = jobEventsURL(job.id, bearer, { tail: tailN, follow })
     fetch(url, { signal: ctrl.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -724,13 +746,15 @@ function JobStatsTail({
       cancelled = true
       ctrl.abort()
     }
-  }, [jobId, bearer, status])
+  }, [job.id, bearer, job.status])
 
   const chartPoints = useMemo(() => parseStatsLines(lines), [lines])
+  const showWebRTC = webrtcProfile || lines.some((l) => /webrtc/i.test(l))
 
   return (
     <div>
       <div className="text-muted-foreground mb-1 font-medium">Worker stats</div>
+      {showWebRTC ? <WebRTCDiagnosticsStrip lines={lines} iceServers={iceServers} /> : null}
       <JobStatsChart points={chartPoints} />
       {error ? <p className="text-destructive mt-1 text-[11px]">{error}</p> : null}
       <pre className="bg-muted/40 mt-2 max-h-48 overflow-auto rounded p-2 font-mono text-[10px] whitespace-pre-wrap">

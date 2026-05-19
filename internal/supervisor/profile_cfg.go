@@ -246,6 +246,9 @@ func splitWebRTC(in []uistore.TransportSpec) ([]uistore.TransportSpec, []uistore
 // row into cli.Config. Idempotent — later calls only fill empty slots, so the
 // first enabled transport wins for shared fields.
 func applyWebRTCToConfig(cfg *cli.Config, t uistore.TransportSpec) {
+	if t.Transport == "webrtc" {
+		cfg.WebRTCMedia = true
+	}
 	if len(t.ICEServers) > 0 && len(cfg.WebRTCICEServers) == 0 {
 		cfg.WebRTCICEServers = append([]string(nil), t.ICEServers...)
 	}

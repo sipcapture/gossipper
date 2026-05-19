@@ -17,16 +17,19 @@ type callMedia struct {
 }
 
 type webrtcCallMedia struct {
-	bridge *webrtc.Bridge
-	mu     sync.Mutex
-	sent   uint32
-	recv   uint32
-	cancel context.CancelFunc
+	bridge          *webrtc.Bridge
+	mu              sync.Mutex
+	sent            uint32
+	recv            uint32
+	cancel          context.CancelFunc
+	localOffer      string
+	answerAccepted  bool
 }
 
 func newCallMedia(e *Engine, scen scenario.Scenario, callID string) (*callMedia, error) {
 	cm := &callMedia{}
-	if scen.WebRTC {
+	useWebRTC := scen.WebRTC || e.cfg.WebRTCMedia
+	if useWebRTC {
 		br, err := e.NewWebRTCBridge()
 		if err != nil {
 			return nil, err
@@ -106,6 +109,53 @@ func (cm *callMedia) stop() {
 	if cm.session != nil {
 		cm.session.Stop()
 	}
+}
+
+func (w *webrtcCallMedia) createOffer(ctx context.Context) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.localOffer != "" {
+		return w.localOffer, nil
+	}
+	offer, err := w.bridge.CreateOffer(ctx)
+	if err != nil {
+		return "", err
+	}
+	w.localOffer = offer
+	return offer, nil
+}
+
+func (w *webrtcCallMedia) needsAcceptAnswer() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.localOffer != "" && !w.answerAccepted
+}
+
+func (w *webrtcCallMedia) acceptAnswer(answerSDP string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.answerAccepted {
+		return nil
+	}
+	if err := w.bridge.AcceptAnswer(answerSDP); err != nil {
+		return err
+	}
+	w.answerAccepted = true
+	return nil
+}
+
+func (w *webrtcCallMedia) diagnostics() map[string]any {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := map[string]any{
+		"codec":            w.bridge.Codec(),
+		"ice_state":        w.bridge.ConnectionState().String(),
+		"rtp_packets_sent": w.sent,
+		"rtp_packets_recv": w.recv,
+		"offer_created":    w.localOffer != "",
+		"answer_accepted":  w.answerAccepted,
+	}
+	return out
 }
 
 func (w *webrtcCallMedia) answer(offerSDP string) (string, error) {

@@ -1,6 +1,6 @@
 # WebRTC media bridge (experimental)
 
-Status: experimental — code is in place, engine wiring is not yet automatic.
+Status: experimental — Phase 4.2 UAC/UAS offer/answer paths are wired behind opt-in flags.
 
 The package `internal/webrtc` wraps [`pion/webrtc/v4`](https://github.com/pion/webrtc)
 in a SIP-friendly `Bridge` type. A bridge owns one PeerConnection plus one
@@ -34,12 +34,17 @@ outbound audio track and lets the SIP scenario:
   while ICE settings flow through `WebRTC*` fields
   (`internal/supervisor/profile_cfg.go::splitWebRTC`).
 
-## What is in place (Phase 4.2 — partial)
+## What is in place (Phase 4.2)
 
 - **Opt-in scenarios**: `<scenario webrtc="true">` spins up a per-call `internal/webrtc.Bridge` instead of `media.Session`.
+- **Profile auto-enable**: an enabled `webrtc` transport row on the run profile sets `WebRTCMedia=true` — the bridge is used even without `webrtc="true"` on the scenario XML.
 - **UAS answer path**: before `<send>` steps that contain `[webrtc_answer]`, the engine generates a WebRTC SDP answer from the last received INVITE offer and injects it via template keyword.
+- **UAC offer path**: before `<send>` steps that contain `[webrtc_offer]`, the engine creates a WebRTC SDP offer via `Bridge.CreateOffer` and injects it via template keyword.
+- **Accept answer (UAC)**: after receiving 200/183 with SDP body, the engine calls `Bridge.AcceptAnswer` when an offer was created earlier in the call.
+- **Call records**: `call_records.jsonl` includes a `webrtc` diagnostics block (codec, ICE state, RTP counters, offer/answer flags).
 - **`rtp_stream` synthetic** over WebRTC sends silence frames through `Bridge.WritePCMA` / `WritePCMU`.
 - **`Options.ICEGatherTimeout`** on the bridge (default 5s).
+- **Control UI**: job monitor shows a WebRTC diagnostics strip (ICE servers from profile + recent worker log lines).
 - PCAP replay, mic, DTMF, and classic RTP/RTCP stats return `media.ErrUnsupportedOverWebRTC` on the WebRTC path.
 
 Example UAS snippet:
@@ -58,16 +63,29 @@ Content-Length: [len]
 </scenario>
 ```
 
+Example UAC snippet (profile with enabled `webrtc` transport, or `webrtc="true"` on scenario):
+
+```xml
+<scenario name="webrtc_uac">
+  <send>
+    <![CDATA[INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+...
+Content-Type: application/sdp
+Content-Length: [len]
+
+[webrtc_offer]]]>
+  </send>
+  <recv response="200,183"/>
+  ...
+</scenario>
+```
+
 ## What is *not* yet wired
 
-- The SIP engine does not yet attach a `Bridge` per call when the scenario
-  asks for `[transport]=webrtc` only (use `webrtc="true"` on `<scenario>` today).
-  UAC offer generation via `[webrtc_offer]` is not wired yet.
-- No SDP munging is performed between SIP and WebRTC offers. Scenario
-  authors that need WebRTC interop today should produce the offer with the
-  bridge and inline the returned SDP into their `<send>`.
-- TURN credentials are passed through verbatim; we do not refresh short-lived
-  credentials.
+- The SIP engine does not yet attach a `Bridge` per call when the scenario asks for `[transport]=webrtc` only (use `webrtc="true"` on `<scenario>` or an enabled `webrtc` profile row today).
+- No SDP munging is performed between SIP and WebRTC offers beyond template injection. Scenario authors that need custom SIP SDP headers should still inline bridge output via `[webrtc_offer]` / `[webrtc_answer]`.
+- TURN credentials are passed through verbatim; we do not refresh short-lived credentials.
+- WAV recording on the WebRTC path and RTCP loss stats are not wired yet.
 
 ## Runtime integration roadmap (Phase 4.2)
 

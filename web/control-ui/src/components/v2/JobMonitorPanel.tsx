@@ -1,9 +1,11 @@
-import { artifactURL, getJob, jobEventsURL, listRecordings, stopJob, type Job, type JobArtifact, type Recording } from '@/api/v2'
+import { artifactURL, getJob, jobEventsURL, listClients, listRecordings, listServers, stopJob, type Job, type JobArtifact, type Recording } from '@/api/v2'
 import { JobStatsChart } from '@/components/v2/JobStatsChart'
 import { SummaryKPICards } from '@/components/v2/SummaryKPI'
+import { WebRTCDiagnosticsStrip } from '@/components/v2/WebRTCDiagnosticsStrip'
 import { Button } from '@/components/ui/button'
 import { fetchArtifactJSON } from '@/lib/artifacts'
 import { parseStatsLines } from '@/lib/jobsLive'
+import { iceServersFromProfile, profileHasWebRTC } from '@/lib/profileHelpers'
 import { parseSummaryJSON } from '@/lib/summaryParse'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -30,6 +32,8 @@ export function JobMonitorPanel({
   const [summary, setSummary] = useState<ReturnType<typeof parseSummaryJSON>>(null)
   const [lines, setLines] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [iceServers, setIceServers] = useState<string[]>([])
+  const [webrtcProfile, setWebrtcProfile] = useState(false)
 
   const refresh = useCallback(async () => {
     const d = await getJob(jobId, { bearer })
@@ -51,6 +55,32 @@ export function JobMonitorPanel({
       setRecordings(recs.recordings ?? [])
     }
   }, [jobId, bearer])
+
+  useEffect(() => {
+    if (!job?.profile_id || !job.profile_kind) {
+      setIceServers([])
+      setWebrtcProfile(false)
+      return
+    }
+    void (async () => {
+      try {
+        if (job.profile_kind === 'server') {
+          const r = await listServers({ bearer })
+          const p = (r.servers ?? []).find((s) => s.id === job.profile_id)
+          setWebrtcProfile(profileHasWebRTC(p?.transports))
+          setIceServers(iceServersFromProfile(p?.transports))
+        } else if (job.profile_kind === 'client') {
+          const r = await listClients({ bearer })
+          const p = (r.clients ?? []).find((c) => c.id === job.profile_id)
+          setWebrtcProfile(profileHasWebRTC(p?.transports))
+          setIceServers(iceServersFromProfile(p?.transports))
+        }
+      } catch {
+        setIceServers([])
+        setWebrtcProfile(false)
+      }
+    })()
+  }, [job, bearer])
 
   useEffect(() => {
     void refresh().catch((e) => setError(String(e instanceof Error ? e.message : e)))
@@ -109,6 +139,7 @@ export function JobMonitorPanel({
 
   const chartPoints = useMemo(() => parseStatsLines(lines), [lines])
   const running = job?.status === 'running' || job?.status === 'pending'
+  const showWebRTC = webrtcProfile || lines.some((l) => /webrtc/i.test(l))
 
   const onStopClick = () => {
     void stopJob(jobId, { bearer }).then(() => {
@@ -145,6 +176,7 @@ export function JobMonitorPanel({
         </div>
       </div>
       {summary ? <SummaryKPICards kpi={summary} /> : null}
+      {showWebRTC ? <WebRTCDiagnosticsStrip lines={lines} iceServers={iceServers} /> : null}
       <JobStatsChart points={chartPoints} />
       {error ? <p className="text-destructive text-[11px]">{error}</p> : null}
       {!compact ? (

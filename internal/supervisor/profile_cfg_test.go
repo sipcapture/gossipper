@@ -65,6 +65,9 @@ func TestBuildConfigFromSpecPropagatesWebRTC(t *testing.T) {
 	if !cfg.WebRTCPrefersPCMA {
 		t.Fatalf("PrefersPCMA not propagated")
 	}
+	if !cfg.WebRTCMedia {
+		t.Fatalf("WebRTCMedia not set")
+	}
 	if cfg.Transport != "u1" {
 		t.Fatalf("expected SIP transport to win (u1), got %q (webrtc must not become cfg.Transport)", cfg.Transport)
 	}
@@ -111,6 +114,9 @@ func TestBuildConfigFromSpecWebRTCOnlyDoesNotBecomeSIPTransport(t *testing.T) {
 	}
 	if len(cfg.WebRTCICEServers) != 1 {
 		t.Fatalf("expected ICE servers preserved, got %v", cfg.WebRTCICEServers)
+	}
+	if !cfg.WebRTCMedia {
+		t.Fatalf("WebRTCMedia not set for webrtc-only profile")
 	}
 }
 

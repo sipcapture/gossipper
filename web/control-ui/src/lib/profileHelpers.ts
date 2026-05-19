@@ -27,6 +27,16 @@ export function profileHasWebRTC(transports?: { transport: string; enabled: bool
   )
 }
 
+export function iceServersFromProfile(
+  transports?: { transport: string; enabled: boolean; ice_servers?: string[] }[],
+): string[] {
+  for (const t of transports ?? []) {
+    if (!t.enabled || t.transport.trim().toLowerCase() !== 'webrtc') continue
+    if (t.ice_servers?.length) return t.ice_servers
+  }
+  return []
+}
+
 export function webrtcMissingICE(
   transports?: {
     transport: string

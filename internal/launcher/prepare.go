@@ -125,6 +125,7 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		WebRTCICEUsername:   cfg.WebRTCICEUsername,
 		WebRTCICECredential: cfg.WebRTCICECredential,
 		WebRTCPrefersPCMA:   cfg.WebRTCPrefersPCMA,
+		WebRTCMedia:         cfg.WebRTCMedia,
 		CommandName:      cfg.CommandName,
 		CommandPeers:     cfg.CommandPeers,
 		UISourceIPs:      append([]string(nil), cfg.UISourceIPs...),
