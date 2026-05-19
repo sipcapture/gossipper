@@ -67,7 +67,7 @@ Content-Length: [len]
 </scenario>
 ```
 
-Example UAC snippet (profile with enabled `webrtc` transport, or `webrtc="true"` on scenario):
+Example UAC snippet (built-in `webrtc_uac`, or profile with enabled `webrtc` transport):
 
 ```xml
 <scenario name="webrtc_uac">

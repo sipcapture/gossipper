@@ -217,8 +217,8 @@ export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind, 
               wiring (<code>w1/wn/ws1/wsn</code>).
             </li>
             <li>
-              <strong className="text-foreground">Phase 4.2 ◐</strong> — WebRTC bridge unit-tested;
-              UI validates ICE servers; per-call engine binding + runtime diagnostics pending (
+              <strong className="text-foreground">Phase 4.2 ✓</strong> — WebRTC bridge per-call (offer/answer, stats, WAV, call records);
+              built-in <code>webrtc_uac</code> / <code>webrtc_uas</code> scenarios (
               <code>docs/webrtc.md</code>).
             </li>
             <li>

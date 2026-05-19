@@ -20,7 +20,7 @@ export function WebRTCDiagnosticsStrip({ lines, iceServers, callRecords }: WebRT
     <section className="border-warning/30 bg-warning/5 flex flex-col gap-1 rounded-md border p-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="bg-warning/15 text-warning rounded px-1.5 py-0.5 text-[10px] font-medium">WebRTC</span>
-        <span className="text-muted-foreground text-[10px]">Phase 4.2 — experimental bridge path</span>
+        <span className="text-muted-foreground text-[10px]">WebRTC bridge — see docs/webrtc.md</span>
       </div>
       {iceServers && iceServers.length > 0 ? (
         <p className="text-muted-foreground text-[10px]">

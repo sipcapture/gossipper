@@ -22,6 +22,8 @@ var builtinCatalog = []BuiltinInfo{
 	{ID: "invite_media_early", Name: "invite_media_early", Role: "uac", Description: "UAC media flow with early media (183).", Source: "builtin"},
 	{ID: "invite_media_savpf", Name: "invite_media_savpf", Role: "uac", Description: "UAC media flow with SAVPF SDP profile.", Source: "builtin"},
 	{ID: "invite_media_early_180", Name: "invite_media_early_180", Role: "uac", Description: "UAC media flow with 180 Ringing early media.", Source: "builtin"},
+	{ID: "webrtc_uac", Name: "webrtc_uac", Role: "uac", Description: "WebRTC UAC: [webrtc_offer], synthetic rtp_stream over bridge.", Source: "builtin"},
+	{ID: "webrtc_uas", Name: "webrtc_uas", Role: "uas", Description: "WebRTC UAS: [webrtc_answer], synthetic rtp_stream over bridge.", Source: "builtin"},
 	{ID: "management", Name: "management", Role: "uas", Description: "Answer OPTIONS requests (management keep-alive).", Source: "builtin"},
 }
 
@@ -52,6 +54,10 @@ func BuiltinXML(id string) (string, error) {
 		return defaultInviteMediaEarly180, nil
 	case "management":
 		return defaultManagement, nil
+	case "webrtc_uas":
+		return defaultWebRTCUAS, nil
+	case "webrtc_uac":
+		return defaultWebRTCUAC, nil
 	default:
 		return "", ErrUnknownScenario(id)
 	}

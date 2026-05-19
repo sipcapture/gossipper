@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.58] — 2026-05-19
+
+### Added
+
+- **Built-in WebRTC scenarios** `webrtc_uac` / `webrtc_uas` for offer/answer + synthetic media demos; smoke checks builtin catalog.
+
+### Changed
+
+- Settings roadmap marks Phase 4.2 complete; `docs/ui-mode.md` transport table updated.
+
 ## [0.1.57] — 2026-05-19
 
 ### Added

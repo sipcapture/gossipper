@@ -70,3 +70,25 @@ func TestLoadNamedManagement(t *testing.T) {
 		t.Fatalf("mode: got %q want server", sc.Mode)
 	}
 }
+
+func TestLoadNamedWebRTCScenarios(t *testing.T) {
+	t.Parallel()
+	uac, err := LoadNamed("webrtc_uac")
+	if err != nil {
+		t.Fatalf("LoadNamed(webrtc_uac): %v", err)
+	}
+	if !uac.WebRTC {
+		t.Fatal("webrtc_uac: expected WebRTC=true")
+	}
+	uas, err := LoadNamed("webrtc_uas")
+	if err != nil {
+		t.Fatalf("LoadNamed(webrtc_uas): %v", err)
+	}
+	if !uas.WebRTC {
+		t.Fatal("webrtc_uas: expected WebRTC=true")
+	}
+	xml, err := BuiltinXML("webrtc_uac")
+	if err != nil || xml == "" {
+		t.Fatalf("BuiltinXML(webrtc_uac): %v", err)
+	}
+}

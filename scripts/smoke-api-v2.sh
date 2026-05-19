@@ -91,7 +91,7 @@ echo "smoke: healthz ok (port=${PORT})"
 if [[ "$SMOKE_NO_AUTH" == "1" ]]; then
 	curl_json GET "${BASE}/api/v2/health" | jq -e '.status == "ok" and .auth == "none"' >/dev/null
 	curl_json GET "${BASE}/api/v2/me" | jq -e '.username == "anonymous" and .role == "admin"' >/dev/null
-	curl_json GET "${BASE}/api/v2/builtin-scenarios" | jq -e '(.scenarios | length) >= 1' >/dev/null
+	curl_json GET "${BASE}/api/v2/builtin-scenarios" | jq -e '(.scenarios | length) >= 1 and ([.scenarios[].id] | index("webrtc_uac")) != null' >/dev/null
 	curl_json GET "${BASE}/api/v2/scenarios" | jq -e 'has("scenarios")' >/dev/null
 else
 	curl_json GET "${BASE}/api/v2/health" | jq -e '.status == "ok" and .auth == "internal"' >/dev/null
@@ -117,7 +117,7 @@ else
 
 	auth=(-H "Authorization: Bearer ${TOKEN}")
 	curl_json GET "${BASE}/api/v2/me" "${auth[@]}" | jq -e ".username == \"${BOOT_USER}\" and .role == \"admin\"" >/dev/null
-	curl_json GET "${BASE}/api/v2/builtin-scenarios" "${auth[@]}" | jq -e '(.scenarios | length) >= 1' >/dev/null
+	curl_json GET "${BASE}/api/v2/builtin-scenarios" "${auth[@]}" | jq -e '(.scenarios | length) >= 1 and ([.scenarios[].id] | index("webrtc_uac")) != null' >/dev/null
 	curl_json GET "${BASE}/api/v2/scenarios" "${auth[@]}" | jq -e 'has("scenarios")' >/dev/null
 	curl_json GET "${BASE}/api/v2/settings" "${auth[@]}" | jq -e '.ui_data_dir != ""' >/dev/null
 	curl_json GET "${BASE}/api/v2/load-test" "${auth[@]}" | jq -e 'has("defaults") or has("schema") or type == "object"' >/dev/null

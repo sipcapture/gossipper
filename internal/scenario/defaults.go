@@ -482,6 +482,104 @@ Content-Length: 0
   <recv response="200"/>
 </scenario>`
 
+const defaultWebRTCUAS = `<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="webrtc_uas" webrtc="true">
+  <recv request="INVITE"/>
+  <send retrans="500">
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]WebRTCUAS[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Contact: <sip:[local_ip]:[local_port];transport=[contact_transport]>
+Content-Type: application/sdp
+Content-Length: [len]
+
+[webrtc_answer]]]>
+  </send>
+  <recv request="ACK"/>
+  <nop>
+    <action>
+      <exec rtp_stream="synthetic,,0,PCMA/8000,20,3000"/>
+    </action>
+  </nop>
+  <recv request="BYE"/>
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:]
+[last_Call-ID:]
+[last_CSeq:]
+Content-Length: 0
+
+]]>
+  </send>
+</scenario>`
+
+const defaultWebRTCUAC = `<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="webrtc_uac" webrtc="true">
+  <send retrans="500">
+    <![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]WebRTCUAC[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Contact: <sip:gossip@[local_ip]:[local_port];transport=[contact_transport]>
+Max-Forwards: 70
+Content-Type: application/sdp
+Content-Length: [len]
+
+[webrtc_offer]]]>
+  </send>
+  <recv response="100" optional="true"/>
+  <recv response="180" optional="true"/>
+  <recv response="183" optional="true"/>
+  <recv response="200">
+    <action>
+      <exec rtp_stream="synthetic,,0,PCMA/8000,20,3000"/>
+    </action>
+  </recv>
+  <send>
+    <![CDATA[
+ACK sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]WebRTCUAC[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 1 ACK
+Max-Forwards: 70
+Content-Length: 0
+
+]]>
+  </send>
+  <pause milliseconds="500"/>
+  <nop>
+    <action>
+      <exec rtp_stream="stop"/>
+    </action>
+  </nop>
+  <send retrans="500">
+    <![CDATA[
+BYE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+[trunk_pai][trunk_provider][trunk_extra]From: [trunk_from];tag=[pid]WebRTCUAC[call_number]
+To: [service] <sip:[service]@[remote_ip]:[remote_port]>[peer_tag_param]
+Call-ID: [call_id]
+CSeq: 2 BYE
+Max-Forwards: 70
+Content-Length: 0
+
+]]>
+  </send>
+  <recv response="200"/>
+</scenario>`
+
 const defaultManagement = `<?xml version="1.0" encoding="UTF-8"?>
 <scenario name="management">
   <recv request="OPTIONS"/>
@@ -530,6 +628,14 @@ func LoadNamed(name string) (Scenario, error) {
 		return sc, err
 	case "management":
 		sc, err := ParseString(defaultManagement)
+		sc.BasePath = "."
+		return sc, err
+	case "webrtc_uas":
+		sc, err := ParseString(defaultWebRTCUAS)
+		sc.BasePath = "."
+		return sc, err
+	case "webrtc_uac":
+		sc, err := ParseString(defaultWebRTCUAC)
 		sc.BasePath = "."
 		return sc, err
 	default:

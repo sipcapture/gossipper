@@ -145,8 +145,8 @@ Allowed names match `[A-Za-z0-9._-]+` — path traversal attempts are rejected.
 | code | status | notes |
 | --- | --- | --- |
 | `u1/un/t1/tn/l1/ln` | stable | shared / per-call UDP, TCP, TLS |
-| `w1/wn/ws1/wsn` | beta | module ready in `internal/transport/ws.go`; engine wiring lands in Phase 4.1 |
-| `webrtc` | beta | UI form field is reserved; pion integration scheduled for Phase 4.1 |
+| `w1/wn/ws1/wsn` | stable | WS/WSS SIP transport wired in engine |
+| `webrtc` | beta | pion bridge per-call; profile ICE + built-in `webrtc_uac` / `webrtc_uas` scenarios |
 
 ## Legacy CLI
 
