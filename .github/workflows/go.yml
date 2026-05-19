@@ -35,7 +35,7 @@ jobs:
 
       - name: Test
         run: |
-          (cd web/control-ui && npm test)
+          (cd web/control-ui && npm ci && npm test)
           go test ./...
           go test -race -short \
             ./internal/api/... \
