@@ -25,8 +25,9 @@ RBAC, and the embedded Control UI (`scripts/smoke-api-v2.sh`).
 
 **`make smoke-webrtc`** runs a loopback WebRTC end-to-end check: supervisor
 UAS + UAC jobs with builtin `webrtc_uas` / `webrtc_uac`, then validates
-`call_records.jsonl` (offer/answer flags and RTP counters). This runs in CI
-after `make smoke`.
+`call_records.jsonl` (offer/answer flags and RTP counters). Release CI runs
+`make smoke` and `make smoke-webrtc` after the production build (see
+`.github/workflows/release.yml`).
 
 The UI talks to **`/api/v2`** on the same listener. There is no automatic fallback to a legacy v1-only React shell — build with **`make frontend`** so `GET /` serves the embedded admin console.
 

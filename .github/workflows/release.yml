@@ -83,7 +83,18 @@ jobs:
           ARCH: ${{ matrix.goarch }}
         run: |
           make frontend && go test ./... && make build-go VERSION="${VERSION}" OS="${OS}" ARCH="${ARCH}"
-          mv "dist/gossipper" "dist/gossipper_${OS}_${ARCH}"
+
+      - name: E2E smoke (linux amd64)
+        if: matrix.goarch == 'amd64'
+        run: |
+          make smoke
+          make smoke-webrtc
+
+      - name: Rename binary artifact
+        env:
+          OS: ${{ matrix.goos }}
+          ARCH: ${{ matrix.goarch }}
+        run: mv "dist/gossipper" "dist/gossipper_${OS}_${ARCH}"
 
       - name: Install nfpm
         if: github.event_name == 'release' || inputs.release

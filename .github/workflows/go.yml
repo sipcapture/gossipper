@@ -1,4 +1,4 @@
-name: Go Builder
+name: Go Tests
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: ["main"]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
 
     steps:
@@ -26,16 +26,15 @@ jobs:
           go-version: "1.26.1"
           cache: false
 
-      - name: Set up Node (Control UI for embed + packages)
+      - name: Set up Node (Control UI unit tests)
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/control-ui/package-lock.json
 
-      - name: Test and build
+      - name: Test
         run: |
-          make frontend
           (cd web/control-ui && npm test)
           go test ./...
           go test -race -short \
@@ -46,6 +45,3 @@ jobs:
             ./internal/loadtest/... \
             ./internal/supervisor/... \
             ./internal/uistore/...
-          make build-go
-          make smoke
-          make smoke-webrtc
