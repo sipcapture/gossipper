@@ -1380,7 +1380,13 @@ func (e *Engine) runServerTCPSharedOn(ctx context.Context, co *serverMultiCoordi
 					mu.Unlock()
 					continue
 				}
-				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) {
+				var matched bool
+				if firstCmd.RegexpMatch && firstCmd.RecvReqRegex != nil {
+					matched = firstCmd.RecvReqRegex.MatchString(msg.StartLine)
+				} else {
+					matched = sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp)
+				}
+				if !matched {
 					mu.Unlock()
 					continue
 				}
@@ -1554,7 +1560,13 @@ func (e *Engine) udpServerReceivePump(
 				sip.PutMessage(msg)
 				continue
 			}
-			if !sip.Match(*msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(co.accepted) {
+			var matched bool
+			if firstCmd.RegexpMatch && firstCmd.RecvReqRegex != nil {
+				matched = firstCmd.RecvReqRegex.MatchString(msg.StartLine)
+			} else {
+				matched = sip.Match(*msg, firstCmd.RecvReq, firstCmd.RecvResp)
+			}
+			if !matched || e.serverRejectNew(co.accepted) {
 				co.mu.Unlock()
 				sip.PutMessage(msg)
 				continue
@@ -1712,7 +1724,13 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 						sip.PutMessage(packet.msg)
 						continue
 					}
-					if !sip.Match(*packet.msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(accepted) {
+						var matched bool
+					if firstCmd.RegexpMatch && firstCmd.RecvReqRegex != nil {
+						matched = firstCmd.RecvReqRegex.MatchString(packet.msg.StartLine)
+					} else {
+						matched = sip.Match(*packet.msg, firstCmd.RecvReq, firstCmd.RecvResp)
+					}
+					if !matched || e.serverRejectNew(accepted) {
 						mu.Unlock()
 						sip.PutMessage(packet.msg)
 						continue
@@ -1855,7 +1873,13 @@ func (e *Engine) runServerTCPShared(ctx context.Context) error {
 					mu.Unlock()
 					continue
 				}
-				if !sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) || e.serverRejectNew(len(sessions)) {
+				var matched bool
+			if firstCmd.RegexpMatch && firstCmd.RecvReqRegex != nil {
+				matched = firstCmd.RecvReqRegex.MatchString(msg.StartLine)
+			} else {
+				matched = sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp)
+			}
+			if !matched || e.serverRejectNew(len(sessions)) {
 					mu.Unlock()
 					continue
 				}
@@ -2308,7 +2332,13 @@ func (e *Engine) executeCall(
 						// response may be waiting).
 						hasFinal := false
 						for i, m := range pending {
-							if sip.MatchRecvCached(*m, cmd.RecvReq, cmd.RecvResp, lastSentCSeqNum, lastSentMethod) {
+							var matches bool
+							if cmd.RegexpMatch && cmd.RecvReqRegex != nil {
+								matches = cmd.RecvReqRegex.MatchString(m.StartLine)
+							} else {
+								matches = sip.MatchRecvCached(*m, cmd.RecvReq, cmd.RecvResp, lastSentCSeqNum, lastSentMethod)
+							}
+							if matches {
 								pending = append(pending[:i], pending[i+1:]...)
 								return m, true, nil
 							}
@@ -2339,9 +2369,15 @@ func (e *Engine) executeCall(
 			msg, err := e.waitForMatch(ctx, receiveWithPending, cmd, lastSent, lastSentBranch, lastSentMethod, lastSentCSeqNum, send, retransmit, recvTimeout, func(m *sip.Message, fromPending bool) error {
 				// RFC 3261 §15.1.2: auto-respond 200 OK to incoming BYE
 				// requests that don't match the current recv command.
-				// This handles the "glare" case where both sides send BYE,
-				// and prevents retransmission storms from the remote side.
-				if m.Method == "BYE" && m.StatusCode == 0 && cmd.RecvReq != "BYE" {
+				// For regexp_match, test the regex against the received start-line
+				// so a pattern like ^BYE correctly suppresses the auto-response.
+				notWaitingForBYE := false
+				if cmd.RegexpMatch && cmd.RecvReqRegex != nil {
+					notWaitingForBYE = !cmd.RecvReqRegex.MatchString(m.StartLine)
+				} else {
+					notWaitingForBYE = cmd.RecvReq != "BYE"
+				}
+				if m.Method == "BYE" && m.StatusCode == 0 && notWaitingForBYE {
 					_ = send(sip.BuildResponse(*m, 200, "OK"))
 					if !fromPending {
 						sip.PutMessage(m)
@@ -2773,7 +2809,13 @@ func (e *Engine) waitForMatch(
 		cancel()
 
 		if err == nil {
-			if sip.MatchRecvCached(*msg, cmd.RecvReq, cmd.RecvResp, lastSentCSeqNum, lastSentMethod) {
+			var msgMatched bool
+			if cmd.RegexpMatch && cmd.RecvReqRegex != nil {
+				msgMatched = cmd.RecvReqRegex.MatchString(msg.StartLine)
+			} else {
+				msgMatched = sip.MatchRecvCached(*msg, cmd.RecvReq, cmd.RecvResp, lastSentCSeqNum, lastSentMethod)
+			}
+			if msgMatched {
 				return msg, nil
 			}
 			// Capture fields BEFORE stash — stash may free the message
@@ -4152,7 +4194,13 @@ func waitForFirstServerMessage(ctx context.Context, reader tcpReader, firstCmd s
 		if err != nil {
 			return sip.Message{}, err
 		}
-		if sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp) {
+		var matched bool
+		if firstCmd.RegexpMatch && firstCmd.RecvReqRegex != nil {
+			matched = firstCmd.RecvReqRegex.MatchString(msg.StartLine)
+		} else {
+			matched = sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp)
+		}
+		if matched {
 			return msg, nil
 		}
 	}

@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"time"
+	"regexp"
 
 	"github.com/sipcapture/gossipper/internal/distribution"
 )
@@ -115,9 +116,11 @@ type Command struct {
 
 	SendText string
 	Retrans  time.Duration
-	RecvReq  string
-	RecvResp string
-	RRS      bool
+	RecvReq     string
+	RecvResp    string
+	RegexpMatch bool
+	RecvReqRegex *regexp.Regexp
+	RRS         bool
 	CmdDest  string
 	CmdSrc   string
 	Optional bool

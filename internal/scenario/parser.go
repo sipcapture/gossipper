@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,7 @@ type rawScenarioItem struct {
 	Retrans         string       `xml:"retrans,attr"`
 	Request         string       `xml:"request,attr"`
 	Response        string       `xml:"response,attr"`
+	RegexpMatch     string       `xml:"regexp_match,attr"`
 	RRS             string       `xml:"rrs,attr"`
 	Optional        string       `xml:"optional,attr"`
 	Timeout         string       `xml:"timeout,attr"`
@@ -78,6 +80,7 @@ type rawElement struct {
 	Retrans         string      `xml:"retrans,attr"`
 	Request         string      `xml:"request,attr"`
 	Response        string      `xml:"response,attr"`
+	RegexpMatch     string      `xml:"regexp_match,attr"`
 	RRS             string      `xml:"rrs,attr"`
 	Optional        string      `xml:"optional,attr"`
 	Timeout         string      `xml:"timeout,attr"`
@@ -236,6 +239,7 @@ func rawScenarioItemToCommand(elem rawScenarioItem, index int) (Command, error) 
 		Retrans:              elem.Retrans,
 		Request:              elem.Request,
 		Response:             elem.Response,
+		RegexpMatch:          elem.RegexpMatch,
 		RRS:                  elem.RRS,
 		Optional:             elem.Optional,
 		Timeout:              elem.Timeout,
@@ -268,6 +272,17 @@ func rawElementToCommand(elem rawElement, index int) (Command, error) {
 		cmd.Type = CommandRecv
 		cmd.RecvReq = strings.TrimSpace(elem.Request)
 		cmd.RecvResp = strings.TrimSpace(elem.Response)
+		cmd.RegexpMatch = parseBool(elem.RegexpMatch)
+		if cmd.RegexpMatch {
+			if cmd.RecvReq == "" {
+				return Command{}, fmt.Errorf("recv at index %d has regexp_match but no request pattern", index)
+			}
+			re, err := regexp.Compile(cmd.RecvReq)
+			if err != nil {
+				return Command{}, fmt.Errorf("recv at index %d has invalid regexp for request: %w", index, err)
+			}
+			cmd.RecvReqRegex = re
+		}
 		cmd.RRS = parseBool(elem.RRS)
 		cmd.Optional = parseBool(elem.Optional)
 		cmd.Timeout = parseDurationMilliseconds(elem.Timeout)
