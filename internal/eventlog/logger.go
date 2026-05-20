@@ -117,6 +117,17 @@ func (l *logger) drainLoop() {
 			for _, sink := range l.sinks {
 				_ = sink.Write(buf)
 			}
+			// Flush when the batch is smaller than the configured max: this
+			// means the ring was drained to empty, so no more events are
+			// immediately waiting.  A prompt flush ensures low-volume call
+			// paths (e.g. a single INVITE) appear on the terminal in real
+			// time rather than sitting in the sink's 16 KB write buffer
+			// until it auto-flushes or the engine stops.
+			if len(buf) < l.batch {
+				for _, sink := range l.sinks {
+					_ = sink.Flush()
+				}
+			}
 		}
 		if !ok {
 			for _, sink := range l.sinks {
