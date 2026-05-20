@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const (
@@ -255,18 +256,42 @@ func (d *DialogUDP) Send(payload []byte) error {
 }
 
 func (d *DialogUDP) Receive(ctx context.Context) (Packet, error) {
+	// Set the read deadline upfront from the context's deadline, overwriting
+	// any stale deadline left by a previously-cancelled Receive call on this
+	// socket. Without this, a leaked goroutine from a prior call could fire
+	// SetReadDeadline(now) on the socket, causing the next ReadFromUDP to
+	// return n=0 with a nil ctx.Err(), which propagates as "empty SIP message".
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = d.conn.SetReadDeadline(deadline)
+	} else {
+		_ = d.conn.SetReadDeadline(time.Time{})
+		if err := ctx.Err(); err != nil {
+			return Packet{}, err
+		}
+		// No deadline: use a goroutine to interrupt the read on cancellation.
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			select {
+			case <-ctx.Done():
+				_ = d.conn.SetReadDeadline(time.Now())
+			case <-done:
+			}
+		}()
+	}
 	buffer := make([]byte, 65535)
-	go func() {
-		<-ctx.Done()
-		_ = d.conn.SetReadDeadline(deadlineFromContext(ctx))
-	}()
 	n, addr, err := d.conn.ReadFromUDP(buffer)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 			return Packet{}, ctx.Err()
 		}
 		if ne, ok := err.(net.Error); ok && ne.Timeout() {
-			return Packet{}, ctx.Err()
+			// Deadline expired. Return ctx.Err() if the context is done;
+			// otherwise return DeadlineExceeded to ensure a non-nil error.
+			if cErr := ctx.Err(); cErr != nil {
+				return Packet{}, cErr
+			}
+			return Packet{}, context.DeadlineExceeded
 		}
 		return Packet{}, err
 	}

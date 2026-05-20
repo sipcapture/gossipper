@@ -25,8 +25,9 @@ func listenParallelUDP(addr *net.UDPAddr, receivers int) ([]*net.UDPConn, error)
 		Control: reusePortControl,
 	}
 	out := make([]*net.UDPConn, 0, receivers)
+	bindAddr := addr
 	for i := 0; i < receivers; i++ {
-		p, err := lc.ListenPacket(context.Background(), "udp", addr.String())
+		p, err := lc.ListenPacket(context.Background(), "udp", bindAddr.String())
 		if err != nil {
 			for _, q := range out {
 				_ = q.Close()
@@ -43,6 +44,16 @@ func listenParallelUDP(addr *net.UDPAddr, receivers int) ([]*net.UDPConn, error)
 		}
 		tuneUDPConn(uc)
 		out = append(out, uc)
+		// When the caller requested port 0, pin all subsequent SO_REUSEPORT
+		// sockets to the port the OS assigned to the first socket. Without
+		// this each ListenPacket(":0") call gets a different ephemeral port,
+		// causing the round-robin sender to rotate source ports and breaking
+		// SIP dialog continuity.
+		if i == 0 && addr.Port == 0 {
+			if la, ok2 := uc.LocalAddr().(*net.UDPAddr); ok2 {
+				bindAddr = &net.UDPAddr{IP: addr.IP, Port: la.Port, Zone: addr.Zone}
+			}
+		}
 	}
 	return out, nil
 }
