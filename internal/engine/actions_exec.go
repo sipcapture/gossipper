@@ -389,10 +389,12 @@ func configureMediaSRTPForRTPStream(e *Engine, mediaSession *media.Session, last
 	iceOnly := !hints && media.SDPHasIceMediaAttributes(sdpBody)
 	if !hints {
 		if iceOnly {
+			mediaSession.SetRtcpMuxFromSDP(sdpBody)
 			mediaSession.SetRemoteIceFromSDP(sdpBody)
 			return nil
 		}
 		mediaSession.ClearSDESSRTP()
+		mediaSession.SetRtcpMuxFromSDP(sdpBody)
 		return nil
 	}
 	mediaSession.ClearSDESSRTP()
