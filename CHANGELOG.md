@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.62] — 2026-05-21
+
+### Fixed
+
+- **RTCP mux on plain RTP/AVP** ([#18](https://github.com/sipcapture/gossipper/pull/18)): honor negotiated `a=rtcp-mux` on non-SRTP `rtp_stream` paths (send) and demux inbound muxed RTCP before RTP parse on receive; regression test added.
+
+### Added
+
+- **Documentation site** on GitHub Pages ([https://sipcapture.github.io/gossipper/](https://sipcapture.github.io/gossipper/)) via MkDocs.
+
+### Changed
+
+- README and GitHub About text reframed as a SIP/WebRTC load-testing platform.
+
 ## [0.1.61] — 2026-05-20
 
 ### Added
