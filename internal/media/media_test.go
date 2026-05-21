@@ -262,6 +262,80 @@ func TestSessionEchoAndRTCPStats(t *testing.T) {
 	}
 }
 
+// TestRtpReceiveLoopMuxedRTCPRoutesToRTCPHandler verifies that when rtcp-mux is
+// enabled and an RTCP packet arrives on the RTP socket, it is dispatched to the
+// RTCP path rather than swallowed by pion's lenient rtp.Packet.Unmarshal — which
+// does not validate that PT < 128 and would otherwise miscount the RTCP packet
+// as a malformed RTP packet (PT 72..76 + M=1).
+func TestRtpReceiveLoopMuxedRTCPRoutesToRTCPHandler(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	recvConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(recv): %v", err)
+	}
+	defer recvConn.Close()
+
+	session := NewSession()
+	loopDone := make(chan struct{})
+	go func() {
+		session.rtpReceiveLoop(ctx, recvConn, true)
+		close(loopDone)
+	}()
+
+	sendConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(send): %v", err)
+	}
+	defer sendConn.Close()
+	target := recvConn.LocalAddr().(*net.UDPAddr)
+
+	rtpPacket, err := BuildPacket(StreamConfig{
+		PayloadType: 0, SSRC: 0x12345678, Sequence: 1, Timestamp: 160,
+	}, []byte{1, 2, 3, 4})
+	if err != nil {
+		t.Fatalf("BuildPacket: %v", err)
+	}
+	if _, err := sendConn.WriteToUDP(rtpPacket, target); err != nil {
+		t.Fatalf("WriteToUDP(rtp): %v", err)
+	}
+
+	rr := &rtcp.ReceiverReport{
+		SSRC: 0xaabbccdd,
+		Reports: []rtcp.ReceptionReport{{
+			SSRC:               0x12345678,
+			FractionLost:       5,
+			TotalLost:          7,
+			LastSequenceNumber: 100,
+			Jitter:             50,
+		}},
+	}
+	rrBytes, err := rr.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal(rr): %v", err)
+	}
+	if _, err := sendConn.WriteToUDP(rrBytes, target); err != nil {
+		t.Fatalf("WriteToUDP(rr): %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		stats := session.Snapshot()
+		if stats.RTPPacketsReceived == 1 && stats.RTCPReceiverReports == 1 && stats.RTCPPacketsReceived == 1 {
+			cancel()
+			<-loopDone
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-loopDone
+	t.Fatalf("expected RTP=1 RR=1 RTCP_pkts=1, got %+v", session.Snapshot())
+}
+
 func TestSessionWaitForRTPActivity(t *testing.T) {
 	t.Parallel()
 
