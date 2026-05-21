@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.61] — 2026-05-20
+
+### Added
+
+- **WebRTC Phase 4.2 (ICE/TURN)**: inline TURN URLs, static credentials, coturn REST auth, ICE diagnostics in call records and Control UI.
+- **Trickle ICE** and **mid-call TURN REST refresh** on the WebRTC bridge.
+- **E2E loopback WebRTC smoke** (`make smoke-webrtc`); runs on release CI (linux amd64).
+
+### Changed
+
+- **CI**: push/PR runs unit tests only; `make frontend`, binary build, and e2e smoke run on release workflow.
+
 ## [0.1.60] — 2026-05-20
 
 ### Added
