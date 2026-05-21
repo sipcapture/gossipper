@@ -5,6 +5,8 @@
 `Gossipper` is a Go rewrite of SIPp focused on SIP signaling load generation,
 incremental XML scenario compatibility, and a cleaner engine architecture.
 
+**Documentation:** [https://sipcapture.github.io/gossipper/](https://sipcapture.github.io/gossipper/)
+
 ## Current scope
 
 The current MVP implements:
@@ -67,7 +69,7 @@ The current MVP implements:
 
 ## Documentation
 
-**Published docs (GitHub Pages):** [https://sipcapture.github.io/gossipper/](https://sipcapture.github.io/gossipper/) — built from `docs/` via MkDocs on push to `main`. Enable **Settings → Pages → Build and deployment: GitHub Actions** once after the first workflow run.
+Full index on [GitHub Pages](https://sipcapture.github.io/gossipper/) (MkDocs, `docs/` on push to `main`). Local preview:
 
 ```bash
 python3 -m venv .venv-docs && .venv-docs/bin/pip install -r docs-requirements.txt
