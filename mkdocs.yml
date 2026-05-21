@@ -1,5 +1,5 @@
 site_name: Gossipper Documentation
-site_description: Gossipper — SIP load generator with SIPp-style scenarios, media, and HTTP control API
+site_description: Gossipper — open-source SIP and WebRTC load-testing platform with scenarios, media, HTTP API, and observability
 site_url: https://sipcapture.github.io/gossipper/
 repo_url: https://github.com/sipcapture/gossipper
 repo_name: sipcapture/gossipper

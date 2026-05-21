@@ -1,7 +1,9 @@
 # Gossipper Documentation
 
-Gossipper is a Go rewrite of SIPp focused on SIP signaling load generation,
-incremental XML scenario compatibility, media (RTP/RTCP/SRTP), and a cleaner engine architecture.
+Gossipper is an open-source **SIP and WebRTC load-testing platform** for labs, CI,
+and soak runs: SIPp-compatible XML scenarios, RTP/SRTP and PCAP media, long-lived
+management mode with HTTP API and Control UI, multi-engine hybrid rigs, and
+Homer/HEP observability.
 
 ## Quick links
 

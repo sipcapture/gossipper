@@ -2,8 +2,10 @@
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 
-`Gossipper` is a Go rewrite of SIPp focused on SIP signaling load generation,
-incremental XML scenario compatibility, and a cleaner engine architecture.
+`Gossipper` is an open-source **SIP and WebRTC load-testing platform** for labs,
+CI, and soak runs: SIPp-compatible XML scenarios, RTP/SRTP and PCAP media,
+long-lived **`gossipper server`** mode with HTTP API and Control UI, multi-engine
+hybrid rigs, and Homer/HEP observability — not a line-by-line SIPp port.
 
 **Documentation:** [https://sipcapture.github.io/gossipper/](https://sipcapture.github.io/gossipper/)
 
