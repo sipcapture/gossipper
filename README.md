@@ -67,6 +67,13 @@ The current MVP implements:
 
 ## Documentation
 
+**Published docs (GitHub Pages):** [https://sipcapture.github.io/gossipper/](https://sipcapture.github.io/gossipper/) — built from `docs/` via MkDocs on push to `main`. Enable **Settings → Pages → Build and deployment: GitHub Actions** once after the first workflow run.
+
+```bash
+python3 -m venv .venv-docs && .venv-docs/bin/pip install -r docs-requirements.txt
+.venv-docs/bin/mkdocs serve   # http://127.0.0.1:8000
+```
+
 - `docs/cli.md`: **subcommands** (`sipp`, `cli`, `tui`, `server`, …), run-profile path vs helpers
 - `docs/gossipper-vs-sipp.md`: high-level overview of what `Gossipper` can do and how it compares to SIPp
 - `docs/compatibility.md`: XML, keyword, action, transport, and scenario-time CLI compatibility matrix (including [TLS socket modes](docs/compatibility.md#tls-socket-modes-sipp-style) vs SIPp / [issue #7](https://github.com/sipcapture/gossipper/issues/7)); process-level CLI in `docs/cli.md`

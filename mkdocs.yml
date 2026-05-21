@@ -1,0 +1,103 @@
+site_name: Gossipper Documentation
+site_description: Gossipper — SIP load generator with SIPp-style scenarios, media, and HTTP control API
+site_url: https://sipcapture.github.io/gossipper/
+repo_url: https://github.com/sipcapture/gossipper
+repo_name: sipcapture/gossipper
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+plugins:
+  - search
+
+# Docs link to repo paths and GitHub issues; ignore for site build.
+validation:
+  nav:
+    omitted_files: info
+  links:
+    not_found: ignore
+    absolute_links: ignore
+    unrecognized_links: ignore
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Overview:
+      - Gossipper vs SIPp: gossipper-vs-sipp.md
+      - Architecture: architecture.md
+  - CLI & UI:
+      - CLI reference: cli.md
+      - CLI gap list: cli-gap-list.md
+      - TUI: tui.md
+      - Interactive shell: interactive-shell.md
+      - UI mode: ui-mode.md
+      - Run profiles: run-profile.md
+  - Compatibility:
+      - Compatibility matrix: compatibility.md
+      - Compatibility testing: compatibility-testing.md
+  - Load testing:
+      - SIP stress style: sipstress-style-load-testing.md
+      - Media scale: media-scale.md
+      - High-scale cleartext RTP: high-scale-cleartext-rtp.md
+  - Media:
+      - Roadmap: media-roadmap.md
+      - RTP in scenarios: rtp-in-scenarios.md
+      - SRTP: srtp.md
+      - WebRTC: webrtc.md
+      - Synthetic RTP sender: synthetic-rtp-sender.md
+      - PCAP to scenario: pcap2scenario.md
+  - Statistics & reporting:
+      - Statistics mapping: statistics-mapping.md
+      - Trace schema: trace-schema-contract.md
+      - Summary JSON: summary-json.md
+      - QoS reporting: qos-reporting.md
+      - Event logging: event-logging.md
+      - Profiling: profiling-analysis.md
+  - Other:
+      - Licensing: licensing.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/sipcapture/gossipper

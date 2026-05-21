@@ -7,3 +7,7 @@ build/
 internal/api/webdist/*
 !internal/api/webdist/.gitkeep
 gossipper_*_*.log
+
+# MkDocs local preview
+site/
+.venv-docs/
