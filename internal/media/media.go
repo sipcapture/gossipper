@@ -1282,11 +1282,12 @@ func (s *Session) rtpReceiveLoop(ctx context.Context, readConn net.PacketConn, r
 			}
 			continue
 		}
-		if s.handleInboundRTPPacketBuf(buf, now) {
-			continue
-		}
 		if rtcpMux && isProbableRTCPPacket(buf) {
 			s.processInboundRTCPPayload(now, buf)
+			continue
+		}
+		if s.handleInboundRTPPacketBuf(buf, now) {
+			continue
 		}
 	}
 }
