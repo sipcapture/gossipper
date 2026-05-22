@@ -416,6 +416,23 @@ func (s *runtimeState) renderDashboard() string {
 		stateLabel = "finished"
 	}
 
+	mediaLine := fmt.Sprintf("[yellow]Media:[-] rtp_sent=%d rtp_recv=%d rtcp_sr=%d rtcp_rr=%d rtcp_in=%d",
+		summary.Media.RTPPacketsSent,
+		summary.Media.RTPPacketsReceived,
+		summary.Media.RTCPSenderReports,
+		summary.Media.RTCPReceiverReports,
+		summary.Media.RTCPPacketsReceived,
+	)
+	if summary.Media.RTCPMaxFractionLost > 0 {
+		mediaLine += fmt.Sprintf(" fraction_lost=%.4f", summary.Media.RTCPMaxFractionLost)
+	}
+	if summary.Media.RTCPMaxJitterTS > 0 {
+		mediaLine += fmt.Sprintf(" jitter_ts_max=%d", summary.Media.RTCPMaxJitterTS)
+	}
+	if summary.Media.RTCPAvgJitterTS > 0 {
+		mediaLine += fmt.Sprintf(" jitter_ts_avg=%.2f", summary.Media.RTCPAvgJitterTS)
+	}
+
 	return fmt.Sprintf(`[yellow]Profile:[-] %s
 [yellow]Mode:[-] %s   [yellow]Transport:[-] %s   [yellow]State:[-] %s
 [yellow]Target CPS:[-] %.2f   [yellow]Measured CPS(avg):[-] %.2f   [yellow]Measured CPS(1s):[-] %.2f   [yellow]Max calls:[-] %d
@@ -423,7 +440,7 @@ func (s *runtimeState) renderDashboard() string {
 [yellow]Calls:[-] total=%d active=%d success=%d failed=%d
 [yellow]Latency:[-] avg_call=%s avg_invite=%s
 [yellow]Failures:[-] timeout=%d cancelled=%d unexpected=%d transport=%d parse=%d scenario=%d
-[yellow]Media:[-] rtp_sent=%d rtp_recv=%d rtcp_sr=%d rtcp_rr=%d rtcp_in=%d
+%s
 
 [yellow]Status:[-] %s
 
@@ -448,11 +465,7 @@ func (s *runtimeState) renderDashboard() string {
 		transport,
 		parse,
 		scenarioErr,
-		summary.Media.RTPPacketsSent,
-		summary.Media.RTPPacketsReceived,
-		summary.Media.RTCPSenderReports,
-		summary.Media.RTCPReceiverReports,
-		summary.Media.RTCPPacketsReceived,
+		mediaLine,
 		tview.Escape(s.status),
 	)
 }

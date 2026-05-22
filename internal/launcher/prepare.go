@@ -291,7 +291,7 @@ func Validate3PCCRole(cfg cli.Config, sc scenario.Scenario) error {
 }
 
 func SummaryLine(summary stats.Summary) string {
-	return fmt.Sprintf(
+	s := fmt.Sprintf(
 		"calls=%d success=%d failed=%d cps=%.2f avg_call=%s avg_invite=%s retransmits=%d timeouts=%d rtp_sent=%d rtp_recv=%d rtcp_sr=%d rtcp_rr=%d rtcp_in=%d",
 		summary.TotalCalls,
 		summary.SuccessCalls,
@@ -307,4 +307,14 @@ func SummaryLine(summary stats.Summary) string {
 		summary.Media.RTCPReceiverReports,
 		summary.Media.RTCPPacketsReceived,
 	)
+	if summary.Media.RTCPMaxFractionLost > 0 {
+		s += fmt.Sprintf(" fraction_lost=%.4f", summary.Media.RTCPMaxFractionLost)
+	}
+	if summary.Media.RTCPMaxJitterTS > 0 {
+		s += fmt.Sprintf(" jitter_ts_max=%d", summary.Media.RTCPMaxJitterTS)
+	}
+	if summary.Media.RTCPAvgJitterTS > 0 {
+		s += fmt.Sprintf(" jitter_ts_avg=%.2f", summary.Media.RTCPAvgJitterTS)
+	}
+	return s
 }

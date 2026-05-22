@@ -365,4 +365,27 @@ func TestSummaryLineFormatsKeyCounters(t *testing.T) {
 			t.Fatalf("SummaryLine() missing %q in %q", want, text)
 		}
 	}
+	// Jitter/loss fields must be absent when media stats are zero.
+	for _, absent := range []string{"fraction_lost", "jitter_ts"} {
+		if strings.Contains(text, absent) {
+			t.Fatalf("SummaryLine() should not contain %q when media stats are zero, got %q", absent, text)
+		}
+	}
+}
+
+func TestSummaryLineMediaStats(t *testing.T) {
+	t.Parallel()
+
+	text := SummaryLine(stats.Summary{
+		Media: stats.MediaSummary{
+			RTCPMaxFractionLost: 0.0312,
+			RTCPMaxJitterTS:     480,
+			RTCPAvgJitterTS:     220.5,
+		},
+	})
+	for _, want := range []string{"fraction_lost=0.0312", "jitter_ts_max=480", "jitter_ts_avg=220.50"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("SummaryLine() missing %q in %q", want, text)
+		}
+	}
 }
