@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.64] — 2026-06-05
+
+### Security
+
+- Resolve CodeQL **path-injection** findings via `internal/safepath` helpers (`#30`, `#31`).
+- Document SIP Digest **MD5/SHA-256** false positives (`go/weak-sensitive-data-hashing`) in `SECURITY.md` (`#32`).
+
+### Added
+
+- **macOS** CI build verification and `darwin` release binaries (`make build-darwin`).
+- Client-side scenario XML well-formedness check without `DOMParser` (`web/control-ui/src/lib/xmlValidate.ts`).
+
+### Fixed
+
+- `rtpcheck` `min_packets` parsing: safe `uint32` conversion via `strconv.ParseUint`.
+
 ## [0.1.62] — 2026-05-21
 
 ### Fixed
