@@ -559,6 +559,10 @@ func isSafeHistoryTS(ts string) bool {
 // history directory keyed by a nanosecond-precision UTC timestamp. The caller
 // must already hold s.mu (write).
 func (s *Store) snapshotScenarioLocked(id string, priorXML []byte, priorMeta ScenarioMeta, now time.Time) error {
+	id = strings.TrimSpace(id)
+	if !isSafeID(id) {
+		return ErrInvalidID
+	}
 	dir, err := s.layout.ScenarioHistoryDir(id)
 	if err != nil {
 		return err
@@ -591,6 +595,10 @@ func (s *Store) pruneScenarioHistoryLocked(id string) error {
 	if s.scenarioHistoryKeep <= 0 {
 		return nil
 	}
+	id = strings.TrimSpace(id)
+	if !isSafeID(id) {
+		return ErrInvalidID
+	}
 	dir, err := s.layout.ScenarioHistoryDir(id)
 	if err != nil {
 		return err
@@ -609,6 +617,10 @@ func (s *Store) pruneScenarioHistoryLocked(id string) error {
 
 // listScenarioHistoryEntriesFromDir scans dir for *.xml snapshots, newest first.
 func listScenarioHistoryEntriesFromDir(dir string) ([]ScenarioHistoryEntry, error) {
+	dir = filepath.Clean(strings.TrimSpace(dir))
+	if dir == "." || dir == "" || filepath.IsAbs(dir) {
+		return nil, fmt.Errorf("uistore: invalid history directory")
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
