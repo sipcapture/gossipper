@@ -83,7 +83,13 @@ func (l Layout) ScenarioHistoryDir(id string) (string, error) {
 	if !isSafeID(id) {
 		return "", fmt.Errorf("uistore: invalid scenario id %q", id)
 	}
-	return filepath.Join(l.ScenariosDir(), id+".history"), nil
+	base := filepath.Clean(l.ScenariosDir())
+	candidate := filepath.Clean(filepath.Join(base, id+".history"))
+	rel, err := filepath.Rel(base, candidate)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("uistore: invalid scenario history path for id %q", id)
+	}
+	return candidate, nil
 }
 
 // JobArtifactDir returns the per-job artifact directory; ensures it exists
