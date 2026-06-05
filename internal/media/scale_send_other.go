@@ -11,6 +11,10 @@ type udpSendMsg struct {
 }
 
 func udpSendBatch(conn *net.UDPConn, msgs []udpSendMsg) (int, error) {
+	return udpSendBatchFallback(conn, msgs)
+}
+
+func udpSendBatchFallback(conn *net.UDPConn, msgs []udpSendMsg) (int, error) {
 	sent := 0
 	for _, m := range msgs {
 		if _, err := conn.WriteTo(m.Buf, m.Addr); err != nil {
