@@ -17,12 +17,18 @@ ARCH="${ARCH:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}"
 PACKAGER="${1:-all}"
 
 case "${PACKAGER}" in
-  deb | rpm | all) ;;
+  deb | rpm | all | binary) ;;
   *)
-    echo "usage: $0 [deb|rpm|all]" >&2
+    echo "usage: $0 [deb|rpm|all|binary]" >&2
     exit 1
     ;;
 esac
+
+# nfpm packages are linux-only; on macOS build the binary and skip deb/rpm.
+if [ "${OS}" != "linux" ] && [ "${PACKAGER}" != "binary" ]; then
+  echo "==> OS=${OS}: compiling binary only (deb/rpm require OS=linux)" >&2
+  PACKAGER="binary"
+fi
 
 # ── Remove old packages in dist/ ───────────────────────────────────────────────
 mkdir -p "${DIST_DIR}"
@@ -82,6 +88,12 @@ CGO_ENABLED=0 GOOS="${OS}" GOARCH="${ARCH}" go build \
   -o "${DIST_DIR}/${BINARY}" ./cmd/gossip
 
 echo "    Binary: $(ls -lh "${DIST_DIR}/${BINARY}" | awk '{print $5, $9}')"
+
+if [ "${PACKAGER}" = "binary" ]; then
+  mv -f "${DIST_DIR}/${BINARY}" "${DIST_DIR}/${BINARY}_${OS}_${ARCH}"
+  echo "==> Done: ${DIST_DIR}/${BINARY}_${OS}_${ARCH}"
+  exit 0
+fi
 
 # ── Download nfpm (same version as CI) ─────────────────────────────────────────
 NFPM="${BUILD_DIR}/nfpm"

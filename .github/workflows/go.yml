@@ -10,6 +10,38 @@ permissions:
   contents: read
 
 jobs:
+  test-macos:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use isolated Go cache paths
+        run: |
+          GO_MOD_CACHE=$(mktemp -d "${RUNNER_TEMP}/gomodcache.XXXXXX")
+          GO_BUILD_CACHE=$(mktemp -d "${RUNNER_TEMP}/gocache.XXXXXX")
+          echo "GOMODCACHE=$GO_MOD_CACHE" >> "$GITHUB_ENV"
+          echo "GOCACHE=$GO_BUILD_CACHE" >> "$GITHUB_ENV"
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.26.1"
+          cache: false
+
+      - name: Set up Node (Control UI unit tests)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/control-ui/package-lock.json
+
+      - name: Test and build on macOS
+        run: |
+          (cd web/control-ui && npm ci && npm test)
+          go test ./...
+          CGO_ENABLED=0 go build -o /dev/null ./cmd/gossip
+
   test:
     runs-on: ubuntu-latest
 
@@ -48,3 +80,8 @@ jobs:
             ./internal/loadtest/... \
             ./internal/supervisor/... \
             ./internal/uistore/...
+
+      - name: Cross-compile for macOS
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /dev/null ./cmd/gossip
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/gossip

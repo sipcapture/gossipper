@@ -10,7 +10,7 @@ OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildDate=$(BUILD_DATE) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT) -X main.GoVersion=$(GO_VERSION) -X main.BuildOS=$(OS) -X main.BuildArch=$(ARCH)"
 
-.PHONY: all build build-go dynamic frontend package package-deb package-rpm benchmark bench-transport clean smoke smoke-webrtc
+.PHONY: all build build-go build-darwin build-darwin-amd64 build-darwin-arm64 dynamic frontend package package-deb package-rpm benchmark bench-transport clean smoke smoke-webrtc
 
 # Default `make`: Control UI (embed) then static binary in dist/.
 .DEFAULT_GOAL := all
@@ -24,6 +24,18 @@ frontend:
 build-go:
 	mkdir -p $(DIST)
 	CGO_ENABLED=0 GOOS=$(OS) GOARCH=$(ARCH) go build $(LDFLAGS) -o $(DIST)/$(BIN) $(CMD)
+
+# macOS cross-builds (static binary, embedded UI). On a Mac, `make build` already
+# uses GOOS=darwin from `go env`; these targets are handy on Linux CI/dev boxes.
+build-darwin-amd64: frontend
+	$(MAKE) build-go OS=darwin ARCH=amd64
+	mv $(DIST)/$(BIN) $(DIST)/$(BIN)_darwin_amd64
+
+build-darwin-arm64: frontend
+	$(MAKE) build-go OS=darwin ARCH=arm64
+	mv $(DIST)/$(BIN) $(DIST)/$(BIN)_darwin_arm64
+
+build-darwin: build-darwin-amd64 build-darwin-arm64
 
 build: all
 

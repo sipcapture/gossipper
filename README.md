@@ -111,6 +111,13 @@ Quick local compile **without** rebuilding the web UI (API only, no `GET /` pane
 go build -o gossipper ./cmd/gossip
 ```
 
+On **macOS**, `make build` produces a native `darwin` binary in `dist/gossipper`. From Linux you can cross-compile both Mac arches:
+
+```bash
+make build-darwin    # dist/gossipper_darwin_amd64 + dist/gossipper_darwin_arm64
+# or: OS=darwin ARCH=arm64 make build-go
+```
+
 Run the built-in UAC scenario against a SIP endpoint:
 
 ```bash

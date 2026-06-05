@@ -22,8 +22,19 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [linux]
-        goarch: [amd64, arm64]
+        include:
+          - goos: linux
+            goarch: amd64
+            package: true
+          - goos: linux
+            goarch: arm64
+            package: true
+          - goos: darwin
+            goarch: amd64
+            package: false
+          - goos: darwin
+            goarch: arm64
+            package: false
 
     steps:
       - uses: actions/checkout@v4
@@ -85,7 +96,7 @@ jobs:
           make frontend && go test ./... && make build-go VERSION="${VERSION}" OS="${OS}" ARCH="${ARCH}"
 
       - name: E2E smoke (linux amd64)
-        if: matrix.goarch == 'amd64'
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
         run: |
           make smoke
           make smoke-webrtc
@@ -97,14 +108,14 @@ jobs:
         run: mv "dist/gossipper" "dist/gossipper_${OS}_${ARCH}"
 
       - name: Install nfpm
-        if: github.event_name == 'release' || inputs.release
+        if: (github.event_name == 'release' || inputs.release) && matrix.package
         run: |
           wget -qO- https://github.com/goreleaser/nfpm/releases/download/v2.41.1/nfpm_2.41.1_Linux_x86_64.tar.gz | tar --directory ./ -xz nfpm
           chmod +x nfpm
           echo "$PWD" >> "$GITHUB_PATH"
 
       - name: Create packages
-        if: github.event_name == 'release' || inputs.release
+        if: (github.event_name == 'release' || inputs.release) && matrix.package
         env:
           VERSION: ${{ env.VERSION }}
           OS: ${{ matrix.goos }}
@@ -120,15 +131,22 @@ jobs:
             dist/gossipper_${{ matrix.goos }}_${{ matrix.goarch }}
             dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.deb
             dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.rpm
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
-      - name: Upload release assets
+      - name: Upload release binary
         if: github.event_name == 'release' || inputs.release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
+          files: dist/gossipper_${{ matrix.goos }}_${{ matrix.goarch }}
+          fail_on_unmatched_files: true
+
+      - name: Upload release packages (linux)
+        if: (github.event_name == 'release' || inputs.release) && matrix.package
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
           files: |
-            dist/gossipper_${{ matrix.goos }}_${{ matrix.goarch }}
             dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.deb
             dist/gossipper_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}.rpm
           fail_on_unmatched_files: true
