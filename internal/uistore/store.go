@@ -603,6 +603,12 @@ func (s *Store) pruneScenarioHistoryLocked(id string) error {
 	if err != nil {
 		return err
 	}
+	scenariosRoot := filepath.Clean(s.layout.ScenariosDir())
+	dir = filepath.Clean(dir)
+	rel, err := filepath.Rel(scenariosRoot, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("uistore: invalid history directory")
+	}
 	entries, err := listScenarioHistoryEntriesFromDir(dir)
 	if err != nil {
 		return err
@@ -618,7 +624,7 @@ func (s *Store) pruneScenarioHistoryLocked(id string) error {
 // listScenarioHistoryEntriesFromDir scans dir for *.xml snapshots, newest first.
 func listScenarioHistoryEntriesFromDir(dir string) ([]ScenarioHistoryEntry, error) {
 	dir = filepath.Clean(strings.TrimSpace(dir))
-	if dir == "." || dir == "" || filepath.IsAbs(dir) {
+	if dir == "." || dir == "" {
 		return nil, fmt.Errorf("uistore: invalid history directory")
 	}
 	entries, err := os.ReadDir(dir)
