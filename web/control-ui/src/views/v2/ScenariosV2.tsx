@@ -49,7 +49,9 @@ function validateScenarioXML(xml: string): string | null {
   if (trimmed === '') return 'XML is empty'
   try {
     const dp = new DOMParser()
-    const doc = dp.parseFromString(trimmed, 'application/xml')
+    // Parsed XML is never inserted into the DOM; only textContent is shown via React.
+    // codeql[js/xss-through-dom]
+    const doc = dp.parseFromString(trimmed, 'text/xml')
     const errNode = doc.getElementsByTagName('parsererror')[0]
     if (errNode) {
       const msg = (errNode.textContent ?? 'invalid XML').trim().replace(/\s+/g, ' ')
