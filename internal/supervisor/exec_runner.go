@@ -129,8 +129,8 @@ func (r *ExecRunner) Start(ctx context.Context, spec Spec) (int, error) {
 	r.running[spec.JobID] = rw
 	r.mu.Unlock()
 
-	go r.drainStdout(spec.JobID, stdout, spec.ArtifactsDir)
-	go r.drainStderr(spec.JobID, stderr, spec.ArtifactsDir)
+	go r.drainStdout(spec.JobID, stdout)
+	go r.drainStderr(spec.JobID, stderr)
 	go r.waitWorker(rw)
 
 	r.Logger.Info("supervisor: worker started", "job_id", spec.JobID, "pid", pid)
@@ -172,38 +172,27 @@ func (r *ExecRunner) IsRunning(jobID string) bool {
 	return ok
 }
 
-func (r *ExecRunner) validatedArtifactsDir(artifactsDir string) (string, error) {
-	artifactsDir = strings.TrimSpace(artifactsDir)
-	if artifactsDir == "" {
-		return "", nil
-	}
+func (r *ExecRunner) jobArtifactsDir(jobID string) (string, error) {
 	root := strings.TrimSpace(r.DataDir)
 	if root == "" {
-		return "", errors.New("supervisor: DataDir is required to validate artifacts dir")
+		return "", errors.New("supervisor: DataDir is required")
 	}
-	cleaned := filepath.Clean(artifactsDir)
-	if !safepath.Within(root, cleaned) {
-		return "", fmt.Errorf("supervisor: artifacts dir %q escapes data dir", artifactsDir)
-	}
-	return cleaned, nil
+	return safepath.JobArtifactsDir(root, jobID)
 }
 
-func artifactChildPath(artifactsDir, name string) (string, error) {
-	return safepath.Join(artifactsDir, name)
-}
-
-func (r *ExecRunner) drainStdout(jobID string, rc io.ReadCloser, artifactsDir string) {
+func (r *ExecRunner) drainStdout(jobID string, rc io.ReadCloser) {
 	defer rc.Close()
 	var statsFile *os.File
-	if dir, err := r.validatedArtifactsDir(artifactsDir); err == nil && dir != "" {
-		if err := os.MkdirAll(dir, 0o750); err == nil {
-			if statsPath, perr := artifactChildPath(dir, "stats.jsonl"); perr == nil {
-				f, ferr := os.OpenFile(statsPath,
-					os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
-				if ferr == nil {
-					statsFile = f
-					defer statsFile.Close()
-				}
+	if dir, err := r.jobArtifactsDir(jobID); err == nil {
+		if err := safepath.MkdirAll(dir, 0o750); err == nil {
+			if f, ferr := safepath.OpenFile(dir, "stats.jsonl",
+				os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640); ferr == nil {
+				statsFile = f
+				defer func() {
+					if err := f.Close(); err != nil {
+						r.Logger.Warn("supervisor: close stats file", "job_id", jobID, "error", err)
+					}
+				}()
 			}
 		}
 	}
@@ -223,18 +212,19 @@ func (r *ExecRunner) drainStdout(jobID string, rc io.ReadCloser, artifactsDir st
 	}
 }
 
-func (r *ExecRunner) drainStderr(jobID string, rc io.ReadCloser, artifactsDir string) {
+func (r *ExecRunner) drainStderr(jobID string, rc io.ReadCloser) {
 	defer rc.Close()
 	var logFile *os.File
-	if dir, err := r.validatedArtifactsDir(artifactsDir); err == nil && dir != "" {
-		if err := os.MkdirAll(dir, 0o750); err == nil {
-			if logPath, perr := artifactChildPath(dir, "worker.log"); perr == nil {
-				f, ferr := os.OpenFile(logPath,
-					os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
-				if ferr == nil {
-					logFile = f
-					defer logFile.Close()
-				}
+	if dir, err := r.jobArtifactsDir(jobID); err == nil {
+		if err := safepath.MkdirAll(dir, 0o750); err == nil {
+			if f, ferr := safepath.OpenFile(dir, "worker.log",
+				os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640); ferr == nil {
+				logFile = f
+				defer func() {
+					if err := f.Close(); err != nil {
+						r.Logger.Warn("supervisor: close worker log", "job_id", jobID, "error", err)
+					}
+				}()
 			}
 		}
 	}
@@ -284,7 +274,7 @@ func (r *ExecRunner) waitWorker(rw *runningWorker) {
 		defer cancel()
 		exitPtr := exit
 		_ = r.Store.UpdateStatus(ctx, rw.jobID, status, &exitPtr, failMsg)
-		if dir, err := r.validatedArtifactsDir(rw.spec.ArtifactsDir); err == nil && dir != "" {
+		if dir, err := r.jobArtifactsDir(rw.jobID); err == nil {
 			if rw.spec.IsToolJob() {
 				RememberToolArtifacts(ctx, r.Store, rw.jobID, dir, rw.spec.ToolID())
 			} else {
@@ -305,22 +295,20 @@ func (r *ExecRunner) rememberJobArtifacts(ctx context.Context, jobID, artifactsD
 		{"summary", "summary.json"},
 		{"call_records", "call_records.jsonl"},
 	} {
-		path, err := artifactChildPath(artifactsDir, item.name)
-		if err != nil {
-			continue
-		}
-		rememberArtifact(ctx, r.Store, jobID, item.kind, path)
+		rememberArtifact(ctx, r.Store, artifactsDir, jobID, item.kind, item.name)
 	}
-	if recDir, err := artifactChildPath(artifactsDir, "recordings"); err == nil {
-		rememberRecordings(ctx, r.Store, jobID, recDir)
-	}
+	rememberRecordings(ctx, r.Store, artifactsDir, jobID)
 }
 
-func rememberArtifact(ctx context.Context, store *JobsStore, jobID, kind, path string) {
-	if !safepath.Within(filepath.Dir(path), path) {
+func rememberArtifact(ctx context.Context, store *JobsStore, artifactsDir, jobID, kind string, nameParts ...string) {
+	if len(nameParts) == 0 {
 		return
 	}
-	info, err := os.Stat(path)
+	path, err := safepath.Join(artifactsDir, nameParts...)
+	if err != nil {
+		return
+	}
+	info, err := safepath.Stat(artifactsDir, path)
 	if err != nil || info.IsDir() || info.Size() == 0 {
 		return
 	}
@@ -329,12 +317,12 @@ func rememberArtifact(ctx context.Context, store *JobsStore, jobID, kind, path s
 
 // rememberRecordings walks <artifacts>/recordings/ and registers every
 // non-empty file as a "recording" artifact (kind matches MediaWav for the UI).
-func rememberRecordings(ctx context.Context, store *JobsStore, jobID, dir string) {
-	dir = filepath.Clean(strings.TrimSpace(dir))
-	if dir == "" {
+func rememberRecordings(ctx context.Context, store *JobsStore, artifactsDir, jobID string) {
+	recDir, err := safepath.Join(artifactsDir, "recordings")
+	if err != nil {
 		return
 	}
-	entries, err := os.ReadDir(dir)
+	entries, err := safepath.ReadDir(recDir)
 	if err != nil {
 		return
 	}
@@ -342,7 +330,7 @@ func rememberRecordings(ctx context.Context, store *JobsStore, jobID, dir string
 		if e.IsDir() {
 			continue
 		}
-		path, perr := safepath.Join(dir, e.Name())
+		path, perr := safepath.Join(recDir, e.Name())
 		if perr != nil {
 			continue
 		}

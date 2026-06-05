@@ -17,6 +17,20 @@ func TestWithin(t *testing.T) {
 	}
 }
 
+func TestJobArtifactsDir(t *testing.T) {
+	root := t.TempDir()
+	dir, err := JobArtifactsDir(root, "job-1")
+	if err != nil {
+		t.Fatalf("JobArtifactsDir: %v", err)
+	}
+	if !Within(root, dir) {
+		t.Fatalf("job dir %q escaped root %q", dir, root)
+	}
+	if _, err := JobArtifactsDir(root, "../evil"); err == nil {
+		t.Fatal("expected traversal job id to be rejected")
+	}
+}
+
 func TestJoinRejectsTraversal(t *testing.T) {
 	root := t.TempDir()
 	if _, err := Join(root, "..", "etc", "passwd"); err == nil {

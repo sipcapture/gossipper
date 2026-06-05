@@ -18,6 +18,7 @@ import {
   type ScenarioMeta,
 } from '@/api/v2'
 import { lineDiff, sideBySideDiff, summariseDiff, type DiffLine, type SideBySideRow } from '@/lib/lineDiff'
+import { validateScenarioXML } from '@/lib/xmlValidate'
 import { validateMediaRefs } from '@/lib/mediaRefs'
 import { PrepToolsPanel } from '@/components/v2/PrepToolsPanel'
 import { PcapImportPanel } from '@/components/v2/PcapImportPanel'
@@ -38,32 +39,6 @@ function slugifyID(name: string): string {
     .replace(/[^a-z0-9._-]+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^[._-]+|[._-]+$/g, '')
-}
-
-// validateScenarioXML runs the browser's XML parser and returns null when the
-// document is well-formed, or a short error string for inline display. This is
-// a quick "did you forget to close a tag" check — the authoritative validation
-// still happens server-side in uistore.PutScenario.
-function validateScenarioXML(xml: string): string | null {
-  const trimmed = xml.trim()
-  if (trimmed === '') return 'XML is empty'
-  try {
-    const dp = new DOMParser()
-    // Parsed XML is never inserted into the DOM; only textContent is shown via React.
-    // codeql[js/xss-through-dom]
-    const doc = dp.parseFromString(trimmed, 'text/xml')
-    const errNode = doc.getElementsByTagName('parsererror')[0]
-    if (errNode) {
-      const msg = (errNode.textContent ?? 'invalid XML').trim().replace(/\s+/g, ' ')
-      return msg.length > 200 ? msg.slice(0, 200) + '…' : msg
-    }
-    if (!doc.documentElement || doc.documentElement.nodeName === 'parsererror') {
-      return 'invalid XML'
-    }
-    return null
-  } catch (e) {
-    return String((e as Error).message ?? e)
-  }
 }
 
 const STARTER_XML = `<?xml version="1.0" encoding="UTF-8"?>

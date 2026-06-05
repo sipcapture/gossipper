@@ -1,6 +1,7 @@
 package uistore
 
 import (
+	"errors"
 	"os"
 
 	"github.com/sipcapture/gossipper/internal/safepath"
@@ -14,15 +15,17 @@ func ensurePathWithin(baseDir, targetPath string) error {
 }
 
 func readFileWithin(baseDir, path string) ([]byte, error) {
-	if err := ensurePathWithin(baseDir, path); err != nil {
-		return nil, err
+	data, err := safepath.ReadFile(baseDir, path)
+	if errors.Is(err, os.ErrInvalid) {
+		return nil, ErrInvalidID
 	}
-	return os.ReadFile(path)
+	return data, err
 }
 
 func statWithin(baseDir, path string) (os.FileInfo, error) {
-	if err := ensurePathWithin(baseDir, path); err != nil {
-		return nil, err
+	info, err := safepath.Stat(baseDir, path)
+	if errors.Is(err, os.ErrInvalid) {
+		return nil, ErrInvalidID
 	}
-	return os.Stat(path)
+	return info, err
 }

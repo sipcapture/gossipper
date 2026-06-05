@@ -39,8 +39,9 @@ jobs:
       - name: Test and build on macOS
         run: |
           (cd web/control-ui && npm ci && npm test)
-          go test ./...
           CGO_ENABLED=0 go build -o /dev/null ./cmd/gossip
+          # internal/engine has Linux-specific loopback / multi-IP UDP tests (127.0.0.2, …).
+          go test $(go list ./... | grep -v '/internal/engine$')
 
   test:
     runs-on: ubuntu-latest
