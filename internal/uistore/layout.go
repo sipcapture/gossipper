@@ -101,13 +101,5 @@ func (l Layout) JobArtifactDir(jobID string) (string, error) {
 	if !isSafeID(jobID) {
 		return "", fmt.Errorf("uistore: invalid job id %q", jobID)
 	}
-	base := filepath.Clean(l.JobsArtifactsDir())
-	p, err := safepath.Join(base, jobID)
-	if err != nil {
-		return "", fmt.Errorf("uistore: invalid job id %q", jobID)
-	}
-	if err := os.MkdirAll(p, 0o750); err != nil {
-		return "", err
-	}
-	return p, nil
+	return safepath.EnsureJobArtifactsDir(l.Root, jobID, 0o750)
 }
