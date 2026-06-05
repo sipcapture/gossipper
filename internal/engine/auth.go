@@ -325,15 +325,19 @@ func splitAuthParams(value string) []string {
 	return params
 }
 
+// md5Hex and sha256Hex implement SIP Digest (RFC 3261/7616) response hashing.
+// MD5/SHA-256 are required by those standards — not used for password storage.
+// See SECURITY.md (CodeQL go/weak-sensitive-data-hashing).
+
 func md5Hex(value string) string {
-	// SIP Digest authentication (RFC 3261/7616); not password storage.
+	// lgtm[go/weak-sensitive-data-hashing]
 	// codeql[go/weak-sensitive-data-hashing]
 	sum := md5.Sum([]byte(value))
 	return hex.EncodeToString(sum[:])
 }
 
 func sha256Hex(value string) string {
-	// SIP Digest authentication (RFC 3261/7616); not password storage.
+	// lgtm[go/weak-sensitive-data-hashing]
 	// codeql[go/weak-sensitive-data-hashing]
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
