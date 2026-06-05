@@ -18,7 +18,41 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref_name || github.ref }}
+
+      - name: Use isolated Go cache paths
+        run: |
+          GO_MOD_CACHE=$(mktemp -d "${RUNNER_TEMP}/gomodcache.XXXXXX")
+          GO_BUILD_CACHE=$(mktemp -d "${RUNNER_TEMP}/gocache.XXXXXX")
+          echo "GOMODCACHE=$GO_MOD_CACHE" >> "$GITHUB_ENV"
+          echo "GOCACHE=$GO_BUILD_CACHE" >> "$GITHUB_ENV"
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.26.1"
+          cache: false
+
+      - name: Set up Node (Control UI unit tests)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/control-ui/package-lock.json
+
+      - name: Test
+        run: |
+          (cd web/control-ui && npm ci && npm test)
+          go test ./...
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -93,7 +127,7 @@ jobs:
           OS: ${{ matrix.goos }}
           ARCH: ${{ matrix.goarch }}
         run: |
-          make frontend && go test ./... && make build-go VERSION="${VERSION}" OS="${OS}" ARCH="${ARCH}"
+          make frontend && make build-go VERSION="${VERSION}" OS="${OS}" ARCH="${ARCH}"
 
       - name: E2E smoke (linux amd64)
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
