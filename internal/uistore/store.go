@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sipcapture/gossipper/internal/safepath"
 )
 
 // ErrNotFound is returned when a profile / scenario / media asset is missing.
@@ -102,7 +104,7 @@ func (s *Store) writeAtomic(targetPath string, data []byte, perm os.FileMode) er
 	if err := ensurePathWithin(s.layout.Root, targetPath); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
+	if err := safepath.EnsureDirUnder(s.layout.Root, filepath.Dir(targetPath), 0o750); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(s.layout.TempDir(), "uistore-*.tmp")
@@ -129,7 +131,7 @@ func (s *Store) writeAtomic(targetPath string, data []byte, perm os.FileMode) er
 		cleanup()
 		return err
 	}
-	if err := os.Rename(tmpPath, targetPath); err != nil {
+	if err := safepath.RenameUnder(s.layout.Root, tmpPath, targetPath); err != nil {
 		cleanup()
 		return err
 	}

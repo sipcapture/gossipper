@@ -83,6 +83,30 @@ func ReadDir(baseRoot, dir string) ([]os.DirEntry, error) {
 	return os.ReadDir(abs)
 }
 
+// EnsureDirUnder creates dir when it resolves inside root.
+func EnsureDirUnder(root, dir string, perm os.FileMode) error {
+	abs, err := resolveUnderRoot(root, dir)
+	if err != nil {
+		return err
+	}
+	// codeql[go/path-injection]
+	return os.MkdirAll(abs, perm)
+}
+
+// RenameUnder renames src to dst when both paths resolve inside root.
+func RenameUnder(root, src, dst string) error {
+	srcAbs, err := resolveUnderRoot(root, src)
+	if err != nil {
+		return err
+	}
+	dstAbs, err := resolveUnderRoot(root, dst)
+	if err != nil {
+		return err
+	}
+	// codeql[go/path-injection]
+	return os.Rename(srcAbs, dstAbs)
+}
+
 func resolveUnderRoot(root, target string) (string, error) {
 	rootAbs, err := filepath.Abs(filepath.Clean(root))
 	if err != nil {
