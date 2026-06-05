@@ -17,6 +17,9 @@ on:
 permissions:
   contents: write
 
+env:
+  CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', startsWith(inputs.ref_name, 'v') && inputs.ref_name || format('v{0}', inputs.ref_name)) || github.ref }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -24,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref_name || github.ref }}
+          ref: ${{ env.CHECKOUT_REF }}
 
       - name: Use isolated Go cache paths
         run: |
@@ -73,7 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref_name || github.ref }}
+          ref: ${{ env.CHECKOUT_REF }}
 
       - name: Use isolated Go cache paths
         run: |
