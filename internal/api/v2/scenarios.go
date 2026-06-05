@@ -2,6 +2,7 @@ package v2
 
 import (
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/sipcapture/gossipper/internal/uistore"
@@ -10,6 +11,17 @@ import (
 type scenarioBody struct {
 	uistore.ScenarioMeta
 	XML string `json:"xml"`
+}
+
+func isSafePathID(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	if strings.Contains(id, "/") || strings.Contains(id, "\\") || strings.Contains(id, "..") {
+		return false
+	}
+	return filepath.Base(id) == id
 }
 
 func (s *Server) handleListScenarios(w http.ResponseWriter, _ *http.Request) {
@@ -50,6 +62,10 @@ func (s *Server) handleCreateScenario(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !isSafePathID(body.ID) {
+		s.writeError(w, http.StatusBadRequest, uistore.ErrInvalidID.Error())
+		return
+	}
 	got, err := s.cfg.Store.PutScenario(body.ScenarioMeta, body.XML, true)
 	if err != nil {
 		code, msg := mapStoreError(err)
@@ -69,7 +85,12 @@ func (s *Server) handleUpdateScenario(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	body.ID = pathID(r)
+	id := pathID(r)
+	if !isSafePathID(id) {
+		s.writeError(w, http.StatusBadRequest, uistore.ErrInvalidID.Error())
+		return
+	}
+	body.ID = id
 	got, err := s.cfg.Store.PutScenario(body.ScenarioMeta, body.XML, false)
 	if err != nil {
 		code, msg := mapStoreError(err)
