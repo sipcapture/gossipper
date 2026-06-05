@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 env:
-  CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', startsWith(inputs.ref_name, 'v') && inputs.ref_name || format('v{0}', inputs.ref_name)) || github.ref }}
+  CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && (startsWith(inputs.ref_name, 'refs/') && inputs.ref_name || format('refs/tags/{0}', inputs.ref_name)) || github.ref }}
 
 jobs:
   test:
