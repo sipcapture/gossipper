@@ -423,8 +423,22 @@ func (s *Store) GetScenario(id string) (ScenarioBody, error) {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	baseDirAbs, err := filepath.Abs(s.layout.ScenariosDir())
+	if err != nil {
+		return ScenarioBody{}, err
+	}
 	xmlPath := s.scenarioXMLPath(id)
-	data, err := os.ReadFile(xmlPath)
+	xmlPathAbs, err := filepath.Abs(xmlPath)
+	if err != nil {
+		return ScenarioBody{}, err
+	}
+	basePrefix := baseDirAbs + string(os.PathSeparator)
+	if xmlPathAbs != baseDirAbs && !strings.HasPrefix(xmlPathAbs, basePrefix) {
+		return ScenarioBody{}, ErrInvalidID
+	}
+
+	data, err := os.ReadFile(xmlPathAbs)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ScenarioBody{}, ErrNotFound
