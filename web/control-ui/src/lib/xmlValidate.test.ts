@@ -22,4 +22,10 @@ describe('validateScenarioXML', () => {
   it('reports mismatched close tags', () => {
     expect(validateScenarioXML('<scenario></recv>')).toMatch(/mismatched/i)
   })
+
+  it('ignores XML comments when checking tags', () => {
+    expect(
+      validateScenarioXML('<scenario><!-- note --><recv request="INVITE"/></scenario>'),
+    ).toBeNull()
+  })
 })

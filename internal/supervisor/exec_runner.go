@@ -183,18 +183,14 @@ func (r *ExecRunner) jobArtifactsDir(jobID string) (string, error) {
 func (r *ExecRunner) drainStdout(jobID string, rc io.ReadCloser) {
 	defer rc.Close()
 	var statsFile *os.File
-	if dir, err := r.jobArtifactsDir(jobID); err == nil {
-		if err := safepath.MkdirAll(dir, 0o750); err == nil {
-			if f, ferr := safepath.OpenFile(dir, "stats.jsonl",
-				os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640); ferr == nil {
-				statsFile = f
-				defer func() {
-					if err := f.Close(); err != nil {
-						r.Logger.Warn("supervisor: close stats file", "job_id", jobID, "error", err)
-					}
-				}()
+	if f, ferr := safepath.OpenJobArtifact(r.DataDir, jobID, "stats.jsonl",
+		os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640); ferr == nil {
+		statsFile = f
+		defer func() {
+			if err := f.Close(); err != nil {
+				r.Logger.Warn("supervisor: close stats file", "job_id", jobID, "error", err)
 			}
-		}
+		}()
 	}
 	scanner := bufio.NewScanner(rc)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
@@ -215,18 +211,14 @@ func (r *ExecRunner) drainStdout(jobID string, rc io.ReadCloser) {
 func (r *ExecRunner) drainStderr(jobID string, rc io.ReadCloser) {
 	defer rc.Close()
 	var logFile *os.File
-	if dir, err := r.jobArtifactsDir(jobID); err == nil {
-		if err := safepath.MkdirAll(dir, 0o750); err == nil {
-			if f, ferr := safepath.OpenFile(dir, "worker.log",
-				os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640); ferr == nil {
-				logFile = f
-				defer func() {
-					if err := f.Close(); err != nil {
-						r.Logger.Warn("supervisor: close worker log", "job_id", jobID, "error", err)
-					}
-				}()
+	if f, ferr := safepath.OpenJobArtifact(r.DataDir, jobID, "worker.log",
+		os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640); ferr == nil {
+		logFile = f
+		defer func() {
+			if err := f.Close(); err != nil {
+				r.Logger.Warn("supervisor: close worker log", "job_id", jobID, "error", err)
 			}
-		}
+		}()
 	}
 	scanner := bufio.NewScanner(rc)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
@@ -322,7 +314,7 @@ func rememberRecordings(ctx context.Context, store *JobsStore, artifactsDir, job
 	if err != nil {
 		return
 	}
-	entries, err := safepath.ReadDir(recDir)
+	entries, err := safepath.ReadDir(artifactsDir, recDir)
 	if err != nil {
 		return
 	}

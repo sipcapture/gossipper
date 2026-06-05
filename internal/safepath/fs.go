@@ -3,6 +3,7 @@ package safepath
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // JobArtifactsDir returns <dataRoot>/artifacts/jobs/<jobID> when jobID is safe.
@@ -17,45 +18,86 @@ func JobArtifactsDir(dataRoot, jobID string) (string, error) {
 	return Join(jobsRoot, jobID)
 }
 
+// EnsureJobArtifactsDir returns the per-job artifacts directory, creating it when missing.
+func EnsureJobArtifactsDir(dataRoot, jobID string, perm os.FileMode) (string, error) {
+	dir, err := JobArtifactsDir(dataRoot, jobID)
+	if err != nil {
+		return "", err
+	}
+	dirAbs, err := resolveUnderRoot(dataRoot, dir)
+	if err != nil {
+		return "", err
+	}
+	// codeql[go/path-injection]
+	if err := os.MkdirAll(dirAbs, perm); err != nil {
+		return "", err
+	}
+	return dirAbs, nil
+}
+
+// OpenJobArtifact opens a file with a constant basename under a job artifacts directory.
+func OpenJobArtifact(dataRoot, jobID, name string, flag int, perm os.FileMode) (*os.File, error) {
+	dir, err := EnsureJobArtifactsDir(dataRoot, jobID, 0o750)
+	if err != nil {
+		return nil, err
+	}
+	path, err := Join(dir, name)
+	if err != nil {
+		return nil, err
+	}
+	pathAbs, err := resolveUnderRoot(dir, path)
+	if err != nil {
+		return nil, err
+	}
+	// codeql[go/path-injection]
+	return os.OpenFile(pathAbs, flag, perm)
+}
+
 // ReadFile reads target after verifying it resolves inside root.
 func ReadFile(root, target string) ([]byte, error) {
-	if !Within(root, target) {
-		return nil, os.ErrInvalid
+	abs, err := resolveUnderRoot(root, target)
+	if err != nil {
+		return nil, err
 	}
-	return os.ReadFile(target)
+	// codeql[go/path-injection]
+	return os.ReadFile(abs)
 }
 
 // Stat stats target after verifying it resolves inside root.
 func Stat(root, target string) (os.FileInfo, error) {
-	if !Within(root, target) {
-		return nil, os.ErrInvalid
-	}
-	return os.Stat(target)
-}
-
-// MkdirAll creates dir; dir must have been produced by this package (e.g. JobArtifactsDir).
-func MkdirAll(dir string, perm os.FileMode) error {
-	dir = filepath.Clean(dir)
-	if dir == "" || dir == "." {
-		return os.ErrInvalid
-	}
-	return os.MkdirAll(dir, perm)
-}
-
-// OpenFile opens root/name after Join validation.
-func OpenFile(root, name string, flag int, perm os.FileMode) (*os.File, error) {
-	path, err := Join(root, name)
+	abs, err := resolveUnderRoot(root, target)
 	if err != nil {
 		return nil, err
 	}
-	return os.OpenFile(path, flag, perm)
+	// codeql[go/path-injection]
+	return os.Stat(abs)
 }
 
-// ReadDir lists root after clean; entries are joined with safepath.Join before use.
-func ReadDir(root string) ([]os.DirEntry, error) {
-	root = filepath.Clean(root)
-	if root == "" || root == "." {
-		return nil, os.ErrInvalid
+// ReadDir lists entries under dir after verifying dir resolves inside baseRoot.
+func ReadDir(baseRoot, dir string) ([]os.DirEntry, error) {
+	abs, err := resolveUnderRoot(baseRoot, dir)
+	if err != nil {
+		return nil, err
 	}
-	return os.ReadDir(root)
+	// codeql[go/path-injection]
+	return os.ReadDir(abs)
+}
+
+func resolveUnderRoot(root, target string) (string, error) {
+	rootAbs, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return "", err
+	}
+	targetAbs, err := filepath.Abs(filepath.Clean(target))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(rootAbs, targetAbs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", os.ErrInvalid
+	}
+	if targetAbs != rootAbs && !strings.HasPrefix(targetAbs, rootAbs+string(os.PathSeparator)) {
+		return "", os.ErrInvalid
+	}
+	return targetAbs, nil
 }
