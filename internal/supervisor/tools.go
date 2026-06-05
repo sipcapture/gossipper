@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sipcapture/gossipper/internal/safepath"
 )
 
 // ToolMeta describes a runnable stress utility exposed via /api/v2/tools.
@@ -101,16 +103,15 @@ func RememberToolArtifacts(ctx context.Context, store *JobsStore, jobID, artifac
 	if store == nil || artifactsDir == "" {
 		return
 	}
-	rememberArtifact(ctx, store, jobID, "log", filepath.Join(artifactsDir, "worker.log"))
+	rememberArtifact(ctx, store, artifactsDir, jobID, "log", "worker.log")
 	switch toolID {
 	case ToolReportHTML:
-		rememberArtifact(ctx, store, jobID, "report_html", filepath.Join(artifactsDir, "report.html"))
+		rememberArtifact(ctx, store, artifactsDir, jobID, "report_html", "report.html")
 	case ToolSummaryToPDF:
-		rememberArtifact(ctx, store, jobID, "report_pdf", filepath.Join(artifactsDir, "report.pdf"))
+		rememberArtifact(ctx, store, artifactsDir, jobID, "report_pdf", "report.pdf")
 	case ToolPCAP2Scenario:
-		scDir := filepath.Join(artifactsDir, "scenarios")
-		rememberArtifact(ctx, store, jobID, "scenario_uac", filepath.Join(scDir, "scenario_uac.xml"))
-		rememberArtifact(ctx, store, jobID, "scenario_uas", filepath.Join(scDir, "scenario_uas.xml"))
+		rememberArtifact(ctx, store, artifactsDir, jobID, "scenario_uac", "scenarios", "scenario_uac.xml")
+		rememberArtifact(ctx, store, artifactsDir, jobID, "scenario_uas", "scenarios", "scenario_uas.xml")
 	case ToolInfindex:
 		// index path is next to csv; scan worker.log documents output
 	}
@@ -122,13 +123,20 @@ func RememberToolArtifacts(ctx context.Context, store *JobsStore, jobID, artifac
 			return nil
 		}
 		base := filepath.Base(path)
+		if !safepath.Within(artifactsDir, path) {
+			return nil
+		}
+		info, ierr := safepath.Stat(artifactsDir, path)
+		if ierr != nil || info.IsDir() || info.Size() == 0 {
+			return nil
+		}
 		switch filepath.Ext(base) {
 		case ".html":
-			rememberArtifact(ctx, store, jobID, "report_html", path)
+			_ = store.AddArtifact(ctx, jobID, "report_html", path, info.Size())
 		case ".pdf":
-			rememberArtifact(ctx, store, jobID, "report_pdf", path)
+			_ = store.AddArtifact(ctx, jobID, "report_pdf", path, info.Size())
 		case ".xml":
-			rememberArtifact(ctx, store, jobID, "scenario_xml", path)
+			_ = store.AddArtifact(ctx, jobID, "scenario_xml", path, info.Size())
 		}
 		return nil
 	})

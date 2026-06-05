@@ -99,6 +99,9 @@ func isSafeID(id string) bool {
 // --------------- atomic file helpers ---------------
 
 func (s *Store) writeAtomic(targetPath string, data []byte, perm os.FileMode) error {
+	if err := ensurePathWithin(s.layout.Root, targetPath); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
 		return err
 	}
@@ -133,8 +136,8 @@ func (s *Store) writeAtomic(targetPath string, data []byte, perm os.FileMode) er
 	return nil
 }
 
-func readJSON(path string, out any) error {
-	data, err := os.ReadFile(path)
+func readJSON(baseDir, path string, out any) error {
+	data, err := readFileWithin(baseDir, path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ErrNotFound
@@ -177,7 +180,7 @@ func (s *Store) GetServerProfile(id string) (ServerProfile, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var p ServerProfile
-	if err := readJSON(s.serverPath(id), &p); err != nil {
+	if err := readJSON(s.layout.ServersDir(), s.serverPath(id), &p); err != nil {
 		return ServerProfile{}, err
 	}
 	return p, nil
@@ -197,12 +200,12 @@ func (s *Store) PutServerProfile(p ServerProfile, create bool) (ServerProfile, e
 	defer s.mu.Unlock()
 	now := s.now()
 	path := s.serverPath(p.ID)
-	if _, err := os.Stat(path); err == nil {
+	if _, err := statWithin(s.layout.ServersDir(), path); err == nil {
 		if create {
 			return ServerProfile{}, ErrConflict
 		}
 		var existing ServerProfile
-		if err := readJSON(path, &existing); err == nil {
+		if err := readJSON(s.layout.ServersDir(), path, &existing); err == nil {
 			if p.CreatedAt.IsZero() {
 				p.CreatedAt = existing.CreatedAt
 			}
@@ -260,7 +263,7 @@ func (s *Store) GetClientProfile(id string) (ClientProfile, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var p ClientProfile
-	if err := readJSON(s.clientPath(id), &p); err != nil {
+	if err := readJSON(s.layout.ClientsDir(), s.clientPath(id), &p); err != nil {
 		return ClientProfile{}, err
 	}
 	return p, nil
@@ -279,12 +282,12 @@ func (s *Store) PutClientProfile(p ClientProfile, create bool) (ClientProfile, e
 	defer s.mu.Unlock()
 	now := s.now()
 	path := s.clientPath(p.ID)
-	if _, err := os.Stat(path); err == nil {
+	if _, err := statWithin(s.layout.ClientsDir(), path); err == nil {
 		if create {
 			return ClientProfile{}, ErrConflict
 		}
 		var existing ClientProfile
-		if err := readJSON(path, &existing); err == nil {
+		if err := readJSON(s.layout.ClientsDir(), path, &existing); err == nil {
 			if p.CreatedAt.IsZero() {
 				p.CreatedAt = existing.CreatedAt
 			}
@@ -392,7 +395,7 @@ func (s *Store) ListScenarios() ([]ScenarioMeta, error) {
 		}
 		if r.hasMeta {
 			var m ScenarioMeta
-			if err := readJSON(s.scenarioMetaPath(id), &m); err == nil {
+			if err := readJSON(s.layout.ScenariosDir(), s.scenarioMetaPath(id), &m); err == nil {
 				if m.ID == "" {
 					m.ID = id
 				}
@@ -424,21 +427,9 @@ func (s *Store) GetScenario(id string) (ScenarioBody, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	baseDirAbs, err := filepath.Abs(s.layout.ScenariosDir())
-	if err != nil {
-		return ScenarioBody{}, err
-	}
+	scenariosDir := s.layout.ScenariosDir()
 	xmlPath := s.scenarioXMLPath(id)
-	xmlPathAbs, err := filepath.Abs(xmlPath)
-	if err != nil {
-		return ScenarioBody{}, err
-	}
-	basePrefix := baseDirAbs + string(os.PathSeparator)
-	if xmlPathAbs != baseDirAbs && !strings.HasPrefix(xmlPathAbs, basePrefix) {
-		return ScenarioBody{}, ErrInvalidID
-	}
-
-	data, err := os.ReadFile(xmlPathAbs)
+	data, err := readFileWithin(scenariosDir, xmlPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ScenarioBody{}, ErrNotFound
@@ -446,7 +437,7 @@ func (s *Store) GetScenario(id string) (ScenarioBody, error) {
 		return ScenarioBody{}, err
 	}
 	var meta ScenarioMeta
-	if err := readJSON(s.scenarioMetaPath(id), &meta); err != nil && !errors.Is(err, ErrNotFound) {
+	if err := readJSON(scenariosDir, s.scenarioMetaPath(id), &meta); err != nil && !errors.Is(err, ErrNotFound) {
 		return ScenarioBody{}, err
 	}
 	if meta.ID == "" {
@@ -479,14 +470,15 @@ func (s *Store) PutScenario(meta ScenarioMeta, xml string, create bool) (Scenari
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
+	scenariosDir := s.layout.ScenariosDir()
 	xmlPath := s.scenarioXMLPath(meta.ID)
 	metaPath := s.scenarioMetaPath(meta.ID)
-	if _, err := os.Stat(xmlPath); err == nil {
+	if _, err := statWithin(scenariosDir, xmlPath); err == nil {
 		if create {
 			return ScenarioBody{}, ErrConflict
 		}
 		var existing ScenarioMeta
-		if err := readJSON(metaPath, &existing); err == nil {
+		if err := readJSON(scenariosDir, metaPath, &existing); err == nil {
 			if meta.CreatedAt.IsZero() {
 				meta.CreatedAt = existing.CreatedAt
 			}
@@ -494,7 +486,7 @@ func (s *Store) PutScenario(meta ScenarioMeta, xml string, create bool) (Scenari
 		// Snapshot prior version before overwriting. Best-effort: a failure
 		// here logs through the returned error path, but only if the snapshot
 		// itself was attempted with new content. Identical content → skip.
-		priorXML, rerr := os.ReadFile(xmlPath)
+		priorXML, rerr := readFileWithin(scenariosDir, xmlPath)
 		if rerr == nil && string(priorXML) != xml {
 			if err := s.snapshotScenarioLocked(meta.ID, priorXML, existing, now); err != nil {
 				return ScenarioBody{}, fmt.Errorf("uistore: snapshot prior scenario: %w", err)
@@ -675,7 +667,8 @@ func listScenarioHistoryEntriesFromDir(dir string) ([]ScenarioHistoryEntry, erro
 			SizeBytes: info.Size(),
 		}
 		var meta ScenarioMeta
-		if err := readJSON(filepath.Join(dir, ts+".meta.json"), &meta); err == nil {
+		metaPath := filepath.Join(dir, ts+".meta.json")
+		if err := readJSON(dir, metaPath, &meta); err == nil {
 			entry.Meta = meta
 		}
 		out = append(out, entry)
@@ -786,7 +779,7 @@ func (s *Store) GetScenarioHistory(id, ts string) (ScenarioBody, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	xmlPath := filepath.Join(dir, ts+".xml")
-	data, err := os.ReadFile(xmlPath)
+	data, err := readFileWithin(dir, xmlPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ScenarioBody{}, ErrNotFound
@@ -794,7 +787,8 @@ func (s *Store) GetScenarioHistory(id, ts string) (ScenarioBody, error) {
 		return ScenarioBody{}, err
 	}
 	var meta ScenarioMeta
-	if err := readJSON(filepath.Join(dir, ts+".meta.json"), &meta); err != nil && !errors.Is(err, ErrNotFound) {
+	metaPath := filepath.Join(dir, ts+".meta.json")
+	if err := readJSON(dir, metaPath, &meta); err != nil && !errors.Is(err, ErrNotFound) {
 		return ScenarioBody{}, err
 	}
 	if meta.ID == "" {
@@ -972,7 +966,8 @@ func listJSON[T any](dir string) ([]T, error) {
 			continue
 		}
 		var v T
-		if err := readJSON(filepath.Join(dir, e.Name()), &v); err != nil {
+		jsonPath := filepath.Join(dir, e.Name())
+		if err := readJSON(dir, jsonPath, &v); err != nil {
 			return nil, err
 		}
 		out = append(out, v)

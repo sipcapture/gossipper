@@ -24,6 +24,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/sipcapture/gossipper/internal/safepath"
 )
 
 // Layout describes the on-disk roots used by the UI store. Call Ensure to
@@ -99,7 +101,11 @@ func (l Layout) JobArtifactDir(jobID string) (string, error) {
 	if !isSafeID(jobID) {
 		return "", fmt.Errorf("uistore: invalid job id %q", jobID)
 	}
-	p := filepath.Join(l.JobsArtifactsDir(), jobID)
+	base := filepath.Clean(l.JobsArtifactsDir())
+	p, err := safepath.Join(base, jobID)
+	if err != nil {
+		return "", fmt.Errorf("uistore: invalid job id %q", jobID)
+	}
 	if err := os.MkdirAll(p, 0o750); err != nil {
 		return "", err
 	}
