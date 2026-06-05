@@ -326,11 +326,11 @@ func parseRTPCheckSpec(raw string, renderCtx templ.Context) (rtpcheckSpec, error
 		return spec, nil
 	}
 	if !strings.Contains(trimmed, "=") {
-		value, err := strconv.Atoi(trimmed)
+		value, err := strconv.ParseUint(trimmed, 10, 32)
 		if err != nil {
 			return rtpcheckSpec{}, fmt.Errorf("rtpcheck value %q must be integer or key=value list", trimmed)
 		}
-		if value <= 0 {
+		if value == 0 {
 			return rtpcheckSpec{}, fmt.Errorf("rtpcheck min packets must be > 0")
 		}
 		spec.minPackets = uint32(value)
