@@ -11,7 +11,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gordonklaus/portaudio v0.0.0-20260203164431-765aa7dfa631
 	github.com/gorilla/websocket v1.5.3
-	github.com/pion/dtls/v3 v3.1.2
+	github.com/pion/dtls/v3 v3.1.4
 	github.com/pion/rtcp v1.2.16
 	github.com/pion/rtp v1.10.1
 	github.com/pion/srtp/v3 v3.0.10
