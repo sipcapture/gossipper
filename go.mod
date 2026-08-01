@@ -11,11 +11,11 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gordonklaus/portaudio v0.0.0-20260203164431-765aa7dfa631
 	github.com/gorilla/websocket v1.5.3
-	github.com/pion/dtls/v3 v3.1.2
+	github.com/pion/dtls/v3 v3.1.4
 	github.com/pion/rtcp v1.2.16
 	github.com/pion/rtp v1.10.1
 	github.com/pion/srtp/v3 v3.0.10
-	github.com/pion/stun/v3 v3.1.2
+	github.com/pion/stun/v3 v3.1.5
 	github.com/pion/turn/v4 v4.1.4
 	github.com/pion/webrtc/v4 v4.2.12
 	github.com/rivo/tview v0.42.0
@@ -57,7 +57,7 @@ require (
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/sctp v1.9.5 // indirect
 	github.com/pion/sdp/v3 v3.0.18 // indirect
-	github.com/pion/transport/v4 v4.0.1 // indirect
+	github.com/pion/transport/v4 v4.0.2 // indirect
 	github.com/pion/turn/v5 v5.0.3 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
