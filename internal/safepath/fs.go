@@ -28,7 +28,6 @@ func EnsureJobArtifactsDir(dataRoot, jobID string, perm os.FileMode) (string, er
 	if err != nil {
 		return "", err
 	}
-	// codeql[go/path-injection]
 	if err := os.MkdirAll(dirAbs, perm); err != nil {
 		return "", err
 	}
@@ -49,7 +48,6 @@ func OpenJobArtifact(dataRoot, jobID, name string, flag int, perm os.FileMode) (
 	if err != nil {
 		return nil, err
 	}
-	// codeql[go/path-injection]
 	return os.OpenFile(pathAbs, flag, perm)
 }
 
@@ -59,7 +57,6 @@ func ReadFile(root, target string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// codeql[go/path-injection]
 	return os.ReadFile(abs)
 }
 
@@ -69,7 +66,6 @@ func Stat(root, target string) (os.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	// codeql[go/path-injection]
 	return os.Stat(abs)
 }
 
@@ -79,7 +75,6 @@ func ReadDir(baseRoot, dir string) ([]os.DirEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	// codeql[go/path-injection]
 	return os.ReadDir(abs)
 }
 
@@ -89,7 +84,6 @@ func EnsureDirUnder(root, dir string, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	// codeql[go/path-injection]
 	return os.MkdirAll(abs, perm)
 }
 
@@ -103,7 +97,6 @@ func RenameUnder(root, src, dst string) error {
 	if err != nil {
 		return err
 	}
-	// codeql[go/path-injection]
 	return os.Rename(srcAbs, dstAbs)
 }
 
