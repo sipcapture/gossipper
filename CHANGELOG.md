@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- Close open Dependabot alerts: `google.golang.org/grpc` 1.83.2, OTLP log exporters 0.21.0, and Control UI transitive pins (`js-yaml`, `hono`, `qs`, `fast-uri`, `browserslist`, `postcss-selector-parser`, `baseline-browser-mapping`, `nanoid`, `vitest`).
+- Migrate OTel log records onto `go.opentelemetry.io/otel/attribute` after `otel/log` 0.21 removed `KeyValue`/`Value`.
+
 ## [0.1.64] — 2026-06-05
 
 ### Security

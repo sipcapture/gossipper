@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	otelapi "go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -69,12 +70,12 @@ func (s *otlpSink) Write(events []Event) error {
 		rec.SetSeverity(severityToOTLP(ev.Level))
 		rec.SetSeverityText(ev.Level.String())
 		rec.SetEventName(ev.Kind)
-		rec.SetBody(otelapi.StringValue(ev.Msg))
+		rec.SetBody(attribute.StringValue(ev.Msg))
 		if kind := ev.Kind; kind != "" {
-			rec.AddAttributes(otelapi.String("gossipper.kind", kind))
+			rec.AddAttributes(attribute.String("gossipper.kind", kind))
 		}
 		for k, v := range ev.Attrs {
-			rec.AddAttributes(toOTLPKV(k, v))
+			rec.AddAttributes(anyToAttribute(k, v))
 		}
 		s.logger.Emit(emitContext(ev.Attrs), rec)
 	}
@@ -115,41 +116,6 @@ func severityToOTLP(l Level) otelapi.Severity {
 		return otelapi.SeverityError
 	default:
 		return otelapi.SeverityInfo
-	}
-}
-
-func toOTLPKV(k string, v any) otelapi.KeyValue {
-	switch val := v.(type) {
-	case nil:
-		return otelapi.String(k, "")
-	case string:
-		return otelapi.String(k, val)
-	case bool:
-		return otelapi.Bool(k, val)
-	case int:
-		return otelapi.Int64(k, int64(val))
-	case int32:
-		return otelapi.Int64(k, int64(val))
-	case int64:
-		return otelapi.Int64(k, val)
-	case uint:
-		return otelapi.Int64(k, int64(val))
-	case uint32:
-		return otelapi.Int64(k, int64(val))
-	case uint64:
-		return otelapi.Int64(k, int64(val))
-	case float32:
-		return otelapi.Float64(k, float64(val))
-	case float64:
-		return otelapi.Float64(k, val)
-	case time.Duration:
-		return otelapi.String(k, val.String())
-	case time.Time:
-		return otelapi.String(k, val.Format(time.RFC3339Nano))
-	case error:
-		return otelapi.String(k, val.Error())
-	default:
-		return otelapi.String(k, fmt.Sprintf("%v", val))
 	}
 }
 

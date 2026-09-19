@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	otelapi "go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/trace"
@@ -143,16 +144,16 @@ func TestOTLPSinkConvertsLevels(t *testing.T) {
 	}
 }
 
-func collectAttrs(rec sdklog.Record) map[string]otelapi.Value {
-	out := map[string]otelapi.Value{}
-	rec.WalkAttributes(func(kv otelapi.KeyValue) bool {
-		out[kv.Key] = kv.Value
+func collectAttrs(rec sdklog.Record) map[string]attribute.Value {
+	out := map[string]attribute.Value{}
+	rec.WalkAttributes(func(kv attribute.KeyValue) bool {
+		out[string(kv.Key)] = kv.Value
 		return true
 	})
 	return out
 }
 
-func keys(m map[string]otelapi.Value) []string {
+func keys(m map[string]attribute.Value) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
