@@ -10,6 +10,7 @@ import (
 
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/engine"
+	"github.com/sipcapture/gossipper/internal/siplog"
 )
 
 const maxDynamicLoadClients = 32
@@ -20,6 +21,8 @@ type LoadCoordinator struct {
 
 	parentCtx context.Context
 	parentCfg cli.Config
+
+	sipLog *siplog.Ring
 
 	dynWG *sync.WaitGroup
 
@@ -61,6 +64,16 @@ func NewLoadCoordinator(ctx context.Context, parentMgmt cli.Config, staticExtraI
 		dynWG:     wg,
 		usedIDs:   used,
 	}
+}
+
+// SetSIPLog shares the process SIP circular buffer with dynamically added UAC engines.
+func (c *LoadCoordinator) SetSIPLog(r *siplog.Ring) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.sipLog = r
+	c.mu.Unlock()
 }
 
 func (c *LoadCoordinator) pickID(want string) (string, error) {
@@ -109,6 +122,7 @@ func (c *LoadCoordinator) Add(wantID string, body []byte) (id string, eng *engin
 		return "", nil, err
 	}
 	prepared.EngineConfig.Log = logger
+	prepared.EngineConfig.SIPLog = c.sipLog
 	app := engine.New(prepared.EngineConfig)
 	runCtx, cancel := context.WithCancel(c.parentCtx)
 	c.usedIDs[id] = struct{}{}

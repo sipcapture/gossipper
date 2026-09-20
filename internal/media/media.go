@@ -40,7 +40,7 @@ type StreamConfig struct {
 	LoopCount      int
 	Path           string
 	// Synthetic controls whether RTP payloads are generated without a media file.
-	// When true, silence frames are produced based on PayloadType and Channels.
+	// When true, a 425 Hz ringback tone is encoded per codec (PCMU/PCMA/G722).
 	Synthetic bool
 	// Duration is the total streaming time. Zero means unlimited (stop only via
 	// context cancellation or LoopCount exhaustion).
@@ -235,44 +235,11 @@ func BuildSilentPCMU(cfg StreamConfig, payloadBytes int) ([]byte, error) {
 	return BuildPacket(cfg, payload)
 }
 
-// buildSyntheticPayload creates a single silence RTP payload frame according to
-// cfg.PayloadType, cfg.PayloadName, cfg.SamplesPerPkt and cfg.Channels.
-//
-// For PCM-based codecs (PCMU, PCMA, G722) the payload is SamplesPerPkt×Channels
-// bytes of codec-appropriate silence.  For Opus, a structurally valid minimal
-// DTX frame is returned instead because Opus frames are not raw PCM.
+// buildSyntheticPayload returns one 20 ms synthetic frame (425 Hz ringback
+// for PCMU/PCMA/G722, CN, or Opus DTX). Streaming uses syntheticGen so G.722
+// ADPCM state and sine phase continue across packets.
 func buildSyntheticPayload(cfg StreamConfig) []byte {
-	// Opus requires a structurally valid packet rather than a fixed-size PCM
-	// silence buffer.  The three bytes below encode a CELT Full-Band 20 ms
-	// mono single-frame TOC (0xF8) followed by a minimal payload that most
-	// Opus decoders accept as comfort noise / DTX.
-	if strings.HasPrefix(strings.ToUpper(cfg.PayloadName), "OPUS") {
-		return []byte{0xF8, 0xFF, 0xFE}
-	}
-
-	channels := int(cfg.Channels)
-	if channels < 1 {
-		channels = 1
-	}
-	size := int(cfg.SamplesPerPkt) * channels
-	if size <= 0 {
-		size = 160
-	}
-	payload := make([]byte, size)
-	switch cfg.PayloadType {
-	case 0: // PCMU — μ-law silence
-		for i := range payload {
-			payload[i] = 0xFF
-		}
-	case 8: // PCMA — A-law silence
-		for i := range payload {
-			payload[i] = 0xD5
-		}
-	case 13: // CN — RFC 3389 noise-level byte
-		return []byte{0x00}
-		// All other codecs: zero bytes are a reasonable silence representation.
-	}
-	return payload
+	return newSyntheticGen(cfg).next(cfg)
 }
 
 func DefaultConfig(path string) StreamConfig {
@@ -331,15 +298,23 @@ func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, err
 		cfg.Synthetic = true
 		// part[1]: loopCount — accepted but ignored for synthetic (Duration is the stop
 		// condition); kept for spec symmetry with file-based streaming.
+		explicitPT := false
+		var savedPT uint8
 		if len(parts) > 2 {
 			var pt int
-			fmt.Sscanf(strings.TrimSpace(parts[2]), "%d", &pt)
-			cfg.PayloadType = uint8(pt)
+			if n, _ := fmt.Sscanf(strings.TrimSpace(parts[2]), "%d", &pt); n == 1 {
+				cfg.PayloadType = uint8(pt)
+				savedPT = cfg.PayloadType
+				explicitPT = true
+			}
 		}
 		if len(parts) > 3 {
 			ApplyPayloadParams(&cfg, strings.TrimSpace(parts[3]))
 		} else {
 			ApplyPayloadParams(&cfg, cfg.PayloadName)
+		}
+		if explicitPT {
+			cfg.PayloadType = savedPT
 		}
 		if len(parts) > 4 {
 			var freqMs int
@@ -369,10 +344,15 @@ func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, err
 	if len(parts) > 1 {
 		fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &cfg.LoopCount)
 	}
+	explicitPT := false
+	var savedPT uint8
 	if len(parts) > 2 {
 		var pt int
-		fmt.Sscanf(strings.TrimSpace(parts[2]), "%d", &pt)
-		cfg.PayloadType = uint8(pt)
+		if n, _ := fmt.Sscanf(strings.TrimSpace(parts[2]), "%d", &pt); n == 1 {
+			cfg.PayloadType = uint8(pt)
+			savedPT = cfg.PayloadType
+			explicitPT = true
+		}
 	}
 	if len(parts) > 3 {
 		payloadName := strings.TrimSpace(parts[3])
@@ -380,7 +360,43 @@ func ParseRTPStreamSpec(spec string, basePath string) (string, StreamConfig, err
 	} else {
 		ApplyPayloadParams(&cfg, cfg.PayloadName)
 	}
+	if explicitPT {
+		cfg.PayloadType = savedPT
+	}
 	return "start", cfg, nil
+}
+
+// listenRTP binds a UDP socket for RTP. If localIP is not on this host
+// (typical NAT advertised_ip), it falls back to 0.0.0.0 so packets can still
+// be sent; SDP c= stays advertised separately.
+func listenRTP(localIP string, localPort int) (*net.UDPConn, error) {
+	try := func(ip net.IP, port int) (*net.UDPConn, error) {
+		return net.ListenUDP("udp", &net.UDPAddr{IP: ip, Port: port})
+	}
+	wantIP := parseRTPBindIP(localIP)
+	conn, err := try(wantIP, localPort)
+	if err == nil {
+		return conn, nil
+	}
+	first := err
+	if wantIP != nil {
+		if conn, err = try(nil, localPort); err == nil {
+			return conn, nil
+		}
+	}
+	if conn, err = try(nil, 0); err == nil {
+		return conn, nil
+	}
+	return nil, first
+}
+
+func parseRTPBindIP(localIP string) net.IP {
+	switch strings.TrimSpace(localIP) {
+	case "", "0.0.0.0", "::":
+		return nil
+	default:
+		return net.ParseIP(localIP)
+	}
 }
 
 // openRTPDatapath binds a local UDP socket and, for ICE typ relay, allocates a TURN relay transport.
@@ -392,14 +408,7 @@ func (s *Session) openRTPDatapath(endpoint Endpoint, localIP string, localPort i
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	localAddr := &net.UDPAddr{Port: localPort}
-	if localIP != "" && localIP != "0.0.0.0" && localIP != "::" {
-		localAddr.IP = net.ParseIP(localIP)
-	}
-	conn, err = net.ListenUDP("udp", localAddr)
-	if err != nil {
-		conn, err = net.ListenUDP("udp", &net.UDPAddr{IP: localAddr.IP, Port: 0})
-	}
+	conn, err = listenRTP(localIP, localPort)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -554,19 +563,13 @@ func (s *Session) Start(ctx context.Context, endpoint Endpoint, cfg StreamConfig
 func (s *Session) StartEcho(ctx context.Context, localIP string, localPort int) error {
 	s.Stop()
 
-	localAddr := &net.UDPAddr{Port: localPort}
-	if localIP != "" && localIP != "0.0.0.0" && localIP != "::" {
-		localAddr.IP = net.ParseIP(localIP)
-	}
-	conn, err := net.ListenUDP("udp", localAddr)
+	conn, err := listenRTP(localIP, localPort)
 	if err != nil {
-		conn, err = net.ListenUDP("udp", &net.UDPAddr{IP: localAddr.IP, Port: 0})
-		if err != nil {
-			return err
-		}
+		return err
 	}
 
 	childCtx, cancel := context.WithCancel(ctx)
+	bound := conn.LocalAddr().(*net.UDPAddr)
 	s.mu.Lock()
 	s.cancel = cancel
 	s.conn = conn
@@ -575,10 +578,10 @@ func (s *Session) StartEcho(ctx context.Context, localIP string, localPort int) 
 	s.echoMode = true
 	s.stats = Stats{}
 	s.localIP = localIP
-	s.localPort = conn.LocalAddr().(*net.UDPAddr).Port
-	rtcpLocalAddr := &net.UDPAddr{Port: conn.LocalAddr().(*net.UDPAddr).Port + 1}
-	if localAddr.IP != nil {
-		rtcpLocalAddr.IP = localAddr.IP
+	s.localPort = bound.Port
+	rtcpLocalAddr := &net.UDPAddr{Port: bound.Port + 1}
+	if bound.IP != nil {
+		rtcpLocalAddr.IP = bound.IP
 	}
 	rtcpConn, _ := net.ListenUDP("udp", rtcpLocalAddr)
 	s.rtcpConn = rtcpConn
@@ -660,10 +663,12 @@ func (s *Session) streamLoop(ctx context.Context, w net.PacketConn, remote net.A
 		defer cancel()
 	}
 
-	// Synthetic mode: generate a single silence frame and loop indefinitely
+	// Synthetic mode: generate a 425 Hz tone each tick and loop indefinitely
 	// (Duration or external context cancellation controls the stop).
+	var synth *syntheticGen
 	if cfg.Synthetic {
-		packets = [][]byte{buildSyntheticPayload(cfg)}
+		synth = newSyntheticGen(cfg)
+		packets = [][]byte{nil}
 	}
 
 	localAddr := w.LocalAddr()
@@ -699,6 +704,9 @@ func (s *Session) streamLoop(ctx context.Context, w net.PacketConn, remote net.A
 			}
 
 			s.waitIfPaused(ctx)
+			if synth != nil {
+				payload = synth.next(cfg)
+			}
 
 			frame, err := BuildPacket(StreamConfig{
 				PayloadType: cfg.PayloadType,

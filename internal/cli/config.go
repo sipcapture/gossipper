@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sipcapture/gossipper/internal/gateway"
 	"github.com/sipcapture/gossipper/mediasink"
 )
 
@@ -144,6 +145,10 @@ type Config struct {
 	// LegacyAPIV1Set is true when the user explicitly set LegacyAPIV1 (via
 	// flag or JSON), suppressing the UIDataDir auto-default.
 	LegacyAPIV1Set bool
+	// Gateway is the optional SIP REGISTER loop (PBX AOR). Parsed from top-level JSON "gateway".
+	Gateway gateway.Config `json:"-"`
+	// Gateways is parsed from top-level JSON "gateways" (array). Combined with Gateway at attach.
+	Gateways []gateway.Config `json:"-"`
 	// ServerMode runs a minimal SIP UAS plus the management HTTP API for systemd / Control UI.
 	ServerMode bool
 	// JoinedClients runs extra SIP engines in parallel when flat JSON uses top-level "clients" / "client" (gossipper server -config).

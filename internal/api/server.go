@@ -17,8 +17,10 @@ import (
 	apiv2 "github.com/sipcapture/gossipper/internal/api/v2"
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/engine"
+	"github.com/sipcapture/gossipper/internal/gateway"
 	"github.com/sipcapture/gossipper/internal/scenario"
 	"github.com/sipcapture/gossipper/internal/settingsauth"
+	"github.com/sipcapture/gossipper/internal/siplog"
 	"github.com/sipcapture/gossipper/internal/stats"
 	"github.com/sipcapture/gossipper/internal/supervisor"
 	"github.com/sipcapture/gossipper/internal/uistore"
@@ -63,6 +65,8 @@ type ServerConfig struct {
 	// deployments should set this to false to keep only /api/v2/* on the
 	// management surface.
 	EnableLegacyV1 bool
+	// Gateway is the SIP REGISTER controller for /api/v2/gateway (nil if not a management server).
+	Gateway *gateway.Controller
 }
 
 // Server exposes REST-style endpoints under /api/v1/.
@@ -115,6 +119,8 @@ func (s *Server) Handler() http.Handler {
 			Registry: s.cfg.JobsRegistry,
 			Auth:     s.cfg.SettingsAuth,
 			Version:  s.cfg.Version,
+			Gateway:  s.cfg.Gateway,
+			SIPTrace: sipTraceFromEngine(s.cfg.Engine),
 		}).Register(mux)
 	}
 	registerEmbeddedControlUI(mux)
@@ -129,6 +135,13 @@ func (s *Server) V2Enabled() bool {
 
 // V1Enabled reports whether the legacy /api/v1/* routes are registered.
 func (s *Server) V1Enabled() bool { return s.cfg.EnableLegacyV1 }
+
+func sipTraceFromEngine(e *engine.Engine) *siplog.Ring {
+	if e == nil {
+		return nil
+	}
+	return e.SIPTrace()
+}
 
 func (s *Server) checkLegacyAPIToken(r *http.Request) bool {
 	if s.cfg.Token == "" {

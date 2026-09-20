@@ -39,6 +39,7 @@ artefact lives. The layout is stable; nothing else writes into the directory.
 ```
 <data-dir>/
   settings.sqlite                 # users, jobs, job_artifacts, audit_log
+  gateway.json                    # SIP REGISTER gateway (password, 0600); seeded from server JSON
   profiles/
     servers/<id>.json             # UAS profiles managed via /api/v2/servers
     clients/<id>.json             # UAC profiles managed via /api/v2/clients
@@ -87,18 +88,20 @@ artefact lives. The layout is stable; nothing else writes into the directory.
 | `GET /tools`, `POST /tools/{id}/run` | prep/tool jobs (`pcap2scenario`, `report-html`, …) |
 | `GET /reports`, `GET /jobs/{id}/artifacts/{kind}` | report catalog + artifact download |
 | `GET /live`, `GET /jobs/{id}/events` | WebSocket job counts + JSONL worker events |
+| `GET /sip/trace`, `GET /sip/trace/ws`, `GET /sip/trace/export`, `GET/PUT /sip/trace/capture`, `POST /sip/trace/clear` | Live Trace ring (SIP + app debug; REST/WS; capture `{ sip, app, level }`; text/pcap export) |
 | `GET/POST/PUT/DELETE /servers[/{id}]` | UAS profile CRUD + `POST …/start` / `stop` shortcuts |
 | `GET/POST/PUT/DELETE /clients[/{id}]` | UAC profile CRUD + start/stop shortcuts |
 | `GET/POST/PUT/DELETE /scenarios[/{id}]` | scenarios CRUD (XML + metadata) + history/fork |
 | `GET /builtin-scenarios[/{id}]` | read-only built-in scenario catalog |
 | `GET/POST/DELETE /media/{kind}[/{name}]` | WAV / PCAP library |
-| `GET/POST/DELETE /jobs[/{id}]`, `POST /jobs/{id}/stop` | jobs lifecycle (`engine` overrides on POST) |
+| `GET/PUT /gateway`, `PUT /gateway/arm`, `POST /gateway/originate` | SIP REGISTER gateway (PBX AOR, inbound arm, UAC originate) — [gateway.md](gateway.md) |
+| `GET/POST/PUT/DELETE /jobs[/{id}]`, `POST /jobs/{id}/stop` | jobs lifecycle (`engine` overrides on POST) |
 | `GET /jobs/{id}/recordings[/{name}]` | per-call WAV artifacts |
 | `GET/POST/PUT/DELETE /users[/{id}]` | admin user management (**admin role** required) |
 | `GET /audit`, `GET /settings`, `POST /settings/rotate-jwt-secret` | audit log (**admin** for audit/rotate) + runtime info |
 | `POST /scenarios/import-from-pcap-job` | import `scenario_uac.xml` / `scenario_uas.xml` from a succeeded pcap2scenario job |
 
-Hash routes in the browser: `#/dashboard`, `#/load`, `#/jobs/{id}`, `#/reports?report={id}`, etc.
+Hash routes in the browser: `#/dashboard`, `#/gateway`, `#/sip` (Live Trace), `#/scenarios`, `#/scenarios/{id}` (editor window), `#/scenarios/new`, `#/scenarios/builtin/{id}`, `#/load`, `#/jobs/{id}`, `#/reports?report={id}`, etc. Scenario XML upload, pcap2scenario import, and prep tools are on Scenarios → **Help**.
 
 When **`gossipper server`** also exposes **`/api/v1/*`** (hybrid management), the Dashboard shows a **v1 control panel** (rate/pause per engine, dynamic clients) alongside v2 jobs.
 

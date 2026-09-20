@@ -74,6 +74,7 @@ nav:
       - UI mode: ui-mode.md
       - Run profiles: run-profile.md
       - Lab scenarios: lab-scenarios.md
+      - SIP REGISTER gateway: gateway.md
   - Compatibility:
       - Compatibility matrix: compatibility.md
       - Compatibility testing: compatibility-testing.md

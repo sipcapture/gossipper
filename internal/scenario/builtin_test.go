@@ -44,8 +44,8 @@ func TestBuiltinXML(t *testing.T) {
 }
 
 func TestLabBuiltinXMLParses(t *testing.T) {
-	if len(labCatalog) != 26 {
-		t.Fatalf("expected 26 kefir lab ids, got %d", len(labCatalog))
+	if len(labCatalog) != 50 {
+		t.Fatalf("expected 50 lab ids (26 kefir + 24 inbound UAS twins), got %d", len(labCatalog))
 	}
 	entries, err := labFS.ReadDir("lab")
 	if err != nil {
@@ -79,6 +79,53 @@ func TestLabBuiltinXMLParses(t *testing.T) {
 	}
 	if loaded.Name != "one_way" {
 		t.Fatalf("LoadNamed(one_way) name=%q", loaded.Name)
+	}
+}
+
+func TestLabUASTwinsRecvInvite(t *testing.T) {
+	var twins int
+	for _, info := range labCatalog {
+		if !strings.HasSuffix(info.ID, "_uas") {
+			continue
+		}
+		twins++
+		if info.Role != "uas" {
+			t.Fatalf("%s role=%q want uas", info.ID, info.Role)
+		}
+		raw, err := BuiltinXML(info.ID)
+		if err != nil {
+			t.Fatalf("BuiltinXML(%s): %v", info.ID, err)
+		}
+		sc, err := ParseString(raw)
+		if err != nil {
+			t.Fatalf("ParseString(%s): %v", info.ID, err)
+		}
+		if sc.Mode != ModeServer {
+			t.Fatalf("%s mode=%v want server", info.ID, sc.Mode)
+		}
+		gotRecv := false
+		for _, cmd := range sc.Commands {
+			if cmd.Type != CommandRecv {
+				if cmd.Type == CommandSend {
+					t.Fatalf("%s starts with send", info.ID)
+				}
+				continue
+			}
+			if !strings.EqualFold(cmd.RecvReq, "INVITE") {
+				t.Fatalf("%s first recv=%q want INVITE", info.ID, cmd.RecvReq)
+			}
+			gotRecv = true
+			break
+		}
+		if !gotRecv {
+			t.Fatalf("%s has no recv INVITE", info.ID)
+		}
+	}
+	if twins != 24 {
+		t.Fatalf("UAS twins: got %d want 24", twins)
+	}
+	if _, err := LoadNamed("one_way_uas"); err != nil {
+		t.Fatalf("LoadNamed(one_way_uas): %v", err)
 	}
 }
 

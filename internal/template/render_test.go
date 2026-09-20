@@ -405,6 +405,49 @@ func TestRenderRTPStreamAudioPortAliases(t *testing.T) {
 	}
 }
 
+func TestRenderAudioCodecKeywordsFromOffer(t *testing.T) {
+	t.Parallel()
+
+	invite := "INVITE sip:160@example.com SIP/2.0\r\nContent-Type: application/sdp\r\n\r\n" +
+		"v=0\r\nm=audio 19300 RTP/AVP 9 8 101\r\na=rtpmap:9 G722/8000\r\na=rtpmap:8 PCMA/8000\r\n" +
+		"a=rtpmap:101 telephone-event/8000\r\na=fmtp:101 0-16\r\n"
+	ctx := Context{MediaPort: 5062, LastMessage: invite}
+
+	got, err := RenderMessageStrict("m=audio [media_port] RTP/AVP [audio_pt]\r\na=rtpmap:[audio_pt] [audio_codec]\r\n[audio_fmtp]\r\n", ctx)
+	if err != nil {
+		t.Fatalf("RenderMessageStrict: %v", err)
+	}
+	if !strings.Contains(got, "RTP/AVP 9") || !strings.Contains(got, "a=rtpmap:9 G722/8000") {
+		t.Fatalf("G722 keywords: %q", got)
+	}
+	if strings.Contains(got, "a=fmtp:9") {
+		t.Fatalf("G722 has no audio fmtp: %q", got)
+	}
+
+	sdp, err := RenderMessageStrict("[audio_sdp]\r\n", ctx)
+	if err != nil {
+		t.Fatalf("audio_sdp: %v", err)
+	}
+	if !strings.Contains(sdp, "m=audio 5062 RTP/AVP 9 101") || !strings.Contains(sdp, "a=rtpmap:9 G722/8000") {
+		t.Fatalf("audio_sdp: %q", sdp)
+	}
+
+	opus := Context{
+		MediaPort:   4000,
+		LastMessage: "m=audio 9 RTP/AVP 111\na=rtpmap:111 opus/48000/2\na=fmtp:111 minptime=10;useinbandfec=1\n",
+	}
+	got, err = RenderMessageStrict("synthetic,0,[audio_pt],[audio_codec],20\r\n[audio_fmtp]\r\n", opus)
+	if err != nil {
+		t.Fatalf("opus keywords: %v", err)
+	}
+	if !strings.Contains(got, "synthetic,0,111,opus/48000/2,20") {
+		t.Fatalf("opus rtp_stream: %q", got)
+	}
+	if !strings.Contains(got, "a=fmtp:111 minptime=10;useinbandfec=1") {
+		t.Fatalf("opus fmtp: %q", got)
+	}
+}
+
 // ─── Benchmarks ──────────────────────────────────────────────────────────────
 
 var benchCtx = Context{

@@ -1,10 +1,6 @@
 package engine
 
 import (
-	"crypto/md5"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -112,7 +108,7 @@ func (e *Engine) buildAuthHeaderInner(outgoing string, ctx templ.Context, option
 		return "", errors.New("authentication keyword can only be used in SIP requests")
 	}
 
-	return buildDigestAuthHeader(
+	return sip.BuildDigestAuthHeader(
 		headerName,
 		challenge,
 		outgoingMsg.Method,
@@ -146,15 +142,15 @@ func (e *Engine) emitAuthEvent(ctx templ.Context, option authKeywordOptions, hea
 			challengeName = "Proxy-Authenticate"
 		}
 		if raw, ok := sip.Header(challengeMsg.Headers, challengeName); ok {
-			if params, perr := parseDigestChallenge(raw); perr == nil {
-				if params.realm != "" {
-					attrs["realm"] = params.realm
+			if params, perr := sip.ParseDigestChallenge(raw); perr == nil {
+				if params.Realm != "" {
+					attrs["realm"] = params.Realm
 				}
-				if params.algorithm != "" {
-					attrs["algorithm"] = params.algorithm
+				if params.Algorithm != "" {
+					attrs["algorithm"] = params.Algorithm
 				}
-				if params.qop != "" {
-					attrs["qop"] = params.qop
+				if params.Qop != "" {
+					attrs["qop"] = params.Qop
 				}
 			}
 		}
@@ -167,89 +163,13 @@ func (e *Engine) emitAuthEvent(ctx templ.Context, option authKeywordOptions, hea
 	} else {
 		attrs["result"] = "ok"
 	}
-	e.log.Emit(eventlog.Event{
+	e.emitEvent(eventlog.Event{
 		Level: level,
 		Kind:  eventlog.KindAuth,
 		Msg:   msg,
 		Attrs: attrs,
 	})
 	_ = header
-}
-
-func buildDigestAuthHeader(headerName, challenge, method, uri, body, username, password string) (string, error) {
-	params, err := parseDigestChallenge(challenge)
-	if err != nil {
-		return "", err
-	}
-	if params.realm == "" || params.nonce == "" {
-		return "", errors.New("digest challenge must include realm and nonce")
-	}
-
-	algorithm := params.algorithm
-	if algorithm == "" {
-		algorithm = "MD5"
-	}
-
-	qop := ""
-	if params.qop != "" {
-		for _, option := range strings.Split(params.qop, ",") {
-			if strings.EqualFold(strings.TrimSpace(option), "auth") {
-				qop = "auth"
-				break
-			}
-		}
-		if qop == "" {
-			return "", fmt.Errorf("unsupported digest qop %q", params.qop)
-		}
-	}
-
-	ha1 := digestHex(algorithm, fmt.Sprintf("%s:%s:%s", username, params.realm, password))
-	if ha1 == "" {
-		return "", fmt.Errorf("unsupported digest algorithm %q", algorithm)
-	}
-	ha2Input := fmt.Sprintf("%s:%s", method, uri)
-	ha2 := digestHex(algorithm, ha2Input)
-	response := ""
-	nc := ""
-	cnonce := ""
-
-	if qop == "" {
-		response = digestHex(algorithm, fmt.Sprintf("%s:%s:%s", ha1, params.nonce, ha2))
-	} else {
-		nc = "00000001"
-		cnonce, err = randomHex(8)
-		if err != nil {
-			return "", err
-		}
-		response = digestHex(algorithm, fmt.Sprintf("%s:%s:%s:%s:%s:%s", ha1, params.nonce, nc, cnonce, qop, ha2))
-	}
-
-	parts := []string{
-		fmt.Sprintf("%s: Digest username=%q", headerName, username),
-		fmt.Sprintf("realm=%q", params.realm),
-		fmt.Sprintf("nonce=%q", params.nonce),
-		fmt.Sprintf("uri=%q", uri),
-		fmt.Sprintf("response=%q", response),
-		fmt.Sprintf("algorithm=%s", algorithm),
-	}
-	if params.opaque != "" {
-		parts = append(parts, fmt.Sprintf("opaque=%q", params.opaque))
-	}
-	if qop != "" {
-		parts = append(parts, fmt.Sprintf("qop=%s", qop))
-		parts = append(parts, fmt.Sprintf("nc=%s", nc))
-		parts = append(parts, fmt.Sprintf("cnonce=%q", cnonce))
-	}
-	_ = body
-	return strings.Join(parts, ", "), nil
-}
-
-type digestChallenge struct {
-	realm     string
-	nonce     string
-	opaque    string
-	algorithm string
-	qop       string
 }
 
 type digestAuthorization struct {
@@ -263,103 +183,6 @@ type digestAuthorization struct {
 	nc        string
 	cnonce    string
 	opaque    string
-}
-
-func parseDigestChallenge(value string) (digestChallenge, error) {
-	value = strings.TrimSpace(value)
-	if !strings.HasPrefix(strings.ToLower(value), "digest ") {
-		return digestChallenge{}, errors.New("only Digest authentication is supported")
-	}
-
-	params := splitAuthParams(strings.TrimSpace(value[len("Digest "):]))
-	out := digestChallenge{}
-	for _, param := range params {
-		key, rawValue, ok := strings.Cut(param, "=")
-		if !ok {
-			continue
-		}
-		key = strings.ToLower(strings.TrimSpace(key))
-		rawValue = strings.TrimSpace(rawValue)
-		rawValue = strings.Trim(rawValue, `"`)
-		switch key {
-		case "realm":
-			out.realm = rawValue
-		case "nonce":
-			out.nonce = rawValue
-		case "opaque":
-			out.opaque = rawValue
-		case "algorithm":
-			out.algorithm = rawValue
-		case "qop":
-			out.qop = rawValue
-		}
-	}
-	return out, nil
-}
-
-func splitAuthParams(value string) []string {
-	var (
-		params  []string
-		current strings.Builder
-		quoted  bool
-	)
-	for _, r := range value {
-		switch r {
-		case '"':
-			quoted = !quoted
-			current.WriteRune(r)
-		case ',':
-			if quoted {
-				current.WriteRune(r)
-				continue
-			}
-			params = append(params, strings.TrimSpace(current.String()))
-			current.Reset()
-		default:
-			current.WriteRune(r)
-		}
-	}
-	if current.Len() > 0 {
-		params = append(params, strings.TrimSpace(current.String()))
-	}
-	return params
-}
-
-// md5Hex and sha256Hex implement SIP Digest (RFC 3261/7616) response hashing.
-// MD5/SHA-256 are required by those standards — not used for password storage.
-// See SECURITY.md (CodeQL go/weak-sensitive-data-hashing).
-
-func md5Hex(value string) string {
-	// lgtm[go/weak-sensitive-data-hashing]
-	// codeql[go/weak-sensitive-data-hashing]
-	sum := md5.Sum([]byte(value))
-	return hex.EncodeToString(sum[:])
-}
-
-func sha256Hex(value string) string {
-	// lgtm[go/weak-sensitive-data-hashing]
-	// codeql[go/weak-sensitive-data-hashing]
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
-}
-
-func digestHex(algorithm, value string) string {
-	switch strings.ToUpper(strings.TrimSpace(algorithm)) {
-	case "", "MD5":
-		return md5Hex(value)
-	case "SHA-256":
-		return sha256Hex(value)
-	default:
-		return ""
-	}
-}
-
-func randomHex(size int) (string, error) {
-	buf := make([]byte, size)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(buf), nil
 }
 
 func cloneKeywords(in map[string]string) map[string]string {
@@ -453,19 +276,19 @@ func verifyAuthHeader(raw, username, password string) (bool, error) {
 	if algorithm == "" {
 		algorithm = "MD5"
 	}
-	ha1 := digestHex(algorithm, fmt.Sprintf("%s:%s:%s", username, auth.realm, password))
+	ha1 := sip.DigestHex(algorithm, fmt.Sprintf("%s:%s:%s", username, auth.realm, password))
 	if ha1 == "" {
 		return false, fmt.Errorf("unsupported digest algorithm %q", algorithm)
 	}
-	ha2 := digestHex(algorithm, fmt.Sprintf("%s:%s", msg.Method, auth.uri))
+	ha2 := sip.DigestHex(algorithm, fmt.Sprintf("%s:%s", msg.Method, auth.uri))
 	expected := ""
 	if auth.qop == "" {
-		expected = digestHex(algorithm, fmt.Sprintf("%s:%s:%s", ha1, auth.nonce, ha2))
+		expected = sip.DigestHex(algorithm, fmt.Sprintf("%s:%s:%s", ha1, auth.nonce, ha2))
 	} else {
 		if !strings.EqualFold(auth.qop, "auth") {
 			return false, fmt.Errorf("unsupported digest qop %q", auth.qop)
 		}
-		expected = digestHex(algorithm, fmt.Sprintf("%s:%s:%s:%s:%s:%s", ha1, auth.nonce, auth.nc, auth.cnonce, auth.qop, ha2))
+		expected = sip.DigestHex(algorithm, fmt.Sprintf("%s:%s:%s:%s:%s:%s", ha1, auth.nonce, auth.nc, auth.cnonce, auth.qop, ha2))
 	}
 	return strings.EqualFold(expected, auth.response), nil
 }
@@ -475,7 +298,7 @@ func parseDigestAuthorization(value string) (digestAuthorization, error) {
 	if !strings.HasPrefix(strings.ToLower(value), "digest ") {
 		return digestAuthorization{}, errors.New("only Digest authorization is supported")
 	}
-	params := splitAuthParams(strings.TrimSpace(value[len("Digest "):]))
+	params := sip.SplitAuthParams(strings.TrimSpace(value[len("Digest "):]))
 	out := digestAuthorization{}
 	for _, param := range params {
 		key, rawValue, ok := strings.Cut(param, "=")
@@ -515,13 +338,13 @@ func parseDigestAuthorization(value string) (digestAuthorization, error) {
 
 // containsFoldCI reports whether s contains substr (case-insensitive) without allocation.
 func containsFoldCI(s, substr string) bool {
-if len(substr) > len(s) {
-return false
-}
-for i := 0; i <= len(s)-len(substr); i++ {
-if strings.EqualFold(s[i:i+len(substr)], substr) {
-return true
-}
-}
-return false
+	if len(substr) > len(s) {
+		return false
+	}
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if strings.EqualFold(s[i:i+len(substr)], substr) {
+			return true
+		}
+	}
+	return false
 }

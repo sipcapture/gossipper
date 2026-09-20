@@ -68,6 +68,7 @@ const (
 	KindUnexpected     = "sip.unexpected"
 	KindTimeout        = "timeout"
 	KindActionLog      = "action.log"
+	KindScenarioCmd    = "scenario.cmd"
 	KindError          = "error"
 	KindEngineStart    = "engine.started"
 	KindEngineStop     = "engine.stopped"

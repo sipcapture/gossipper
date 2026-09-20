@@ -2,7 +2,32 @@ package engine
 
 import (
 	"testing"
+
+	templ "github.com/sipcapture/gossipper/internal/template"
 )
+
+func TestSipIdentityIPPrefersAdvertised(t *testing.T) {
+	t.Parallel()
+	if got := sipIdentityIP("203.0.113.9", "192.168.1.20"); got != "203.0.113.9" {
+		t.Fatalf("got %q", got)
+	}
+	if got := sipIdentityIP("  ", "192.168.1.20"); got != "192.168.1.20" {
+		t.Fatalf("empty advertised: %q", got)
+	}
+}
+
+func TestSetAdvertisedIP(t *testing.T) {
+	t.Parallel()
+	e := New(Config{})
+	e.SetAdvertisedIP("  84.186.224.78 ")
+	if got := e.sipAdvertisedIP(); got != "84.186.224.78" {
+		t.Fatalf("got %q", got)
+	}
+	e.SetAdvertisedIP("")
+	if got := e.sipAdvertisedIP(); got != "" {
+		t.Fatalf("clear: %q", got)
+	}
+}
 
 func TestApplySIPIdentityKeywordsDefaults(t *testing.T) {
 	t.Parallel()
@@ -38,5 +63,17 @@ func TestApplySIPIdentityKeywordsTrunk(t *testing.T) {
 	}
 	if m["trunk_extra"] != "X-Custom: abc\r\nX-Other: def\r\n" {
 		t.Fatalf("trunk_extra: %q", m["trunk_extra"])
+	}
+}
+
+func TestRtpBindIPPrefersSocketOverAdvertised(t *testing.T) {
+	t.Parallel()
+	c := templ.Context{LocalIP: "203.0.113.9", BindIP: "192.168.1.20"}
+	if got := rtpBindIP(c); got != "192.168.1.20" {
+		t.Fatalf("got %q", got)
+	}
+	c.BindIP = ""
+	if got := rtpBindIP(c); got != "203.0.113.9" {
+		t.Fatalf("empty BindIP: %q", got)
 	}
 }

@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Inbound UAS twin of media_redirect: media_redirect (N12): re-INVITE c=127.0.0.2 at 2000 ms. -->
+<scenario name="media_redirect_uas">
+  <recv request="INVITE"/>
+  <send retrans="500">
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]LabUAS[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Contact: <sip:[local_ip]:[local_port];transport=[transport]>
+Content-Type: application/sdp
+Content-Length: [len]
+
+v=0
+o=gossip 1 1 IN IP4 [local_ip]
+s=-
+c=IN IP4 [local_ip]
+t=0 0
+[audio_sdp]
+
+]]>
+  </send>
+  <nop>
+    <action>
+      <exec rtp_stream="synthetic,0,[audio_pt],[audio_codec],20"/>
+    </action>
+  </nop>
+  <recv request="ACK" optional="true"/>
+  <pause milliseconds="2000"/>
+  <send retrans="500">
+    <![CDATA[
+INVITE sip:[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: <sip:[local_ip]:[local_port]>;tag=[pid]LabUAS[call_number]
+To: [last_From]
+Call-ID: [call_id]
+CSeq: 2 INVITE
+Contact: <sip:[local_ip]:[local_port];transport=[transport]>
+Max-Forwards: 70
+Content-Type: application/sdp
+Content-Length: [len]
+
+v=0
+o=gossip 1 2 IN IP4 [local_ip]
+s=-
+c=IN IP4 127.0.0.2
+t=0 0
+[audio_sdp]
+
+]]>
+  </send>
+  <recv response="100" optional="true"/>
+  <recv response="200"/>
+  <send>
+    <![CDATA[
+ACK sip:[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/[transport] [local_ip]:[local_port];branch=[branch]
+From: <sip:[local_ip]:[local_port]>;tag=[pid]LabUAS[call_number]
+To: [last_From]
+Call-ID: [call_id]
+CSeq: 2 ACK
+Max-Forwards: 70
+Content-Length: 0
+
+]]>
+  </send>
+  <pause milliseconds="3000"/>
+  <nop>
+    <action>
+      <exec rtp_stream="stop"/>
+    </action>
+  </nop>
+  <recv request="BYE"/>
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]LabUAS[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Contact: <sip:[local_ip]:[local_port];transport=[transport]>
+Content-Length: 0
+
+]]>
+  </send>
+</scenario>

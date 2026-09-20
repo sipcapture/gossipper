@@ -5,6 +5,31 @@ import (
 	"strings"
 )
 
+// SetAdvertisedIP sets the public address used for [local_ip] in Contact/SDP.
+// RTP sockets keep the bind/socket IP. Empty restores bind/socket discovery (resolveLocalIP).
+func (e *Engine) SetAdvertisedIP(ip string) {
+	if e == nil {
+		return
+	}
+	e.advertisedIP.Store(strings.TrimSpace(ip))
+}
+
+func (e *Engine) sipAdvertisedIP() string {
+	if e == nil {
+		return ""
+	}
+	v, _ := e.advertisedIP.Load().(string)
+	return strings.TrimSpace(v)
+}
+
+// sipIdentityIP prefers the NAT advertised address over the UDP bind/socket IP.
+func sipIdentityIP(advertised, local string) string {
+	if ip := strings.TrimSpace(advertised); ip != "" {
+		return ip
+	}
+	return local
+}
+
 // applySIPIdentityKeywords sets ExtraKeywords used by built-in scenarios:
 //
 //	[trunk_from] — From display-name/URI (without ";tag="; tag is in XML)

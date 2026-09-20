@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sipcapture/gossipper/internal/gateway"
 	"github.com/sipcapture/gossipper/internal/settingsauth"
+	"github.com/sipcapture/gossipper/internal/siplog"
 	"github.com/sipcapture/gossipper/internal/supervisor"
 	"github.com/sipcapture/gossipper/internal/uistore"
 )
@@ -23,6 +25,7 @@ type harness struct {
 	token  string
 	reg    *supervisor.Registry
 	runner *supervisor.StubRunner
+	sipLog *siplog.Ring
 }
 
 func newHarness(t *testing.T, withAuth bool) *harness {
@@ -40,8 +43,10 @@ func newHarness(t *testing.T, withAuth bool) *harness {
 	jobsStore := supervisor.NewJobsStore(db)
 	runner := supervisor.NewStubRunner()
 	reg := supervisor.NewRegistry(jobsStore, runner)
+	gw := gateway.NewController(t.Context(), gateway.Config{}, t.TempDir())
+	sipLog := siplog.New(32)
 
-	cfg := Config{Store: store, Registry: reg}
+	cfg := Config{Store: store, Registry: reg, Gateway: gw, SIPTrace: sipLog}
 	var auth *settingsauth.Auth
 	var token string
 	if withAuth {
@@ -64,7 +69,7 @@ func newHarness(t *testing.T, withAuth bool) *harness {
 	New(cfg).Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &harness{t: t, srv: srv, store: store, auth: auth, token: token, reg: reg, runner: runner}
+	return &harness{t: t, srv: srv, store: store, auth: auth, token: token, reg: reg, runner: runner, sipLog: sipLog}
 }
 
 func (h *harness) path(prefix string, id int64) string {

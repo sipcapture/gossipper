@@ -11,16 +11,9 @@ const (
 )
 
 func openScaleUDP(localIP string, localPort int) (*net.UDPConn, error) {
-	localAddr := &net.UDPAddr{Port: localPort}
-	if localIP != "" && localIP != "0.0.0.0" && localIP != "::" {
-		localAddr.IP = net.ParseIP(localIP)
-	}
-	conn, err := net.ListenUDP("udp", localAddr)
+	conn, err := listenRTP(localIP, localPort)
 	if err != nil {
-		conn, err = net.ListenUDP("udp", &net.UDPAddr{IP: localAddr.IP, Port: 0})
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 	tuneScaleUDPConn(conn)
 	return conn, nil

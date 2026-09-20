@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getHealthV2,
   getSettingsV2,
+  listBuiltinScenarios,
   listClients,
+  listGateways,
   listJobs,
   listMedia,
   listScenarios,
@@ -17,8 +19,10 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ManagementV1Panel } from '@/components/v2/ManagementV1Panel'
 import { JobTimelineChart } from '@/components/v2/JobTimelineChart'
+import { tallyGateways, tallyScenarioCatalog } from '@/lib/dashboardCounts'
 import { findPortConflicts } from '@/lib/portConflicts'
 import { computeJobTimeline24h } from '@/lib/jobsLive'
+import { cn } from '@/lib/utils'
 
 type LiveSnap = {
   ts: string
@@ -30,13 +34,16 @@ export type DashboardV2Props = {
   bearer?: string
   run: <T>(fn: () => Promise<T>) => Promise<T | undefined>
   onOpenJob?: (jobId: string) => void
-  onNavigate?: (nav: 'jobs' | 'media' | 'settings') => void
+  onNavigate?: (nav: 'jobs' | 'media' | 'settings' | 'scenarios' | 'gateway' | 'servers' | 'clients') => void
 }
 
 type Counts = {
   servers: number
   clients: number
   scenarios: number
+  scenariosMine: number
+  gateways: number
+  gatewaysEnabled: number
   wav: number
   pcap: number
   jobs: number
@@ -104,10 +111,12 @@ export function DashboardV2({ bearer, run, onOpenJob, onNavigate }: DashboardV2P
     } catch {
       setDiskBytes(null)
     }
-    const [s, c, sc, w, p, recentJobs, allJobs] = await Promise.all([
+    const [s, c, sc, bi, gw, w, p, recentJobs, allJobs] = await Promise.all([
       listServers({ bearer }),
       listClients({ bearer }),
       listScenarios({ bearer }),
+      listBuiltinScenarios({ bearer }).catch(() => ({ scenarios: [] })),
+      listGateways({ bearer }).catch(() => ({ gateways: [] })),
       listMedia('wav', { bearer }),
       listMedia('pcap', { bearer }),
       listJobs({ bearer }, 5),
@@ -116,10 +125,15 @@ export function DashboardV2({ bearer, run, onOpenJob, onNavigate }: DashboardV2P
     setServers(s.servers ?? [])
     setClients(c.clients ?? [])
     const outcomes = computeJobOutcomes24h(allJobs.jobs ?? [])
+    const scen = tallyScenarioCatalog((sc.scenarios ?? []).length, (bi.scenarios ?? []).length)
+    const gws = tallyGateways(gw.gateways ?? [])
     setCounts({
       servers: (s.servers ?? []).length,
       clients: (c.clients ?? []).length,
-      scenarios: (sc.scenarios ?? []).length,
+      scenarios: scen.all,
+      scenariosMine: scen.ours,
+      gateways: gws.total,
+      gatewaysEnabled: gws.enabled,
       wav: (w.media ?? []).length,
       pcap: (p.media ?? []).length,
       jobs: (allJobs.jobs ?? []).length,
@@ -199,32 +213,84 @@ export function DashboardV2({ bearer, run, onOpenJob, onNavigate }: DashboardV2P
   return (
     <section className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <CountCard label="Server profiles" value={counts?.servers ?? 0} />
-        <CountCard label="Client profiles" value={counts?.clients ?? 0} />
-        <CountCard label="Scenarios" value={counts?.scenarios ?? 0} />
+        <CountCard
+          label="Server profiles"
+          value={counts?.servers ?? 0}
+          tone="chart1"
+          onClick={() => onNavigate?.('servers')}
+        />
+        <CountCard
+          label="Client profiles"
+          value={counts?.clients ?? 0}
+          tone="chart4"
+          onClick={() => onNavigate?.('clients')}
+        />
+        <CountCard
+          label="Scenarios · all"
+          value={counts?.scenarios ?? 0}
+          hint="user + builtin + lab"
+          tone="primary"
+          onClick={() => onNavigate?.('scenarios')}
+        />
+        <CountCard
+          label="Scenarios · ours"
+          value={counts?.scenariosMine ?? 0}
+          hint="your saved scenarios"
+          tone="warning"
+          onClick={() => onNavigate?.('scenarios')}
+        />
+        <CountCard
+          label="Gateways"
+          value={counts?.gateways ?? 0}
+          hint={counts ? `${counts.gatewaysEnabled} enabled` : undefined}
+          tone="success"
+          onClick={() => onNavigate?.('gateway')}
+        />
         <CountCard
           label="Jobs"
           value={counts?.jobs ?? 0}
           hint={counts ? `${counts.running} active` : undefined}
+          tone="chart5"
+          onClick={() => onNavigate?.('jobs')}
         />
-        <CountCard label="WAV files" value={counts?.wav ?? 0} />
-        <CountCard label="PCAP files" value={counts?.pcap ?? 0} />
+        <CountCard
+          label="WAV files"
+          value={counts?.wav ?? 0}
+          tone="chart2"
+          onClick={() => onNavigate?.('media')}
+        />
+        <CountCard
+          label="PCAP files"
+          value={counts?.pcap ?? 0}
+          tone="chart3"
+          onClick={() => onNavigate?.('media')}
+        />
         <CountCard
           label="Succeeded (24h)"
           value={counts?.succeeded24h ?? 0}
           hint="completed jobs with exit 0"
+          tone="success"
+          onClick={() => onNavigate?.('jobs')}
         />
         <CountCard
           label="Failed (24h)"
           value={counts?.failed24h ?? 0}
           hint="status=failed or non-zero exit"
+          tone="danger"
+          onClick={() => onNavigate?.('jobs')}
         />
         <CountCard
           label="Auth"
           value={health?.auth ?? '—'}
           hint={health?.version ? `v${health.version.replace(/^Gossipper\s*/i, '')}` : undefined}
+          tone="chart4"
+          onClick={() => onNavigate?.('settings')}
         />
-        <CountCard label="API" value={health?.status ?? '—'} />
+        <CountCard
+          label="API"
+          value={health?.status ?? '—'}
+          tone={!health ? 'default' : health.status === 'ok' ? 'success' : 'danger'}
+        />
       </div>
 
       {alerts.length > 0 ? (
@@ -338,14 +404,101 @@ export function DashboardV2({ bearer, run, onOpenJob, onNavigate }: DashboardV2P
   )
 }
 
-function CountCard({ label, value, hint }: { label: string; value: number | string; hint?: string }) {
+type CountTone = 'default' | 'primary' | 'warning' | 'success' | 'danger' | 'chart1' | 'chart2' | 'chart3' | 'chart4' | 'chart5'
+
+const TONE: Record<CountTone, { card: string; value: string; hint: string; label: string }> = {
+  default: {
+    card: '',
+    value: 'text-foreground',
+    hint: 'text-muted-foreground',
+    label: 'text-muted-foreground',
+  },
+  primary: {
+    card: 'bg-primary/15 ring-primary/45',
+    value: 'text-primary',
+    hint: 'text-primary/80',
+    label: 'text-primary/70',
+  },
+  warning: {
+    card: 'bg-warning/20 ring-warning/50',
+    value: 'text-warning',
+    hint: 'text-warning/80',
+    label: 'text-warning/70',
+  },
+  success: {
+    card: 'bg-success/15 ring-success/45',
+    value: 'text-success',
+    hint: 'text-success/80',
+    label: 'text-success/70',
+  },
+  danger: {
+    card: 'bg-destructive/15 ring-destructive/45',
+    value: 'text-destructive',
+    hint: 'text-destructive/80',
+    label: 'text-destructive/70',
+  },
+  chart1: {
+    card: 'bg-chart-1/20 ring-chart-1/50',
+    value: 'text-chart-1',
+    hint: 'text-chart-1/80',
+    label: 'text-chart-1/70',
+  },
+  chart2: {
+    card: 'bg-chart-2/20 ring-chart-2/50',
+    value: 'text-chart-2',
+    hint: 'text-chart-2/80',
+    label: 'text-chart-2/70',
+  },
+  chart3: {
+    card: 'bg-chart-3/20 ring-chart-3/50',
+    value: 'text-chart-3',
+    hint: 'text-chart-3/80',
+    label: 'text-chart-3/70',
+  },
+  chart4: {
+    card: 'bg-chart-4/20 ring-chart-4/50',
+    value: 'text-chart-4',
+    hint: 'text-chart-4/80',
+    label: 'text-chart-4/70',
+  },
+  chart5: {
+    card: 'bg-chart-5/20 ring-chart-5/50',
+    value: 'text-chart-5',
+    hint: 'text-chart-5/80',
+    label: 'text-chart-5/70',
+  },
+}
+
+function CountCard({
+  label,
+  value,
+  hint,
+  onClick,
+  tone = 'default',
+}: {
+  label: string
+  value: number | string
+  hint?: string
+  onClick?: () => void
+  tone?: CountTone
+}) {
+  const t = TONE[tone]
+  const inner = (
+    <CardContent className="flex flex-col gap-1 px-4 py-3">
+      <div className={cn('text-[10px] uppercase tracking-wide', t.label)}>{label}</div>
+      <div className={cn('text-xl font-semibold tabular-nums', t.value)}>{value}</div>
+      {hint ? <div className={cn('text-[10px]', t.hint)}>{hint}</div> : null}
+    </CardContent>
+  )
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-1 px-4 py-3">
-        <div className="text-muted-foreground text-[10px] uppercase tracking-wide">{label}</div>
-        <div className="text-foreground text-xl font-semibold">{value}</div>
-        {hint ? <div className="text-muted-foreground text-[10px]">{hint}</div> : null}
-      </CardContent>
+    <Card className={cn(t.card, onClick && 'hover:ring-2')}>
+      {onClick ? (
+        <button type="button" className="w-full text-left" onClick={onClick}>
+          {inner}
+        </button>
+      ) : (
+        inner
+      )}
     </Card>
   )
 }

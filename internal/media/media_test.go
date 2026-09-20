@@ -122,6 +122,14 @@ func TestParseAudioEndpoint(t *testing.T) {
 	if ep.IP != "127.0.0.1" || ep.Port != 40000 {
 		t.Fatalf("unexpected endpoint: %+v", ep)
 	}
+
+	if !HasMediaLine(msg) {
+		t.Fatal("INVITE SDP must report HasMediaLine")
+	}
+	ack := sip.Message{Method: "ACK"}
+	if HasMediaLine(ack) {
+		t.Fatal("ACK without body must not report HasMediaLine")
+	}
 }
 
 func TestParseMediaEndpointVideo(t *testing.T) {
@@ -179,6 +187,64 @@ func TestParseRTPStreamSpecPayloadParams(t *testing.T) {
 	}
 	if got := buildSyntheticPayload(cn); len(got) != 1 || got[0] != 0x00 {
 		t.Fatalf("CN payload = %v", got)
+	}
+
+	_, pcma, err := ParseRTPStreamSpec("synthetic,0,8,PCMA/8000,20", ".")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec(PCMA): %v", err)
+	}
+	tone := newSyntheticGen(pcma)
+	a := tone.next(pcma)
+	b := tone.next(pcma)
+	if len(a) != 160 {
+		t.Fatalf("PCMA frame len = %d", len(a))
+	}
+	allSilence := true
+	for _, v := range a {
+		if v != 0xD5 {
+			allSilence = false
+			break
+		}
+	}
+	if allSilence {
+		t.Fatal("PCMA synthetic is A-law silence, expected 425 Hz tone")
+	}
+	same := true
+	for i := range a {
+		if a[i] != b[i] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Fatal("consecutive PCMA tone frames must advance in phase")
+	}
+
+	_, g722cfg, err := ParseRTPStreamSpec("synthetic,0,9,G722/8000,20", ".")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec(G722): %v", err)
+	}
+	gframe := newSyntheticGen(g722cfg).next(g722cfg)
+	if len(gframe) != 160 {
+		t.Fatalf("G722 frame len = %d", len(gframe))
+	}
+	zeros := true
+	for _, v := range gframe {
+		if v != 0 {
+			zeros = false
+			break
+		}
+	}
+	if zeros {
+		t.Fatal("G722 synthetic is zeros, expected encoded 425 Hz tone")
+	}
+
+	_, opus, err := ParseRTPStreamSpec("synthetic,0,96,opus/48000/2,20", ".")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec(opus): %v", err)
+	}
+	if opus.PayloadType != 96 || opus.ClockRate != 48000 || opus.SamplesPerPkt != 960 {
+		t.Fatalf("opus dynamic PT cfg: %+v", opus)
 	}
 }
 
@@ -576,4 +642,18 @@ func buildUDPPacketForPCAP(t *testing.T, payload []byte) []byte {
 		t.Fatalf("SerializeLayers() error = %v", err)
 	}
 	return buffer.Bytes()
+}
+
+func TestListenRTPFallsBackFromNonLocalIP(t *testing.T) {
+	t.Parallel()
+
+	conn, err := listenRTP("203.0.113.9", 0)
+	if err != nil {
+		t.Fatalf("listenRTP(advertised): %v", err)
+	}
+	defer conn.Close()
+	bound := conn.LocalAddr().(*net.UDPAddr)
+	if bound.Port == 0 {
+		t.Fatal("expected ephemeral port")
+	}
 }

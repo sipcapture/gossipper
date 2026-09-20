@@ -5496,6 +5496,451 @@ Content-Length: 0
 	}
 }
 
+func TestIsInviteTransactionACK(t *testing.T) {
+	t.Parallel()
+
+	ack := sip.GetMessage()
+	defer sip.PutMessage(ack)
+	if err := sip.ParseInto(ack, []byte(
+		"ACK sip:127.0.0.1:5060 SIP/2.0\r\nVia: SIP/2.0/UDP 127.0.0.1;branch=z9hG4bKack\r\nFrom: <sip:a@127.0.0.1>;tag=from\r\nTo: <sip:b@127.0.0.1>;tag=to\r\nCall-ID: c1\r\nCSeq: 7 ACK\r\nContent-Length: 0\r\n\r\n",
+	)); err != nil {
+		t.Fatalf("ParseInto(ACK): %v", err)
+	}
+	if !isInviteTransactionACK(ack, 7, "INVITE") {
+		t.Fatal("ACK with matching CSeq number for last INVITE 2xx must stop Timer G")
+	}
+	if isInviteTransactionACK(ack, 8, "INVITE") {
+		t.Fatal("ACK for a different CSeq number is not the INVITE 2xx ACK")
+	}
+	if isInviteTransactionACK(ack, 7, "BYE") {
+		t.Fatal("ACK must not match a last-sent BYE")
+	}
+
+	bye := sip.GetMessage()
+	defer sip.PutMessage(bye)
+	if err := sip.ParseInto(bye, []byte(
+		"BYE sip:127.0.0.1:5060 SIP/2.0\r\nVia: SIP/2.0/UDP 127.0.0.1;branch=z9hG4bKbye\r\nFrom: <sip:a@127.0.0.1>;tag=from\r\nTo: <sip:b@127.0.0.1>;tag=to\r\nCall-ID: c1\r\nCSeq: 8 BYE\r\nContent-Length: 0\r\n\r\n",
+	)); err != nil {
+		t.Fatalf("ParseInto(BYE): %v", err)
+	}
+	if isInviteTransactionACK(bye, 7, "INVITE") {
+		t.Fatal("BYE is not an INVITE ACK")
+	}
+}
+
+// TestEngineUAS200RetransmissionStopsAfterACK verifies RFC 3261 §17.2.1
+// Timer G: UAS INVITE 2xx retransmits stop once ACK is received, including
+// when ACK arrives while the scenario is already waiting for BYE.
+func TestEngineUAS200RetransmissionStopsAfterACK(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		ackRecvXML string
+		ackDelay   time.Duration
+	}{
+		{
+			name:       "ack_matches_recv_ack",
+			ackRecvXML: `<recv request="ACK" optional="true"/>`,
+		},
+		{
+			name:       "ack_during_recv_bye",
+			ackRecvXML: `<recv request="ACK" optional="true" timeout="200"/>`,
+			ackDelay:   300 * time.Millisecond,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			reserved, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+			if err != nil {
+				t.Fatalf("ListenUDP(reserve): %v", err)
+			}
+			port := reserved.LocalAddr().(*net.UDPAddr).Port
+			_ = reserved.Close()
+
+			sc, err := scenario.ParseString(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="uas-timer-g">
+  <recv request="INVITE"/>
+  <send>
+    <![CDATA[
+SIP/2.0 180 Ringing
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]TimerG[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Content-Length: 0
+
+]]>
+  </send>
+  <send retrans="500">
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]TimerG[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Contact: <sip:[local_ip]:[local_port];transport=UDP>
+Content-Length: 0
+
+]]>
+  </send>
+  %s
+  <recv request="BYE"/>
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:]
+[last_Call-ID:]
+[last_CSeq:]
+Content-Length: 0
+
+]]>
+  </send>
+</scenario>`, tc.ackRecvXML))
+			if err != nil {
+				t.Fatalf("ParseString: %v", err)
+			}
+
+			app := New(Config{
+				Scenario:       sc,
+				Transport:      "u1",
+				LocalIP:        "127.0.0.1",
+				LocalPort:      port,
+				RemoteHost:     "127.0.0.1",
+				RemotePort:     5060,
+				Service:        "echo",
+				Rate:           100,
+				TotalCalls:     1,
+				MaxConcurrent:  1,
+				DefaultPause:   10 * time.Millisecond,
+				DefaultRecvTO:  defaultEngineTestRecvTO,
+				RecvBYEFloorTO: 5 * time.Second,
+			})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			runErr := make(chan error, 1)
+			go func() {
+				runErr <- app.Run(ctx)
+			}()
+			time.Sleep(100 * time.Millisecond)
+
+			clientConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+			if err != nil {
+				t.Fatalf("ListenUDP(client): %v", err)
+			}
+			defer clientConn.Close()
+			clientAddr := clientConn.LocalAddr().(*net.UDPAddr)
+			uasAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: port}
+
+			invite := fmt.Sprintf(
+				"INVITE sip:echo@127.0.0.1:%d SIP/2.0\r\nVia: SIP/2.0/UDP %s:%d;branch=z9hG4bK-invite\r\nFrom: <sip:uac@%s>;tag=from1\r\nTo: <sip:echo@127.0.0.1>\r\nCall-ID: timer-g-ack@test\r\nCSeq: 1 INVITE\r\nContact: <sip:uac@%s:%d>\r\nContent-Length: 0\r\n\r\n",
+				port, clientAddr.IP.String(), clientAddr.Port, clientAddr.IP.String(), clientAddr.IP.String(), clientAddr.Port,
+			)
+			if _, err := clientConn.WriteToUDP([]byte(invite), uasAddr); err != nil {
+				t.Fatalf("WriteToUDP(INVITE): %v", err)
+			}
+
+			buffer := make([]byte, 65535)
+			var from, to, callID string
+			got200 := false
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) {
+				_ = clientConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+				n, _, err := clientConn.ReadFromUDP(buffer)
+				if err != nil {
+					continue
+				}
+				msg := sip.GetMessage()
+				if parseErr := sip.ParseInto(msg, buffer[:n]); parseErr != nil {
+					sip.PutMessage(msg)
+					t.Fatalf("sip.ParseInto: %v", parseErr)
+				}
+				from, _ = sip.Header(msg.Headers, "From")
+				to, _ = sip.Header(msg.Headers, "To")
+				callID, _ = sip.Header(msg.Headers, "Call-ID")
+				code := msg.StatusCode
+				sip.PutMessage(msg)
+				if code == 200 {
+					got200 = true
+					break
+				}
+			}
+			if !got200 {
+				t.Fatal("expected INVITE 200 OK")
+			}
+
+			if tc.ackDelay > 0 {
+				time.Sleep(tc.ackDelay)
+			}
+			ack := fmt.Sprintf(
+				"ACK sip:127.0.0.1:%d SIP/2.0\r\nVia: SIP/2.0/UDP %s:%d;branch=z9hG4bK-ack\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: 1 ACK\r\nContent-Length: 0\r\n\r\n",
+				port, clientAddr.IP.String(), clientAddr.Port, from, to, callID,
+			)
+			if _, err := clientConn.WriteToUDP([]byte(ack), uasAddr); err != nil {
+				t.Fatalf("WriteToUDP(ACK): %v", err)
+			}
+			if _, err := clientConn.WriteToUDP([]byte(ack), uasAddr); err != nil {
+				t.Fatalf("WriteToUDP(ACK retrans): %v", err)
+			}
+
+			invite200Retrans := 0
+			drainUntil := time.Now().Add(1200 * time.Millisecond)
+			for time.Now().Before(drainUntil) {
+				_ = clientConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+				n, _, err := clientConn.ReadFromUDP(buffer)
+				if err != nil {
+					continue
+				}
+				msg := sip.GetMessage()
+				_ = sip.ParseInto(msg, buffer[:n])
+				if msg.StatusCode == 200 {
+					_, meth, ok := sip.ParseCSeq(msg.Headers)
+					if ok && strings.EqualFold(meth, "INVITE") {
+						invite200Retrans++
+					}
+				}
+				sip.PutMessage(msg)
+			}
+			if invite200Retrans > 0 {
+				t.Fatalf("received %d INVITE 200 retransmissions after ACK (RFC 3261 Timer G)", invite200Retrans)
+			}
+
+			bye := fmt.Sprintf(
+				"BYE sip:127.0.0.1:%d SIP/2.0\r\nVia: SIP/2.0/UDP %s:%d;branch=z9hG4bK-bye\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: 2 BYE\r\nContent-Length: 0\r\n\r\n",
+				port, clientAddr.IP.String(), clientAddr.Port, from, to, callID,
+			)
+			if _, err := clientConn.WriteToUDP([]byte(bye), uasAddr); err != nil {
+				t.Fatalf("WriteToUDP(BYE): %v", err)
+			}
+			_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, _, err := clientConn.ReadFromUDP(buffer)
+			if err != nil {
+				t.Fatalf("ReadFromUDP(BYE 200): %v", err)
+			}
+			bye200 := sip.GetMessage()
+			defer sip.PutMessage(bye200)
+			if err := sip.ParseInto(bye200, buffer[:n]); err != nil {
+				t.Fatalf("sip.ParseInto(BYE 200): %v", err)
+			}
+			if bye200.StatusCode != 200 {
+				t.Fatalf("expected BYE 200, got %d", bye200.StatusCode)
+			}
+
+			if err := <-runErr; err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			summary := app.Stats().Snapshot()
+			if summary.SuccessCalls != 1 || summary.FailedCalls != 0 {
+				t.Fatalf("unexpected summary: %+v", summary)
+			}
+			if summary.Retransmits != 0 {
+				t.Fatalf("expected 0 retransmits after ACK, got %d", summary.Retransmits)
+			}
+		})
+	}
+}
+
+// TestEngineUASRTPStreamUsesINVITESDPAfterACK starts rtp_stream after recv
+// ACK (no SDP). The remote audio endpoint must come from the INVITE offer.
+// AdvertisedIP is SIP/SDP only (TEST-NET, not a local interface); RTP bind
+// must still succeed on the socket IP.
+func TestEngineUASRTPStreamUsesINVITESDPAfterACK(t *testing.T) {
+	t.Parallel()
+
+	rtpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(rtp): %v", err)
+	}
+	defer rtpConn.Close()
+	rtpPort := rtpConn.LocalAddr().(*net.UDPAddr).Port
+	gotRTP := make(chan struct{}, 1)
+	go func() {
+		buf := make([]byte, 1500)
+		_ = rtpConn.SetReadDeadline(time.Now().Add(4 * time.Second))
+		n, _, err := rtpConn.ReadFromUDP(buf)
+		if err != nil || n == 0 {
+			return
+		}
+		gotRTP <- struct{}{}
+	}()
+
+	reserved, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(reserve): %v", err)
+	}
+	port := reserved.LocalAddr().(*net.UDPAddr).Port
+	_ = reserved.Close()
+
+	sc, err := scenario.ParseString(`<?xml version="1.0" encoding="UTF-8"?>
+<scenario name="uas-rtp-after-ack">
+  <recv request="INVITE"/>
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]RtpAck[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Contact: <sip:[local_ip]:[local_port];transport=UDP>
+Content-Type: application/sdp
+Content-Length: [len]
+
+v=0
+o=gossip 1 1 IN IP4 [local_ip]
+s=-
+c=IN IP4 [local_ip]
+t=0 0
+m=audio [media_port] RTP/AVP 0
+a=rtpmap:0 PCMU/8000
+
+]]>
+  </send>
+  <recv request="ACK" optional="true"/>
+  <nop>
+    <action>
+      <exec rtp_stream="synthetic,0,0,PCMU/8000,20"/>
+    </action>
+  </nop>
+  <pause milliseconds="400"/>
+  <recv request="BYE"/>
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:]
+[last_Call-ID:]
+[last_CSeq:]
+Content-Length: 0
+
+]]>
+  </send>
+</scenario>`)
+	if err != nil {
+		t.Fatalf("ParseString: %v", err)
+	}
+
+	app := New(Config{
+		Scenario:      sc,
+		Transport:     "u1",
+		LocalIP:       "127.0.0.1",
+		LocalPort:     port,
+		AdvertisedIP:  "203.0.113.9",
+		RemoteHost:    "127.0.0.1",
+		RemotePort:    5060,
+		Service:       "echo",
+		Rate:          100,
+		TotalCalls:    1,
+		MaxConcurrent: 1,
+		DefaultPause:  10 * time.Millisecond,
+		DefaultRecvTO: defaultEngineTestRecvTO,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- app.Run(ctx)
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	clientConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(client): %v", err)
+	}
+	defer clientConn.Close()
+	clientAddr := clientConn.LocalAddr().(*net.UDPAddr)
+	uasAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: port}
+
+	sdp := fmt.Sprintf("v=0\r\no=t 1 1 IN IP4 127.0.0.1\r\ns=-\r\nc=IN IP4 127.0.0.1\r\nt=0 0\r\nm=audio %d RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n", rtpPort)
+	invite := fmt.Sprintf(
+		"INVITE sip:echo@127.0.0.1:%d SIP/2.0\r\nVia: SIP/2.0/UDP %s:%d;branch=z9hG4bK-rtp\r\nFrom: <sip:uac@%s>;tag=from1\r\nTo: <sip:echo@127.0.0.1>\r\nCall-ID: uas-rtp-ack@test\r\nCSeq: 1 INVITE\r\nContact: <sip:uac@%s:%d>\r\nContent-Type: application/sdp\r\nContent-Length: %d\r\n\r\n%s",
+		port, clientAddr.IP.String(), clientAddr.Port, clientAddr.IP.String(), clientAddr.IP.String(), clientAddr.Port, len(sdp), sdp,
+	)
+	if _, err := clientConn.WriteToUDP([]byte(invite), uasAddr); err != nil {
+		t.Fatalf("WriteToUDP(INVITE): %v", err)
+	}
+
+	buffer := make([]byte, 65535)
+	var from, to, callID, sdp200 string
+	got200 := false
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_ = clientConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		n, _, err := clientConn.ReadFromUDP(buffer)
+		if err != nil {
+			continue
+		}
+		msg := sip.GetMessage()
+		if parseErr := sip.ParseInto(msg, buffer[:n]); parseErr != nil {
+			sip.PutMessage(msg)
+			t.Fatalf("sip.ParseInto: %v", parseErr)
+		}
+		from, _ = sip.Header(msg.Headers, "From")
+		to, _ = sip.Header(msg.Headers, "To")
+		callID, _ = sip.Header(msg.Headers, "Call-ID")
+		code := msg.StatusCode
+		body := msg.Body
+		sip.PutMessage(msg)
+		if code == 200 {
+			got200 = true
+			sdp200 = body
+			break
+		}
+	}
+	if !got200 {
+		t.Fatal("expected INVITE 200 OK")
+	}
+	if !strings.Contains(sdp200, "c=IN IP4 203.0.113.9") {
+		t.Fatalf("SDP c= should stay advertised, got %q", sdp200)
+	}
+
+	ack := fmt.Sprintf(
+		"ACK sip:127.0.0.1:%d SIP/2.0\r\nVia: SIP/2.0/UDP %s:%d;branch=z9hG4bK-ack\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: 1 ACK\r\nContent-Length: 0\r\n\r\n",
+		port, clientAddr.IP.String(), clientAddr.Port, from, to, callID,
+	)
+	if _, err := clientConn.WriteToUDP([]byte(ack), uasAddr); err != nil {
+		t.Fatalf("WriteToUDP(ACK): %v", err)
+	}
+
+	select {
+	case <-gotRTP:
+	case <-time.After(3 * time.Second):
+		t.Fatal("expected RTP from UAS after ACK (INVITE SDP endpoint)")
+	}
+
+	bye := fmt.Sprintf(
+		"BYE sip:127.0.0.1:%d SIP/2.0\r\nVia: SIP/2.0/UDP %s:%d;branch=z9hG4bK-bye\r\nFrom: %s\r\nTo: %s\r\nCall-ID: %s\r\nCSeq: 2 BYE\r\nContent-Length: 0\r\n\r\n",
+		port, clientAddr.IP.String(), clientAddr.Port, from, to, callID,
+	)
+	if _, err := clientConn.WriteToUDP([]byte(bye), uasAddr); err != nil {
+		t.Fatalf("WriteToUDP(BYE): %v", err)
+	}
+	_ = clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, _, err := clientConn.ReadFromUDP(buffer); err != nil {
+		t.Fatalf("ReadFromUDP(BYE 200): %v", err)
+	}
+
+	if err := <-runErr; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	summary := app.Stats().Snapshot()
+	if summary.SuccessCalls != 1 || summary.FailedCalls != 0 {
+		t.Fatalf("unexpected summary: %+v", summary)
+	}
+	if summary.Media.RTPPacketsSent == 0 {
+		t.Fatalf("expected RTP packets sent, got %+v", summary.Media)
+	}
+}
+
 // TestEngineOptionalRecvBailsWhenPendingHasFinal verifies that an optional
 // recv step immediately skips (without waiting on the network) when the
 // pending queue already holds a final response that doesn't match it.

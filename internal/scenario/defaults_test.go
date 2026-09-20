@@ -1,6 +1,38 @@
 package scenario
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestLoadNamedUASHasRTPStream(t *testing.T) {
+	t.Parallel()
+	sc, err := LoadNamed("uas")
+	if err != nil {
+		t.Fatalf("LoadNamed(uas): %v", err)
+	}
+	raw, err := BuiltinXML("uas")
+	if err != nil {
+		t.Fatalf("BuiltinXML(uas): %v", err)
+	}
+	if !strings.Contains(raw, `rtp_stream="synthetic,0,[audio_pt],[audio_codec],20"`) {
+		t.Fatal("builtin uas must play synthetic RTP after ACK")
+	}
+	var start, stop bool
+	for _, cmd := range sc.Commands {
+		for _, a := range cmd.Actions {
+			if strings.HasPrefix(a.RTPStream, "synthetic,") {
+				start = true
+			}
+			if a.RTPStream == "stop" {
+				stop = true
+			}
+		}
+	}
+	if !start || !stop {
+		t.Fatalf("uas rtp_stream start=%v stop=%v", start, stop)
+	}
+}
 
 func TestLoadNamedInviteMedia(t *testing.T) {
 	t.Parallel()
