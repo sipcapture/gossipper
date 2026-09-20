@@ -29,9 +29,13 @@ func (s *Server) handleGetBuiltinScenario(w http.ResponseWriter, r *http.Request
 			break
 		}
 	}
+	src := meta.Source
+	if src == "" {
+		src = "builtin"
+	}
 	s.writeJSON(w, http.StatusOK, map[string]any{
 		"meta":   meta,
 		"xml":    xml,
-		"source": "builtin",
+		"source": src,
 	})
 }

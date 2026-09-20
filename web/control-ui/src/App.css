@@ -151,6 +151,11 @@
   }
 }
 
+.lab-grid {
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--muted-foreground) 45%, transparent) 1px, transparent 1.6px);
+  background-size: var(--lab-grid, 16px) var(--lab-grid, 16px);
+}
+
 /* uPlot legend: small circular swatches (Grafana-style) instead of 1em squares */
 .uplot .u-legend .u-marker {
   width: 7px;

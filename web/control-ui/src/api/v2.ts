@@ -208,7 +208,7 @@ export type BuiltinScenarioMeta = {
   name: string
   role?: string
   description?: string
-  source: 'builtin'
+  source: 'builtin' | 'lab'
 }
 export const listBuiltinScenarios = (opts: Opts) =>
   request<{ scenarios: BuiltinScenarioMeta[]; source: string }>(

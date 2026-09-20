@@ -29,6 +29,7 @@ export function ScenarioSelect({
   const options = buildScenarioOptions(scenarios, builtins, roleFilter)
   const custom = options.filter((o) => o.group === 'custom')
   const built = options.filter((o) => o.group === 'builtin')
+  const lab = options.filter((o) => o.group === 'lab')
 
   return (
     <select
@@ -59,6 +60,15 @@ export function ScenarioSelect({
           ))}
         </optgroup>
       ) : null}
+      {lab.length > 0 ? (
+        <optgroup label="Lab (kefir ports)">
+          {lab.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </optgroup>
+      ) : null}
     </select>
   )
 }
@@ -74,15 +84,21 @@ export function ScenarioPreview({ scenarioId, scenarios, builtins }: ScenarioPre
   const sc =
     scenarios.find((x) => x.id === scenarioId) ?? builtins.find((x) => x.id === scenarioId)
   if (!sc) return null
-  const builtin = 'source' in sc && sc.source === 'builtin'
+  const source = 'source' in sc ? sc.source : undefined
   return (
     <div className="text-muted-foreground mt-1 rounded-md border px-2 py-1 text-[11px]">
       <div>
         <span className="text-foreground/70">role:</span> <code>{sc.role ?? 'either'}</code>
-        {builtin ? (
+        {source === 'builtin' ? (
           <>
             {' '}
             · <span className="text-warning">built-in</span>
+          </>
+        ) : null}
+        {source === 'lab' ? (
+          <>
+            {' '}
+            · <span className="text-warning">lab</span>
           </>
         ) : null}
       </div>

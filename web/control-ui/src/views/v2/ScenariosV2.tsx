@@ -22,6 +22,7 @@ import { validateScenarioXML } from '@/lib/xmlValidate'
 import { validateMediaRefs } from '@/lib/mediaRefs'
 import { PrepToolsPanel } from '@/components/v2/PrepToolsPanel'
 import { PcapImportPanel } from '@/components/v2/PcapImportPanel'
+import { ScenarioGraphEditor } from '@/components/v2/ScenarioGraphEditor'
 import { Button } from '@/components/ui/button'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
@@ -83,9 +84,15 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
   const [forkOpen, setForkOpen] = useState(false)
   const [forkDraft, setForkDraft] = useState({ id: '', name: '' })
   const [builtins, setBuiltins] = useState<BuiltinScenarioMeta[]>([])
-  const [builtinPreview, setBuiltinPreview] = useState<{ id: string; xml: string } | null>(null)
+  const [builtinPreview, setBuiltinPreview] = useState<{
+    id: string
+    name?: string
+    role?: string
+    xml: string
+  } | null>(null)
   const [wavNames, setWavNames] = useState<Set<string>>(new Set())
   const [pcapNames, setPcapNames] = useState<Set<string>>(new Set())
+  const [editorTab, setEditorTab] = useState<'graph' | 'xml'>('graph')
   const xmlRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -123,12 +130,14 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
         xml: body.xml,
       })
       setCreateMode(false)
+      setEditorTab('graph')
     })
   }
 
   const onCreate = () => {
     setDraft({ id: '', name: '', xml: STARTER_XML })
     setCreateMode(true)
+    setEditorTab('graph')
   }
 
   const onUploadFile = (file: File) => {
@@ -141,6 +150,7 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
         xml: text,
       })
       setCreateMode(true)
+      setEditorTab('graph')
     })
   }
 
@@ -164,11 +174,38 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
     })
   }
 
+  const engineBuiltins = useMemo(
+    () => builtins.filter((b) => b.source !== 'lab'),
+    [builtins],
+  )
+  const labBuiltins = useMemo(
+    () => builtins.filter((b) => b.source === 'lab'),
+    [builtins],
+  )
+
   const onViewBuiltin = (id: string) => {
     void run(async () => {
       const body = await getBuiltinScenario(id, { bearer })
-      setBuiltinPreview({ id, xml: body.xml })
+      setBuiltinPreview({
+        id,
+        name: body.meta?.name,
+        role: body.meta?.role,
+        xml: body.xml,
+      })
     })
+  }
+
+  const onCloneBuiltin = () => {
+    if (!builtinPreview) return
+    setDraft({
+      id: `${builtinPreview.id}_copy`,
+      name: builtinPreview.name || builtinPreview.id,
+      role: builtinPreview.role,
+      xml: builtinPreview.xml,
+    })
+    setCreateMode(true)
+    setEditorTab('graph')
+    setBuiltinPreview(null)
   }
 
   const insertMediaAlias = (kind: 'wav' | 'pcap', name: string) => {
@@ -256,7 +293,7 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
         render: (r) => (
           <div className="flex justify-end gap-1">
             <Button type="button" variant="outline" size="xs" onClick={() => onEdit(r)}>
-              Edit XML
+              Edit
             </Button>
             <Button type="button" variant="destructive" size="xs" onClick={() => onDelete(r)}>
               Delete
@@ -284,7 +321,6 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
   useEffect(() => {
     if (history === null || !draft) return
     if (historyDiffBase === 'current') {
-      setHistoryBaseXML(draft.xml)
       return
     }
     let cancelled = false
@@ -408,7 +444,8 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
         <div>
           <h2 className="text-sm font-semibold">Scenarios</h2>
           <p className="text-muted-foreground text-xs">
-            SIP XML scenarios. Stored as <code>scenarios/&lt;id&gt;.xml</code> plus a JSON sidecar with metadata. Tip: drag &amp; drop an .xml file anywhere on this panel.
+            SIP XML scenarios. Stored as <code>scenarios/&lt;id&gt;.xml</code> plus a JSON sidecar with metadata.
+            Edit on a canvas (Graph) or as XML. Tip: drag &amp; drop an .xml file anywhere on this panel.
           </p>
         </div>
         <div className="flex gap-2">
@@ -481,13 +518,39 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
         }
       />
 
-      {builtins.length > 0 ? (
+      {engineBuiltins.length > 0 ? (
         <div className="border-border bg-card rounded-md border p-3">
           <h3 className="mb-2 text-xs font-medium">Built-in scenarios (read-only)</h3>
           <ul className="flex flex-wrap gap-2">
-            {builtins.map((b) => (
+            {engineBuiltins.map((b) => (
               <li key={b.id}>
                 <Button type="button" variant="outline" size="xs" onClick={() => onViewBuiltin(b.id)}>
+                  {b.id}
+                  {b.role ? ` · ${b.role}` : ''}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {labBuiltins.length > 0 ? (
+        <div className="border-border bg-card rounded-md border p-3">
+          <h3 className="mb-1 text-xs font-medium">Lab scenarios (kefir ports)</h3>
+          <p className="text-muted-foreground mb-2 text-[11px]">
+            Same ids as kefir bundled labs. Run with <code>-sn &lt;id&gt;</code> or clone into the store
+            to edit on the Graph canvas.
+          </p>
+          <ul className="flex flex-wrap gap-2">
+            {labBuiltins.map((b) => (
+              <li key={b.id}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  title={b.description}
+                  onClick={() => onViewBuiltin(b.id)}
+                >
                   {b.id}
                   {b.role ? ` · ${b.role}` : ''}
                 </Button>
@@ -500,7 +563,7 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
       <Modal
         open={draft !== null}
         onClose={() => setDraft(null)}
-        size="xl"
+        size="full"
         title={createMode ? 'New scenario' : `Edit scenario · ${draft?.id ?? ''}`}
         footer={
           <>
@@ -575,7 +638,20 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
             </div>
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Label className="text-xs">XML</Label>
+                <div className="border-border flex overflow-hidden rounded-md border text-[11px]">
+                  {(['graph', 'xml'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setEditorTab(m)}
+                      className={`px-3 py-1 ${
+                        editorTab === m ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                      }`}
+                    >
+                      {m === 'graph' ? 'Graph' : 'XML'}
+                    </button>
+                  ))}
+                </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {mediaWarnings && mediaWarnings.missing.length > 0 ? (
                     <span className="text-warning text-[10px]">
@@ -603,15 +679,21 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
               ) : (
                 <span className="text-success text-[11px]">XML well-formed</span>
               )}
-              <Textarea
-                ref={xmlRef}
-                value={draft.xml}
-                onChange={(e) => setDraft({ ...draft, xml: e.target.value })}
-                className={`mt-1 min-h-0 flex-1 font-mono text-xs ${
-                  xmlError ? 'border-destructive/60' : ''
-                }`}
-                spellCheck={false}
-              />
+              {editorTab === 'graph' ? (
+                <div className="mt-1 flex min-h-0 flex-1 flex-col">
+                  <ScenarioGraphEditor xml={draft.xml} onChange={(xml) => setDraft({ ...draft, xml })} />
+                </div>
+              ) : (
+                <Textarea
+                  ref={xmlRef}
+                  value={draft.xml}
+                  onChange={(e) => setDraft({ ...draft, xml: e.target.value })}
+                  className={`mt-1 min-h-0 flex-1 font-mono text-xs ${
+                    xmlError ? 'border-destructive/60' : ''
+                  }`}
+                  spellCheck={false}
+                />
+              )}
             </div>
           </div>
         ) : null}
@@ -834,6 +916,18 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
         onClose={() => setBuiltinPreview(null)}
         size="lg"
         title={builtinPreview ? `Built-in · ${builtinPreview.id}` : 'Built-in'}
+        footer={
+          builtinPreview ? (
+            <>
+              <Button type="button" variant="outline" size="sm" onClick={() => setBuiltinPreview(null)}>
+                Close
+              </Button>
+              <Button type="button" size="sm" onClick={onCloneBuiltin}>
+                Clone to editor
+              </Button>
+            </>
+          ) : null
+        }
       >
         {builtinPreview ? (
           <Textarea

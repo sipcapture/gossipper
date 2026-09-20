@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.65] — 2026-09-20
+
+### Added
+
+- Control UI Scenarios **Graph** canvas: linear SIPp send/recv/pause/label chain with snap, edge labels, and an XML tab. Nested actions stay as raw nodes.
+- Kefir lab catalog as baked-in SIPp XML (`internal/scenario/lab/*.xml`, `source: lab`). Same ids as kefir bundled TOML. Control UI lists them separately; clone opens the Graph editor. Synthetic RTP Comfort Noise PT 13 (`CN/8000`). See [docs/lab-scenarios.md](docs/lab-scenarios.md).
+
 ### Security
 
 - Close open Dependabot alerts: `google.golang.org/grpc` 1.83.2, OTLP log exporters 0.21.0, and Control UI transitive pins (`js-yaml`, `hono`, `qs`, `fast-uri`, `browserslist`, `postcss-selector-parser`, `baseline-browser-mapping`, `nanoid`, `vitest`).

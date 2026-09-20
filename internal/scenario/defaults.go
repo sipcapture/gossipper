@@ -639,6 +639,12 @@ func LoadNamed(name string) (Scenario, error) {
 		sc.BasePath = "."
 		return sc, err
 	default:
-		return Scenario{}, ErrUnknownScenario(name)
+		raw, err := BuiltinXML(name)
+		if err != nil {
+			return Scenario{}, err
+		}
+		sc, err := ParseString(raw)
+		sc.BasePath = "."
+		return sc, err
 	}
 }
