@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- Graph XML parser: strip comments/CDATA with the same linear scan as `xmlValidate` instead of a non-global `<!--...-->` replace (CodeQL `js/incomplete-multi-character-sanitization`, [#50](https://github.com/sipcapture/gossipper/security/code-scanning/50)).
+
 ## [0.1.65] — 2026-09-20
 
 ### Added
