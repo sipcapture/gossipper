@@ -95,6 +95,13 @@ describe('scenarioGraph', () => {
     expect(commandTypes(blocks)).toEqual(['recv', 'send', 'pause'])
   })
 
+  it('treats comments as noise so a pause stays a pause', () => {
+    const xml = `<scenario name="x"><pause milliseconds="10"><!-- <recv request="INVITE"/> --></pause></scenario>`
+    const blocks = xmlToBlocks(xml)
+    expect(commandTypes(blocks)).toEqual(['pause'])
+    expect(blocks[1]?.milliseconds).toBe(10)
+  })
+
   it('parses kefir lab one_way.xml and keeps rtp_stream as raw', () => {
     const here = dirname(fileURLToPath(import.meta.url))
     const xml = readFileSync(join(here, '../../../../internal/scenario/lab/one_way.xml'), 'utf8')

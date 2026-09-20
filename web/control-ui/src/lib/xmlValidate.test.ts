@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { validateScenarioXML } from '@/lib/xmlValidate'
+import { stripXmlCommentsAndCDATA, validateScenarioXML } from '@/lib/xmlValidate'
 
 describe('validateScenarioXML', () => {
   it('accepts minimal well-formed scenario', () => {
@@ -27,5 +27,16 @@ describe('validateScenarioXML', () => {
     expect(
       validateScenarioXML('<scenario><!-- note --><recv request="INVITE"/></scenario>'),
     ).toBeNull()
+  })
+})
+
+describe('stripXmlCommentsAndCDATA', () => {
+  it('drops comments and CDATA with a linear scan', () => {
+    expect(stripXmlCommentsAndCDATA('a<!-- x -->b<![CDATA[<c>]]>d')).toBe('abd')
+  })
+
+  it('does not leave <!-- after a nested comment opener', () => {
+    expect(stripXmlCommentsAndCDATA('<!<!-- comment -->')).toBe('<!')
+    expect(stripXmlCommentsAndCDATA('<!<!-- comment -->')).not.toMatch(/<!--/)
   })
 })

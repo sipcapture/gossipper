@@ -36,7 +36,8 @@ export function validateScenarioXML(xml: string): string | null {
   return null
 }
 
-function stripXmlCommentsAndCDATA(input: string): string {
+/** Drop XML comments and CDATA via a linear scan (not regex replace). */
+export function stripXmlCommentsAndCDATA(input: string): string {
   let out = ''
   let i = 0
   for (; i < input.length; ) {

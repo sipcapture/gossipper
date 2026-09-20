@@ -1,5 +1,7 @@
 /** Linear SIPp command blocks ↔ scenario XML. Same canvas idea as kefir Lab. */
 
+import { stripXmlCommentsAndCDATA } from '@/lib/xmlValidate'
+
 export const GRID = 16
 
 export type GraphBlockType = 'start' | 'send' | 'recv' | 'pause' | 'nop' | 'label' | 'timewait' | 'raw'
@@ -370,8 +372,7 @@ function findMatchingClose(s: string, from: number, tag: string): number {
 }
 
 function innerHasChildElements(inner: string): boolean {
-  const stripped = inner.replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '').replace(/<!--[\s\S]*?-->/g, '')
-  return /<[A-Za-z_]/.test(stripped)
+  return /<[A-Za-z_]/.test(stripXmlCommentsAndCDATA(inner))
 }
 
 function unwrapCdata(inner: string): string {
