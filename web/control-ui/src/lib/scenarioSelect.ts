@@ -29,7 +29,7 @@ export function filterBuiltinsByRole(
 export type ScenarioSelectOption = {
   id: string
   label: string
-  group: 'custom' | 'builtin'
+  group: 'custom' | 'builtin' | 'lab'
   role?: string
 }
 
@@ -44,13 +44,24 @@ export function buildScenarioOptions(
     group: 'custom' as const,
     role: s.role,
   }))
-  const built = filterBuiltinsByRole(builtins, roleFilter).map((s) => ({
-    id: s.id,
-    label: `${s.id} — ${s.name} [built-in]`,
-    group: 'builtin' as const,
-    role: s.role,
-  }))
-  return [...custom, ...built]
+  const matching = filterBuiltinsByRole(builtins, roleFilter)
+  const built = matching
+    .filter((s) => s.source !== 'lab')
+    .map((s) => ({
+      id: s.id,
+      label: `${s.id} — ${s.name} [built-in]`,
+      group: 'builtin' as const,
+      role: s.role,
+    }))
+  const lab = matching
+    .filter((s) => s.source === 'lab')
+    .map((s) => ({
+      id: s.id,
+      label: `${s.id} — ${s.name} [lab]`,
+      group: 'lab' as const,
+      role: s.role,
+    }))
+  return [...custom, ...built, ...lab]
 }
 
 export function findScenarioMeta(

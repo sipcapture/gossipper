@@ -464,6 +464,20 @@ func TestV2BuiltinScenarios(t *testing.T) {
 		t.Fatalf("expected scenario xml, got %q", xml[:min(40, len(xml))])
 	}
 	resp.Body.Close()
+
+	resp = h.do(http.MethodGet, "/api/v2/builtin-scenarios/one_way", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get lab one_way status=%d", resp.StatusCode)
+	}
+	lab := decode[map[string]any](t, resp)
+	if lab["source"] != "lab" {
+		t.Fatalf("expected source=lab, got %#v", lab["source"])
+	}
+	labXML, _ := lab["xml"].(string)
+	if !strings.Contains(labXML, "a=sendonly") {
+		t.Fatalf("expected one_way SDP, got %q", labXML[:min(80, len(labXML))])
+	}
+	resp.Body.Close()
 }
 
 func TestV2Settings(t *testing.T) {

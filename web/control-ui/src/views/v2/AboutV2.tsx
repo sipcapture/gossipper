@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { getHealthV2, type HealthV2 } from '@/api/v2'
+import { getHealthV2, listBuiltinScenarios, type BuiltinScenarioMeta, type HealthV2 } from '@/api/v2'
 
 const REPO_URL = 'https://github.com/sipcapture/gossipper'
 const HOMER_URL = 'https://github.com/sipcapture/homer'
@@ -28,16 +28,6 @@ const FEATURES: { title: string; body: string }[] = [
   },
 ]
 
-const BUILTIN_SCENARIOS = [
-  'uac',
-  'uas',
-  'management',
-  'invite_media',
-  'invite_media_early',
-  'invite_media_savpf',
-  'invite_media_early_180',
-]
-
 export type AboutV2Props = {
   bearer?: string
 }
@@ -45,17 +35,24 @@ export type AboutV2Props = {
 export function AboutV2({ bearer }: AboutV2Props) {
   const [health, setHealth] = useState<HealthV2 | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [builtins, setBuiltins] = useState<BuiltinScenarioMeta[]>([])
 
   useEffect(() => {
     let cancelled = false
-    void (async () => {
-      try {
-        const h = await getHealthV2({ bearer })
+    getHealthV2({ bearer })
+      .then((h) => {
         if (!cancelled) setHealth(h)
-      } catch (e) {
+      })
+      .catch((e: unknown) => {
         if (!cancelled) setErr(e instanceof Error ? e.message : String(e))
-      }
-    })()
+      })
+    listBuiltinScenarios({ bearer })
+      .then((body) => {
+        if (!cancelled) setBuiltins(body.scenarios ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setBuiltins([])
+      })
     return () => {
       cancelled = true
     }
@@ -95,12 +92,29 @@ export function AboutV2({ bearer }: AboutV2Props) {
           Engine-baked XML (read-only) — selectable in profile / job forms alongside custom scenarios.
         </p>
         <div className="flex flex-wrap gap-1">
-          {BUILTIN_SCENARIOS.map((id) => (
-            <code key={id} className="bg-muted rounded px-1.5 py-0.5 text-[10px]">
-              {id}
+          {(builtins.length > 0 ? builtins.filter((b) => b.source !== 'lab') : []).map((b) => (
+            <code key={b.id} className="bg-muted rounded px-1.5 py-0.5 text-[10px]">
+              {b.id}
             </code>
           ))}
         </div>
+        {builtins.some((b) => b.source === 'lab') ? (
+          <>
+            <h4 className="mt-3 mb-1 text-xs font-medium">Lab (kefir ports)</h4>
+            <p className="text-muted-foreground mb-2 text-[11px]">
+              Same ids as kefir bundled labs. Run with <code>-sn &lt;id&gt;</code> or clone on Scenarios.
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {builtins
+                .filter((b) => b.source === 'lab')
+                .map((b) => (
+                  <code key={b.id} className="bg-muted rounded px-1.5 py-0.5 text-[10px]">
+                    {b.id}
+                  </code>
+                ))}
+            </div>
+          </>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

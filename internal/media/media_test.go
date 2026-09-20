@@ -169,6 +169,17 @@ func TestParseRTPStreamSpecPayloadParams(t *testing.T) {
 	if cfg.LoopCount != -1 || cfg.PayloadType != 8 || cfg.PayloadName != "PCMA/8000" {
 		t.Fatalf("unexpected cfg: %+v", cfg)
 	}
+
+	_, cn, err := ParseRTPStreamSpec("synthetic,0,13,CN/8000,20", ".")
+	if err != nil {
+		t.Fatalf("ParseRTPStreamSpec(CN): %v", err)
+	}
+	if cn.PayloadType != 13 || !cn.Synthetic {
+		t.Fatalf("CN cfg: %+v", cn)
+	}
+	if got := buildSyntheticPayload(cn); len(got) != 1 || got[0] != 0x00 {
+		t.Fatalf("CN payload = %v", got)
+	}
 }
 
 func TestParseRTPStreamMicInput(t *testing.T) {

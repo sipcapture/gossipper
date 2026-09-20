@@ -130,6 +130,10 @@ All mutating endpoints append to `audit_log` (when `auth.type: internal`).
 
 ## Scenarios + media linkage
 
+The Scenarios page editor has a **Graph** canvas (linear send / recv / pause / label chain, same idea as kefir Lab) and an **XML** tab. Nested SIPp actions that the graph cannot type stay as **raw** nodes so they are not dropped. Save still writes `scenarios/<id>.xml`.
+
+`GET /api/v2/builtin-scenarios` also lists **lab** ports of the kefir gateway catalog (`source: "lab"`, ids such as `one_way`, `hold_resume`). Run with `-sn <id>` or **Clone to editor**. Mapping notes: [lab scenarios](lab-scenarios.md).
+
 Inside scenario XML you can reference uploaded assets with `[[media:...]]`
 placeholders; the worker rewrites them to absolute paths before parsing:
 

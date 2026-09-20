@@ -47,12 +47,12 @@ Output goes to **`internal/api/webdist/`** and is embedded via `go:embed` in `in
 | Load test | `GET/POST /api/v2/load-test/*` |
 | Jobs | `/api/v2/jobs`, `/api/v2/jobs/{id}/events` |
 | Reports | `/api/v2/reports`, artifacts |
-| Scenarios | `/api/v2/scenarios`, `/api/v2/tools/*` (Prep) |
+| Scenarios | `/api/v2/scenarios`, `/api/v2/tools/*` (Prep). Graph canvas + XML editor. Lab (kefir) builtins via `/api/v2/builtin-scenarios`. |
 | Clients / Servers | `/api/v2/clients`, `/api/v2/servers` |
 
 Deep links: `#/load/{jobId}`, `#/jobs/{jobId}`, `#/reports?report={jobId}`.
 
-See also [`docs/ui-mode.md`](../../docs/ui-mode.md) and [`docs/sipstress-style-load-testing.md`](../../docs/sipstress-style-load-testing.md).
+See also [`docs/ui-mode.md`](../../docs/ui-mode.md), [`docs/lab-scenarios.md`](../../docs/lab-scenarios.md), and [`docs/sipstress-style-load-testing.md`](../../docs/sipstress-style-load-testing.md).
 
 ## Tests
 

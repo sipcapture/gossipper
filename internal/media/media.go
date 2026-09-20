@@ -268,6 +268,8 @@ func buildSyntheticPayload(cfg StreamConfig) []byte {
 		for i := range payload {
 			payload[i] = 0xD5
 		}
+	case 13: // CN — RFC 3389 noise-level byte
+		return []byte{0x00}
 		// All other codecs: zero bytes are a reasonable silence representation.
 	}
 	return payload
@@ -1095,6 +1097,11 @@ func ApplyPayloadParams(cfg *StreamConfig, payloadName string) {
 		cfg.PacketDuration = 20 * time.Millisecond
 	case strings.HasPrefix(payloadName, "PCMU/8000"):
 		cfg.PayloadType = 0
+		cfg.ClockRate = 8000
+		cfg.SamplesPerPkt = 160
+		cfg.PacketDuration = 20 * time.Millisecond
+	case strings.HasPrefix(payloadName, "CN/8000"):
+		cfg.PayloadType = 13
 		cfg.ClockRate = 8000
 		cfg.SamplesPerPkt = 160
 		cfg.PacketDuration = 20 * time.Millisecond

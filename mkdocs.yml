@@ -73,6 +73,7 @@ nav:
       - Interactive shell: interactive-shell.md
       - UI mode: ui-mode.md
       - Run profiles: run-profile.md
+      - Lab scenarios: lab-scenarios.md
   - Compatibility:
       - Compatibility matrix: compatibility.md
       - Compatibility testing: compatibility-testing.md
