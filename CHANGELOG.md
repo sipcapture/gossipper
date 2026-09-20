@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 ### Security
 
 - Graph XML parser: strip comments/CDATA with the same linear scan as `xmlValidate` instead of a non-global `<!--...-->` replace (CodeQL `js/incomplete-multi-character-sanitization`, [#50](https://github.com/sipcapture/gossipper/security/code-scanning/50)).
+- Drop advanced `.github/workflows/codeql.yml`. Default CodeQL setup already covers Go and JavaScript; GitHub rejects SARIF from advanced configs while default setup is enabled ([run 35504415900](https://github.com/sipcapture/gossipper/actions/runs/35504415900)).
 
 ## [0.1.65] — 2026-09-20
 
