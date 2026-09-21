@@ -4,7 +4,9 @@ import type { ChangeEvent } from 'react'
 import { clearSIPTrace, downloadSIPTrace, putSIPTraceCapture, sipTraceWSURL } from '@/api/v2'
 import type { ApiErrorV2, SIPTraceCapture, SIPTraceMessage, SIPTraceResponse } from '@/api/v2'
 import { Button } from '@/components/ui/button'
-import { LOG_LEVELS, appendSIPTrace, applySIPTraceFrame, rowMatchesCapture } from '@/lib/sipLive'
+import { SipCallflow } from '@/components/v2/SipCallflow'
+import { SipMessageModal } from '@/components/v2/SipMessageModal'
+import { LOG_LEVELS, appendSIPTrace, applySIPTraceFrame, isSIPRow, rowMatchesCapture } from '@/lib/sipLive'
 import { cn } from '@/lib/utils'
 
 const MAX_ROWS = 400
@@ -22,8 +24,10 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
   const [filter, setFilter] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [openSeq, setOpenSeq] = useState<number | null>(null)
-  const [exporting, setExporting] = useState<'text' | 'pcap' | null>(null)
-  const [capture, setCapture] = useState<SIPTraceCapture>({ sip: true, app: false, level: 'debug' })
+  const [exporting, setExporting] = useState<'text' | 'pcap' | 'zip' | null>(null)
+  const [capture, setCapture] = useState<SIPTraceCapture>({ sip: true, app: false, rtp: false, level: 'debug' })
+  const [view, setView] = useState<'list' | 'flow'>('list')
+  const [flowMsg, setFlowMsg] = useState<SIPTraceMessage | null>(null)
   const sinceRef = useRef(0)
   const pausedRef = useRef(false)
   const heldRef = useRef<SIPTraceMessage[]>([])
@@ -61,6 +65,7 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
             heldRef.current = []
             setRows([])
             setOpenSeq(null)
+            setFlowMsg(null)
             return
           }
           if (!data.messages?.length) return
@@ -116,6 +121,7 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
       sinceRef.current = data.next
       setRows([])
       setOpenSeq(null)
+      setFlowMsg(null)
       setFilter('')
       setErr(null)
     })()
@@ -147,6 +153,10 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
     applyCapture({ ...capture, app: !capture.app })
   }, [applyCapture, capture])
 
+  const onToggleRtp = useCallback(() => {
+    applyCapture({ ...capture, rtp: !capture.rtp })
+  }, [applyCapture, capture])
+
   const onLevelChange = useCallback(
     (ev: ChangeEvent<HTMLSelectElement>) => {
       applyCapture({ ...capture, level: ev.target.value })
@@ -159,7 +169,7 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
   }, [])
 
   const onExport = useCallback(
-    (format: 'text' | 'pcap') => {
+    (format: 'text' | 'pcap' | 'zip') => {
       void (async () => {
         setExporting(format)
         setErr(null)
@@ -184,12 +194,24 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
     onExport('pcap')
   }, [onExport])
 
+  const onExportZip = useCallback(() => {
+    onExport('zip')
+  }, [onExport])
+
   const onToggleRow = useCallback((seq: number) => {
     setOpenSeq((cur) => (cur === seq ? null : seq))
   }, [])
 
   const onFilterChange = useCallback((ev: ChangeEvent<HTMLSelectElement>) => {
     setFilter(ev.target.value)
+  }, [])
+
+  const onViewList = useCallback(() => {
+    setView('list')
+  }, [])
+
+  const onViewFlow = useCallback(() => {
+    setView('flow')
   }, [])
 
   const scenarios = useMemo(() => {
@@ -212,9 +234,11 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
         <div>
           <p className="text-xs font-medium">Live Trace</p>
           <p className="text-muted-foreground text-[11px]">
-            SIP plus scenario debug on one timeline. SIP and Debug are independent capture toggles;
-            Debug level (debug/info/warn/error) changes on the fly. Export downloads the full ring
-            (text or pcap; pcap is SIP only), not only the last {MAX_ROWS} rows.
+            SIP plus scenario debug and RTP on one timeline. SIP, Debug, and RTP are independent
+            capture toggles; Debug level changes on the fly. RTP stores the last 4096 packets for
+            dump (Live Trace shows a summary every 50 packets). <strong>Dump</strong> downloads a
+            zip with <code>call.pcap</code> (SIP+RTP) and <code>call.log</code>. Text/PCAP export
+            the ring, not only the last {MAX_ROWS} rows.
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -239,6 +263,24 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
           <span className="text-muted-foreground text-[11px]">{visible.length} msgs</span>
           <Button
             type="button"
+            variant={view === 'list' ? 'default' : 'outline'}
+            size="xs"
+            aria-pressed={view === 'list'}
+            onClick={onViewList}
+          >
+            List
+          </Button>
+          <Button
+            type="button"
+            variant={view === 'flow' ? 'default' : 'outline'}
+            size="xs"
+            aria-pressed={view === 'flow'}
+            onClick={onViewFlow}
+          >
+            Callflow
+          </Button>
+          <Button
+            type="button"
             variant={capture.sip ? 'default' : 'outline'}
             size="xs"
             aria-pressed={capture.sip}
@@ -254,6 +296,15 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
             onClick={onToggleApp}
           >
             Debug
+          </Button>
+          <Button
+            type="button"
+            variant={capture.rtp ? 'default' : 'outline'}
+            size="xs"
+            aria-pressed={Boolean(capture.rtp)}
+            onClick={onToggleRtp}
+          >
+            RTP
           </Button>
           <select
             className="border-input bg-background h-7 rounded-md border px-1.5 text-[11px]"
@@ -288,6 +339,15 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
           >
             {exporting === 'pcap' ? 'Saving…' : 'PCAP'}
           </Button>
+          <Button
+            type="button"
+            variant="default"
+            size="xs"
+            disabled={exporting !== null}
+            onClick={onExportZip}
+          >
+            {exporting === 'zip' ? 'Saving…' : 'Dump'}
+          </Button>
           <Button type="button" variant="outline" size="xs" onClick={onClear}>
             Clear
           </Button>
@@ -304,10 +364,12 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
       >
         {visible.length === 0 ? (
           <p className="text-muted-foreground p-3">
-            {!capture.sip && !capture.app
-              ? 'Enable SIP or Debug to capture.'
+            {!capture.sip && !capture.app && !capture.rtp
+              ? 'Enable SIP, Debug, or RTP to capture.'
               : 'Waiting for events…'}
           </p>
+        ) : view === 'flow' ? (
+          <SipCallflow rows={visible.filter(isSIPRow)} onSelect={setFlowMsg} />
         ) : (
           visible.map((m) => (
             <SipTraceRow
@@ -319,6 +381,7 @@ export function SipLiveTrace({ bearer, compact, fill }: SipLiveTraceProps) {
           ))
         )}
       </div>
+      <SipMessageModal msg={flowMsg} onClose={() => setFlowMsg(null)} />
     </div>
   )
 }
@@ -331,11 +394,12 @@ interface SipTraceRowProps {
 
 function SipTraceRow({ msg, open, onToggle }: SipTraceRowProps) {
   const app = msg.kind === 'app'
-  const outbound = !app && msg.dir === 'send'
+  const rtp = msg.kind === 'rtp'
+  const outbound = !app && !rtp && msg.dir === 'send'
   const onClick = useCallback(() => {
     onToggle(msg.seq)
   }, [msg.seq, onToggle])
-  const badge = app ? 'DBG' : outbound ? 'OUT' : 'IN'
+  const badge = app ? 'DBG' : rtp ? 'RTP' : outbound ? 'OUT' : 'IN'
   return (
     <div className={cn('border-b last:border-b-0', open ? 'bg-background/60' : undefined)}>
       <button
@@ -348,9 +412,11 @@ function SipTraceRow({ msg, open, onToggle }: SipTraceRowProps) {
             'mt-0.5 shrink-0 rounded px-1 font-semibold',
             app
               ? 'bg-sky-500/15 text-sky-700'
-              : outbound
-                ? 'bg-amber-500/15 text-amber-700'
-                : 'bg-emerald-500/15 text-emerald-700',
+              : rtp
+                ? 'bg-violet-500/15 text-violet-700'
+                : outbound
+                  ? 'bg-amber-500/15 text-amber-700'
+                  : 'bg-emerald-500/15 text-emerald-700',
           )}
         >
           {badge}

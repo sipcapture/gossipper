@@ -4,6 +4,7 @@ export type NavId =
   | 'clients'
   | 'gateway'
   | 'sip'
+  | 'calls'
   | 'scenarios'
   | 'jobs'
   | 'reports'
@@ -20,6 +21,7 @@ const VALID: NavId[] = [
   'clients',
   'gateway',
   'sip',
+  'calls',
   'scenarios',
   'jobs',
   'reports',
@@ -36,6 +38,7 @@ export type ScenarioRouteKind = 'list' | 'new' | 'edit' | 'builtin'
 export type HashRoute = {
   nav: NavId
   jobId?: string
+  callId?: string
   reportJobId?: string
   scenarioKind?: ScenarioRouteKind
   scenarioId?: string
@@ -43,6 +46,7 @@ export type HashRoute = {
 
 export type SetHashOpts = {
   jobId?: string
+  callId?: string
   report?: string
   scenarioKind?: ScenarioRouteKind
   scenarioId?: string
@@ -59,6 +63,11 @@ export function parseHashRoute(hash = window.location.hash): HashRoute {
   const reportJobId = params.get('report') ?? undefined
   if (safeNav === 'scenarios') {
     return { nav: 'scenarios', reportJobId, ...parseScenarioPath(parts[1], parts[2]) }
+  }
+  if (safeNav === 'calls') {
+    const rest = parts.slice(1).join('/')
+    const callId = rest ? decodeURIComponent(rest) : undefined
+    return { nav: 'calls', callId: callId || undefined, reportJobId }
   }
   const jobId =
     safeNav === 'jobs' || safeNav === 'load' ? (parts[1] ?? params.get('job') ?? undefined) : undefined
@@ -117,6 +126,8 @@ export function buildHashRoute(nav: NavId, opts?: SetHashOpts): string {
     }
   } else if (opts?.jobId && (nav === 'jobs' || nav === 'load')) {
     path += `/${encodeURIComponent(opts.jobId)}`
+  } else if (nav === 'calls' && opts?.callId) {
+    path += `/${encodeURIComponent(opts.callId)}`
   }
   const q = new URLSearchParams()
   if (opts?.report) q.set('report', opts.report)

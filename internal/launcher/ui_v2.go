@@ -9,6 +9,7 @@ import (
 	"github.com/sipcapture/gossipper/internal/api"
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/settingsauth"
+	"github.com/sipcapture/gossipper/internal/siplog"
 	"github.com/sipcapture/gossipper/internal/supervisor"
 	"github.com/sipcapture/gossipper/internal/uistore"
 )
@@ -107,6 +108,29 @@ func openUIBundle(cfg cli.Config) (*UIBundle, error) {
 		Registry: reg,
 		closer:   db.Close,
 	}, nil
+}
+
+// attachCallsDB opens {ui_data_dir}/calls.sqlite for the process SIP catalog.
+func attachCallsDB(ring *siplog.Ring, cfg cli.Config) error {
+	if ring == nil {
+		return nil
+	}
+	dir := strings.TrimSpace(cfg.UIDataDir)
+	if dir == "" {
+		return nil
+	}
+	layout, err := uistore.New(dir)
+	if err != nil {
+		return fmt.Errorf("calls sqlite: %w", err)
+	}
+	if err := layout.Ensure(); err != nil {
+		return fmt.Errorf("calls sqlite: %w", err)
+	}
+	if err := ring.OpenPersist(layout.CallsDBPath()); err != nil {
+		return fmt.Errorf("calls sqlite: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "calls: sqlite %s\n", layout.CallsDBPath())
+	return nil
 }
 
 // seedProfilesFromConfig populates the empty UI store with the server bind

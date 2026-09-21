@@ -130,8 +130,9 @@ type Config struct {
 	ApiToken                string // optional Bearer token for /api/v1
 	// UIDataDir, when set, enables the admin-console REST surface (/api/v2/*)
 	// on the same management ApiAddr. The directory holds profiles,
-	// scenarios, media and the SQLite settings DB; same layout as `gossipper
-	// ui --data-dir`. Empty disables /api/v2 (only legacy /api/v1 is served).
+	// scenarios, media, the SQLite settings DB, and calls.sqlite (Calls CDR);
+	// same layout as `gossipper ui --data-dir`. Empty disables /api/v2 (only
+	// legacy /api/v1 is served).
 	UIDataDir string
 	// ScenarioHistoryKeep caps archived scenario versions per id in the UI
 	// store (0 = unlimited). Applied when UIDataDir is mounted.

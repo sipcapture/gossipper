@@ -61,6 +61,10 @@ func runSIPScenarioMulti(ctx context.Context, cfg cli.Config) error {
 	}
 
 	sipRing := siplog.New(0)
+	if err := attachCallsDB(sipRing, preparedPrimary.CLIConfig); err != nil {
+		return err
+	}
+	defer sipRing.ClosePersist()
 	for i := range allPrepared {
 		allPrepared[i].EngineConfig.SIPLog = sipRing
 	}

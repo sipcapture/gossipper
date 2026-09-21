@@ -10,6 +10,7 @@ import (
 
 	"github.com/sipcapture/gossipper/internal/media"
 	"github.com/sipcapture/gossipper/internal/scenario"
+	"github.com/sipcapture/gossipper/internal/siplog"
 	"github.com/sipcapture/gossipper/internal/webrtc"
 )
 
@@ -80,8 +81,12 @@ func (cm *callMedia) configure(e *Engine, callID string) {
 	}
 	cm.session.SetPCAPLinkLayer(e.cfg.PCAPLinkLayer)
 	cm.session.SetTURN(e.cfg.TURNServer, e.cfg.TURNUser, e.cfg.TURNPass, e.cfg.TURNRealm)
-	if e.hep != nil && !e.cfg.MediaScale {
-		cm.session.SetHEPObserver(e.hep)
+	if !e.cfg.MediaScale {
+		var inner media.HEPObserver
+		if e.hep != nil {
+			inner = e.hep
+		}
+		cm.session.SetHEPObserver(rtpTraceHEP{inner: inner, ring: e.sipLog})
 	}
 	cm.session.SetCallID(callID)
 	cm.session.SetAutoRecord(e.cfg.RecordWAVDir, e.cfg.RecordWAVDuplex)
@@ -303,4 +308,27 @@ func (w *webrtcCallMedia) stop() {
 	if w.bridge != nil {
 		_ = w.bridge.Close()
 	}
+}
+
+// rtpTraceHEP copies outbound RTP into the live-trace dump and optionally forwards to Homer.
+type rtpTraceHEP struct {
+	inner media.HEPObserver
+	ring  *siplog.Ring
+}
+
+func (t rtpTraceHEP) SendRTP(now time.Time, srcIP string, srcPort int, dstIP string, dstPort int, callID string, payload []byte) error {
+	if t.ring != nil {
+		t.ring.AddRTP("send", srcIP, srcPort, dstIP, dstPort, callID, payload)
+	}
+	if t.inner != nil {
+		return t.inner.SendRTP(now, srcIP, srcPort, dstIP, dstPort, callID, payload)
+	}
+	return nil
+}
+
+func (t rtpTraceHEP) SendRTCP(now time.Time, callID string, ssrc uint32, srcIP string, srcPort int, dstIP string, dstPort int, packetLoss uint32, payload []byte) error {
+	if t.inner != nil {
+		return t.inner.SendRTCP(now, callID, ssrc, srcIP, srcPort, dstIP, dstPort, packetLoss, payload)
+	}
+	return nil
 }

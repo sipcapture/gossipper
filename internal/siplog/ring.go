@@ -1,6 +1,7 @@
 package siplog
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ const (
 
 	KindSIP = "sip"
 	KindApp = "app"
+	KindRTP = "rtp"
 )
 
 // Record is one captured SIP datagram or an app/debug event.
@@ -52,7 +54,11 @@ type Ring struct {
 	waiters []chan struct{}
 	sipOn   atomic.Bool
 	appOn   atomic.Bool
+	rtpOn   atomic.Bool
 	appMin  atomic.Int32 // 0 debug, 1 info, 2 warn, 3 error
+	rtp     []RTPPacket
+	rtpN    uint64
+	catalog *Catalog
 }
 
 // New constructs a ring that keeps the last cap messages (default 1024).
@@ -61,9 +67,34 @@ func New(cap int) *Ring {
 	if cap < 1 {
 		cap = defaultCap
 	}
-	r := &Ring{cap: cap, buf: make([]Record, 0, cap)}
+	r := &Ring{cap: cap, buf: make([]Record, 0, cap), catalog: newCatalog(callCap)}
 	r.sipOn.Store(true)
 	return r
+}
+
+// OpenPersist attaches a SQLite CDR store (creates the file if missing) and
+// starts the background writer. Subsequent List/Get/Dump overlay that DB.
+func (r *Ring) OpenPersist(path string) error {
+	if r == nil {
+		return fmt.Errorf("siplog ring is nil")
+	}
+	return r.catalog.openPersist(path)
+}
+
+// ClosePersist flushes queued writes and closes the SQLite handle.
+func (r *Ring) ClosePersist() {
+	if r == nil {
+		return
+	}
+	r.catalog.closePersist()
+}
+
+// Calls is the always-on CDR catalog (nil-safe).
+func (r *Ring) Calls() *Catalog {
+	if r == nil {
+		return nil
+	}
+	return r.catalog
 }
 
 // Add appends a datagram. raw is copied.
@@ -73,14 +104,14 @@ func (r *Ring) Add(dir, peer string, raw []byte) {
 
 // AddTagged appends a datagram tagged with the live scenario name (or REGISTER/OPTIONS).
 func (r *Ring) AddTagged(dir, peer, scenario string, raw []byte) {
-	if r == nil || !r.SIPEnabled() || len(raw) == 0 {
+	if r == nil || len(raw) == 0 {
 		return
 	}
 	if dir != "send" && dir != "recv" {
 		dir = "recv"
 	}
 	method, status, summary := summarize(raw)
-	r.append(Record{
+	rec := Record{
 		Ts:       time.Now().UTC(),
 		Kind:     KindSIP,
 		Dir:      dir,
@@ -91,26 +122,28 @@ func (r *Ring) AddTagged(dir, peer, scenario string, raw []byte) {
 		Status:   status,
 		CallID:   headerVal(raw, "Call-ID", "i"),
 		Raw:      clipRaw(raw),
-	})
+	}
+	r.catalog.AddSIP(rec)
+	if !r.SIPEnabled() {
+		return
+	}
+	r.append(rec)
 }
 
 // AddApp appends a scenario/app debug event when app capture is on and
 // the event meets the current min log level.
 func (r *Ring) AddApp(scenario, eventKind, summary, callID, raw, level string) {
-	if r == nil || !r.AppEnabled() {
+	if r == nil {
 		return
 	}
 	rank, canon, ok := ParseMinLevel(level)
 	if !ok {
 		rank, canon = 0, "debug"
 	}
-	if rank < int(r.appMin.Load()) {
-		return
-	}
 	if summary == "" {
 		summary = eventKind
 	}
-	r.append(Record{
+	rec := Record{
 		Ts:       time.Now().UTC(),
 		Kind:     KindApp,
 		Dir:      "app",
@@ -120,7 +153,12 @@ func (r *Ring) AddApp(scenario, eventKind, summary, callID, raw, level string) {
 		CallID:   callID,
 		Level:    canon,
 		Raw:      clipRaw([]byte(raw)),
-	})
+	}
+	r.catalog.AddApp(rec)
+	if !r.AppEnabled() || rank < int(r.appMin.Load()) {
+		return
+	}
+	r.append(rec)
 }
 
 func (r *Ring) append(rec Record) {
@@ -314,6 +352,8 @@ func (r *Ring) Clear() {
 	}
 	r.mu.Lock()
 	r.buf = r.buf[:0]
+	r.rtp = r.rtp[:0]
+	r.rtpN = 0
 	r.gen++
 	r.notifyLocked()
 	r.mu.Unlock()
