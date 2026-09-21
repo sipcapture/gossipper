@@ -57,11 +57,7 @@ export function CallsV2({ bearer, busy, run, callId, onOpenCall }: CallsV2Props)
   }, [run, refreshList])
 
   useEffect(() => {
-    if (!callId) {
-      setDetail(null)
-      setMissing(false)
-      return
-    }
+    if (!callId) return
     void run(() => refreshDetail(callId))
   }, [callId, run, refreshDetail])
 
@@ -168,8 +164,8 @@ export function CallsV2({ bearer, busy, run, callId, onOpenCall }: CallsV2Props)
     return (
       <CallDetailView
         id={callId}
-        detail={detail}
-        missing={missing}
+        detail={callId ? detail : null}
+        missing={callId ? missing : false}
         busy={busy}
         onBack={() => onOpenCall()}
         onRefresh={() => void run(() => refreshDetail(callId))}

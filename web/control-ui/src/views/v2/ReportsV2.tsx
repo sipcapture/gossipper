@@ -31,15 +31,17 @@ type RowKPI = { success_ratio?: number; total_calls?: number; health_ok?: boolea
 export function ReportsV2({ bearer, run, onOpenJob, initialJobFilter }: ReportsV2Props) {
   const [rows, setRows] = useState<ReportRow[]>([])
   const [query, setQuery] = useState(initialJobFilter ?? '')
+  const [seenJobFilter, setSeenJobFilter] = useState(initialJobFilter)
   const [kpiMap, setKpiMap] = useState<Record<string, RowKPI>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [compareA, setCompareA] = useState<string>('')
   const [compareB, setCompareB] = useState<string>('')
   const [previewJobId, setPreviewJobId] = useState<string | null>(null)
 
-  useEffect(() => {
+  if (initialJobFilter !== seenJobFilter) {
+    setSeenJobFilter(initialJobFilter)
     if (initialJobFilter) setQuery(initialJobFilter)
-  }, [initialJobFilter])
+  }
 
   const refresh = useCallback(async () => {
     const r = await listReports({ bearer }, 200)

@@ -65,14 +65,17 @@ export function MediaV2({ bearer, busy, run, errorText }: MediaV2Props) {
     })
   }
 
-  const onDelete = (row: MediaAsset) => {
-    if (!window.confirm(`Delete ${row.name}?`)) return
-    void run(async () => {
-      await deleteMedia(kind, row.name, { bearer })
-      toast('Media deleted', 'success')
-      await refresh()
-    })
-  }
+  const onDelete = useCallback(
+    (row: MediaAsset) => {
+      if (!window.confirm(`Delete ${row.name}?`)) return
+      void run(async () => {
+        await deleteMedia(kind, row.name, { bearer })
+        toast('Media deleted', 'success')
+        await refresh()
+      })
+    },
+    [bearer, kind, refresh, run, toast],
+  )
 
   const refsFor = useCallback(
     (name: string) => scenariosReferencingMedia(scenarioXML, kind, name),

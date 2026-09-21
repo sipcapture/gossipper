@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import type { SIPTraceMessage } from '@/api/v2'
 import { Button } from '@/components/ui/button'
@@ -12,8 +12,13 @@ export function formatTraceTime(ts: string): string {
 }
 
 export function SipMessageModal({ msg, onClose }: { msg: SIPTraceMessage | null; onClose: () => void }) {
+  if (!msg) return null
+  return <SipMessageModalOpen key={msg.seq} msg={msg} onClose={onClose} />
+}
+
+function SipMessageModalOpen({ msg, onClose }: { msg: SIPTraceMessage; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
-  const raw = msg?.raw || msg?.summary || ''
+  const raw = msg.raw || msg.summary || ''
   const html = useMemo(() => highlightSIP(raw), [raw])
 
   const onCopy = useCallback(async () => {
@@ -25,12 +30,6 @@ export function SipMessageModal({ msg, onClose }: { msg: SIPTraceMessage | null;
       /* clipboard may be denied */
     }
   }, [raw])
-
-  useEffect(() => {
-    setCopied(false)
-  }, [msg?.seq])
-
-  if (!msg) return null
 
   const app = msg.kind === 'app'
   const dir = app ? 'DBG' : msg.dir === 'send' ? 'OUT' : 'IN'

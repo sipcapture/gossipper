@@ -71,14 +71,17 @@ export function UsersV2({ bearer, busy, run, errorText }: UsersV2Props) {
     })
   }
 
-  const onDelete = (u: User) => {
-    if (!window.confirm(`Delete user "${u.username}"?`)) return
-    void run(async () => {
-      await deleteUser(u.id, { bearer })
-      toast('User deleted', 'success')
-      await refresh()
-    })
-  }
+  const onDelete = useCallback(
+    (u: User) => {
+      if (!window.confirm(`Delete user "${u.username}"?`)) return
+      void run(async () => {
+        await deleteUser(u.id, { bearer })
+        toast('User deleted', 'success')
+        await refresh()
+      })
+    },
+    [bearer, refresh, run, toast],
+  )
 
   const columns: Column<User>[] = useMemo(
     () => [

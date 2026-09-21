@@ -46,9 +46,12 @@ export function ManagementV1Panel({ bearer }: ManagementV1PanelProps) {
   }, [bearer])
 
   useEffect(() => {
-    void refresh()
-    const t = setInterval(() => void refresh(), 5000)
-    return () => clearInterval(t)
+    const first = window.setTimeout(() => void refresh(), 0)
+    const t = window.setInterval(() => void refresh(), 5000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(t)
+    }
   }, [refresh])
 
   const engines: V1ControlEngine[] =

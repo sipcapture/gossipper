@@ -201,37 +201,43 @@ export function GatewayV2({ bearer, busy, run, onNavigate }: GatewayV2Props) {
     })()
   }
 
-  const onDelete = (row: GatewaySnapshot) => {
-    const id = row.config.id
-    if (!id) return
-    const label = row.config.name || id
-    if (!window.confirm(`Delete gateway profile "${label}"?`)) return
-    void run(async () => {
-      await deleteGateway(id, { bearer })
-      await refresh()
-    })
-  }
+  const onDelete = useCallback(
+    (row: GatewaySnapshot) => {
+      const id = row.config.id
+      if (!id) return
+      const label = row.config.name || id
+      if (!window.confirm(`Delete gateway profile "${label}"?`)) return
+      void run(async () => {
+        await deleteGateway(id, { bearer })
+        await refresh()
+      })
+    },
+    [bearer, refresh, run],
+  )
 
-  const onToggle = (row: GatewaySnapshot, enabled: boolean) => {
-    const id = row.config.id
-    if (!id) return
-    void run(async () => {
-      await updateGateway(
-        id,
-        gatewaySaveBody(
-          { ...row.config, enabled, password: '' },
-          {
-            armId: row.armed_scenario_id || 'uas',
-            origId: row.config.originate_scenario_id,
-            origTo: row.config.originate_to,
-            origCalls: row.config.originate_calls,
-          },
-        ),
-        { bearer },
-      )
-      await refresh()
-    })
-  }
+  const onToggle = useCallback(
+    (row: GatewaySnapshot, enabled: boolean) => {
+      const id = row.config.id
+      if (!id) return
+      void run(async () => {
+        await updateGateway(
+          id,
+          gatewaySaveBody(
+            { ...row.config, enabled, password: '' },
+            {
+              armId: row.armed_scenario_id || 'uas',
+              origId: row.config.originate_scenario_id,
+              origTo: row.config.originate_to,
+              origCalls: row.config.originate_calls,
+            },
+          ),
+          { bearer },
+        )
+        await refresh()
+      })
+    },
+    [bearer, refresh, run],
+  )
 
   const onArm = () => {
     const id = form?.id
@@ -327,7 +333,7 @@ export function GatewayV2({ bearer, busy, run, onNavigate }: GatewayV2Props) {
         ),
       },
     ],
-    [busy],
+    [busy, onDelete, onToggle],
   )
 
   const canOrig = form ? gatewayCanOriginate(form) : false

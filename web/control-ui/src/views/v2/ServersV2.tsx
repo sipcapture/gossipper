@@ -91,10 +91,10 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
     setCreateMode(true)
   }
 
-  const onEdit = (row: ServerProfile) => {
+  const onEdit = useCallback((row: ServerProfile) => {
     setDraft({ ...row, transports: row.transports ?? [] })
     setCreateMode(false)
-  }
+  }, [])
 
   const onClose = () => setDraft(null)
 
@@ -111,15 +111,18 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
     })
   }
 
-  const onDelete = (row: ServerProfile) => {
-    if (!window.confirm(`Delete server profile "${row.id}"?`)) return
-    void run(async () => {
-      await deleteServer(row.id, { bearer })
-      await refresh()
-    })
-  }
+  const onDelete = useCallback(
+    (row: ServerProfile) => {
+      if (!window.confirm(`Delete server profile "${row.id}"?`)) return
+      void run(async () => {
+        await deleteServer(row.id, { bearer })
+        await refresh()
+      })
+    },
+    [bearer, refresh, run],
+  )
 
-  const onDuplicate = (row: ServerProfile) => {
+  const onDuplicate = useCallback((row: ServerProfile) => {
     const base = `${row.id}-copy`
     let id = base
     let n = 2
@@ -135,37 +138,43 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
       transports: (row.transports ?? []).map((t) => ({ ...t })),
     })
     setCreateMode(true)
-  }
+  }, [rows])
 
-  const onStart = (row: ServerProfile) => {
-    const block = isProfilePortBlocked('server', row.id, rows, clients)
-    if (block.blocked) {
-      toast(`Port conflict: ${block.details.join(', ')}`, 'error')
-      return
-    }
-    void run(async () => {
-      try {
-        await startServerProfile(row.id, { bearer })
-        toast('Job started', 'success')
-      } catch (err) {
-        console.warn('start:', err)
-      } finally {
-        await refresh()
+  const onStart = useCallback(
+    (row: ServerProfile) => {
+      const block = isProfilePortBlocked('server', row.id, rows, clients)
+      if (block.blocked) {
+        toast(`Port conflict: ${block.details.join(', ')}`, 'error')
+        return
       }
-    })
-  }
-  const onStop = (row: ServerProfile) => {
-    void run(async () => {
-      try {
-        await stopServerProfile(row.id, { bearer })
-      } catch (err) {
-        // "no running job" / 409 built-in is fine — surface but don't break refresh.
-        console.warn('stop:', err)
-      } finally {
-        await refresh()
-      }
-    })
-  }
+      void run(async () => {
+        try {
+          await startServerProfile(row.id, { bearer })
+          toast('Job started', 'success')
+        } catch (err) {
+          console.warn('start:', err)
+        } finally {
+          await refresh()
+        }
+      })
+    },
+    [bearer, clients, refresh, rows, run, toast],
+  )
+  const onStop = useCallback(
+    (row: ServerProfile) => {
+      void run(async () => {
+        try {
+          await stopServerProfile(row.id, { bearer })
+        } catch (err) {
+          // "no running job" / 409 built-in is fine — surface but don't break refresh.
+          console.warn('stop:', err)
+        } finally {
+          await refresh()
+        }
+      })
+    },
+    [bearer, refresh, run],
+  )
 
   const conflicts = useMemo(() => crossProfilePortConflicts(rows, clients), [rows, clients])
 
@@ -271,7 +280,7 @@ export function ServersV2({ bearer, busy, run, errorText }: ServersV2Props) {
         },
       },
     ],
-    [busy, conflicts, onDelete, onEdit, onStart, onStop],
+    [busy, clients, conflicts, onDelete, onDuplicate, onEdit, onStart, onStop, rows],
   )
 
   return (

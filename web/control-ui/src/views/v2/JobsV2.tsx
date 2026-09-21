@@ -126,19 +126,20 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
   }, [inspectJobId, bearer, run, onInspectJobHandled])
 
   useEffect(() => {
-    if (!detail?.job) return
-    if (detail.job.status !== 'running' && detail.job.status !== 'pending') return
+    const jobRow = detail?.job
+    if (!jobRow) return
+    if (jobRow.status !== 'running' && jobRow.status !== 'pending') return
     const t = setInterval(() => {
-      void getJob(detail.job.id, { bearer })
+      void getJob(jobRow.id, { bearer })
         .then((d) =>
-          listRecordings(detail.job.id, { bearer })
+          listRecordings(jobRow.id, { bearer })
             .catch(() => ({ recordings: [] as Recording[] }))
             .then((recs) => setDetail({ ...d, recordings: recs.recordings ?? [] })),
         )
         .catch(() => {})
     }, 3000)
     return () => clearInterval(t)
-  }, [detail?.job.id, detail?.job.status, bearer])
+  }, [detail?.job, bearer])
 
   const mergedRows = useMemo(() => mergeLiveJobs(rows, liveJobs), [rows, liveJobs])
 
@@ -177,7 +178,7 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
 
   const jobIdError = useMemo(() => validateJobID(draft.job_id), [draft.job_id])
 
-  const openStartModal = (prefill?: Partial<typeof draft>) => {
+  const openStartModal = useCallback((prefill?: Partial<typeof draft>) => {
     setDraft({
       job_id: '',
       profile_kind: 'server',
@@ -188,7 +189,7 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
       ...prefill,
     })
     setStartOpen(true)
-  }
+  }, [])
 
   const onStart = () => {
     if (!draft.profile_id || startBlocked.blocked || jobIdError) return
@@ -211,31 +212,68 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
     })
   }
 
-  const onRestart = (job: Job) => {
-    if (!job.profile_id || !job.profile_kind) return
-    if (job.profile_kind === 'tool') {
-      let args: Record<string, unknown> = {}
-      if (job.args_json) {
-        try {
-          args = JSON.parse(job.args_json) as Record<string, unknown>
-        } catch {
-          toast('Could not parse tool args for restart', 'error')
-          return
+  const onRestart = useCallback(
+    (job: Job) => {
+      if (!job.profile_id || !job.profile_kind) return
+      if (job.profile_kind === 'tool') {
+        let args: Record<string, unknown> = {}
+        if (job.args_json) {
+          try {
+            args = JSON.parse(job.args_json) as Record<string, unknown>
+          } catch {
+            toast('Could not parse tool args for restart', 'error')
+            return
+          }
         }
+        void run(async () => {
+          await runTool(job.profile_id!, { args }, { bearer })
+          toast('Tool job restarted', 'success')
+          await refresh()
+        })
+        return
       }
+      openStartModal({
+        profile_kind: job.profile_kind as 'server' | 'client',
+        profile_id: job.profile_id,
+        scenario_id: job.scenario_id ?? '',
+      })
+    },
+    [bearer, openStartModal, refresh, run, toast],
+  )
+
+  const onStop = useCallback(
+    (id: string) => {
       void run(async () => {
-        await runTool(job.profile_id!, { args }, { bearer })
-        toast('Tool job restarted', 'success')
+        await stopJob(id, { bearer })
+        toast('Stop requested', 'info')
         await refresh()
       })
-      return
-    }
-    openStartModal({
-      profile_kind: job.profile_kind as 'server' | 'client',
-      profile_id: job.profile_id,
-      scenario_id: job.scenario_id ?? '',
-    })
-  }
+    },
+    [bearer, refresh, run, toast],
+  )
+  const onDelete = useCallback(
+    (id: string) => {
+      if (!window.confirm(`Delete job ${id}?`)) return
+      void run(async () => {
+        await deleteJobV2(id, { bearer })
+        toast('Job deleted', 'success')
+        await refresh()
+      })
+    },
+    [bearer, refresh, run, toast],
+  )
+  const onInspect = useCallback(
+    (id: string) => {
+      void run(async () => {
+        const [d, recs] = await Promise.all([
+          getJob(id, { bearer }),
+          listRecordings(id, { bearer }).catch(() => ({ recordings: [] as Recording[] })),
+        ])
+        setDetail({ ...d, recordings: recs.recordings ?? [] })
+      })
+    },
+    [bearer, run],
+  )
 
   const onStopAllRunning = () => {
     const running = mergedRows.filter((j) => j.status === 'running' || j.status === 'pending')
@@ -245,31 +283,6 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
       for (const j of running) await stopJob(j.id, { bearer })
       toast('Stop requested for all running jobs', 'info')
       await refresh()
-    })
-  }
-
-  const onStop = (id: string) => {
-    void run(async () => {
-      await stopJob(id, { bearer })
-      toast('Stop requested', 'info')
-      await refresh()
-    })
-  }
-  const onDelete = (id: string) => {
-    if (!window.confirm(`Delete job ${id}?`)) return
-    void run(async () => {
-      await deleteJobV2(id, { bearer })
-      toast('Job deleted', 'success')
-      await refresh()
-    })
-  }
-  const onInspect = (id: string) => {
-    void run(async () => {
-      const [d, recs] = await Promise.all([
-        getJob(id, { bearer }),
-        listRecordings(id, { bearer }).catch(() => ({ recordings: [] as Recording[] })),
-      ])
-      setDetail({ ...d, recordings: recs.recordings ?? [] })
     })
   }
 
@@ -686,30 +699,42 @@ function JobStatsTail({ job, bearer }: { job: Job; bearer?: string }) {
   const [callRecords, setCallRecords] = useState<CallRecordLine[]>([])
   const tailN = 25
 
+  const hasProfile = Boolean(job.profile_id && job.profile_kind)
+  if (!hasProfile) {
+    if (iceServers.length > 0) setIceServers([])
+    if (webrtcProfile) setWebrtcProfile(false)
+  }
+
   useEffect(() => {
-    if (!job.profile_id || !job.profile_kind) {
-      setIceServers([])
-      setWebrtcProfile(false)
-      return
-    }
+    if (!job.profile_id || !job.profile_kind) return
+    const profileId = job.profile_id
+    const kind = job.profile_kind
+    let cancelled = false
     void (async () => {
       try {
-        if (job.profile_kind === 'server') {
+        if (kind === 'server') {
           const r = await listServers({ bearer })
-          const p = (r.servers ?? []).find((s) => s.id === job.profile_id)
+          const p = (r.servers ?? []).find((s) => s.id === profileId)
+          if (cancelled) return
           setWebrtcProfile(profileHasWebRTC(p?.transports))
           setIceServers(iceServersFromProfile(p?.transports))
-        } else if (job.profile_kind === 'client') {
+        } else if (kind === 'client') {
           const r = await listClients({ bearer })
-          const p = (r.clients ?? []).find((c) => c.id === job.profile_id)
+          const p = (r.clients ?? []).find((c) => c.id === profileId)
+          if (cancelled) return
           setWebrtcProfile(profileHasWebRTC(p?.transports))
           setIceServers(iceServersFromProfile(p?.transports))
         }
       } catch {
-        setIceServers([])
-        setWebrtcProfile(false)
+        if (!cancelled) {
+          setIceServers([])
+          setWebrtcProfile(false)
+        }
       }
     })()
+    return () => {
+      cancelled = true
+    }
   }, [job.profile_id, job.profile_kind, bearer])
 
   useEffect(() => {

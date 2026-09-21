@@ -38,15 +38,17 @@ export function AuditLogPanel({
   }, [bearer, limit, onRefresh])
 
   useEffect(() => {
-    void loadAudit()
-  }, [loadAudit])
-
-  useEffect(() => {
-    if (!autoRefresh) return
-    const tick = setInterval(() => {
+    const first = window.setTimeout(() => {
+      void loadAudit()
+    }, 0)
+    if (!autoRefresh) return () => window.clearTimeout(first)
+    const tick = window.setInterval(() => {
       void loadAudit()
     }, 4000)
-    return () => clearInterval(tick)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(tick)
+    }
   }, [autoRefresh, loadAudit])
 
   const filtered = useMemo(() => {

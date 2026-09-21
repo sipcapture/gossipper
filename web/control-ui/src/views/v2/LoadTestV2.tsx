@@ -34,13 +34,15 @@ export function LoadTestV2({ bearer, run, onNavigate, initialJobId }: LoadTestV2
   const { toast } = useToast()
   const [draft, setDraft] = useState<LoadTestDraft>(() => defaultLoadTestDraft())
   const [activeJobId, setActiveJobId] = useState<string | null>(initialJobId ?? null)
+  const [seenInitialJobId, setSeenInitialJobId] = useState(initialJobId)
   const [presets, setPresets] = useState<LoadTestPreset[]>(() => listLoadTestPresets())
   const [presetName, setPresetName] = useState('')
   const [schemaHint, setSchemaHint] = useState<string | null>(null)
 
-  useEffect(() => {
+  if (initialJobId !== seenInitialJobId) {
+    setSeenInitialJobId(initialJobId)
     if (initialJobId) setActiveJobId(initialJobId)
-  }, [initialJobId])
+  }
 
   useEffect(() => {
     void getLoadTestSchema({ bearer })

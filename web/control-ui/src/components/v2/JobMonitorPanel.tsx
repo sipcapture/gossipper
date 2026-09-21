@@ -1,4 +1,4 @@
-import { artifactURL, getJob, jobEventsURL, listClients, listRecordings, listServers, stopJob, type Job, type JobArtifact, type Recording } from '@/api/v2'
+import { getJob, jobEventsURL, listClients, listRecordings, listServers, stopJob, type Job, type JobArtifact, type Recording } from '@/api/v2'
 import { JobStatsChart } from '@/components/v2/JobStatsChart'
 import { SummaryKPICards } from '@/components/v2/SummaryKPI'
 import { WebRTCDiagnosticsStrip } from '@/components/v2/WebRTCDiagnosticsStrip'
@@ -58,34 +58,49 @@ export function JobMonitorPanel({
     }
   }, [jobId, bearer])
 
+  const hasProfile = Boolean(job?.profile_id && job.profile_kind)
+  if (!hasProfile) {
+    if (iceServers.length > 0) setIceServers([])
+    if (webrtcProfile) setWebrtcProfile(false)
+  }
+
   useEffect(() => {
-    if (!job?.profile_id || !job.profile_kind) {
-      setIceServers([])
-      setWebrtcProfile(false)
-      return
-    }
+    if (!job?.profile_id || !job.profile_kind) return
+    const profileId = job.profile_id
+    const kind = job.profile_kind
+    let cancelled = false
     void (async () => {
       try {
-        if (job.profile_kind === 'server') {
+        if (kind === 'server') {
           const r = await listServers({ bearer })
-          const p = (r.servers ?? []).find((s) => s.id === job.profile_id)
+          const p = (r.servers ?? []).find((s) => s.id === profileId)
+          if (cancelled) return
           setWebrtcProfile(profileHasWebRTC(p?.transports))
           setIceServers(iceServersFromProfile(p?.transports))
-        } else if (job.profile_kind === 'client') {
+        } else if (kind === 'client') {
           const r = await listClients({ bearer })
-          const p = (r.clients ?? []).find((c) => c.id === job.profile_id)
+          const p = (r.clients ?? []).find((c) => c.id === profileId)
+          if (cancelled) return
           setWebrtcProfile(profileHasWebRTC(p?.transports))
           setIceServers(iceServersFromProfile(p?.transports))
         }
       } catch {
-        setIceServers([])
-        setWebrtcProfile(false)
+        if (!cancelled) {
+          setIceServers([])
+          setWebrtcProfile(false)
+        }
       }
     })()
+    return () => {
+      cancelled = true
+    }
   }, [job, bearer])
 
   useEffect(() => {
-    void refresh().catch((e) => setError(String(e instanceof Error ? e.message : e)))
+    const t = window.setTimeout(() => {
+      void refresh().catch((e) => setError(String(e instanceof Error ? e.message : e)))
+    }, 0)
+    return () => window.clearTimeout(t)
   }, [refresh])
 
   useEffect(() => {

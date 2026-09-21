@@ -56,7 +56,7 @@ type Counts = {
 // "succeeded" when status==="succeeded" with exit_code 0 (or unset);
 // "failed" covers status==="failed" or succeeded-with-nonzero-exit. Running /
 // pending / stopped jobs and ones older than 24h are skipped.
-export function computeJobOutcomes24h(
+function computeJobOutcomes24h(
   jobs: Job[],
   now: Date = new Date(),
 ): { succeeded: number; failed: number } {

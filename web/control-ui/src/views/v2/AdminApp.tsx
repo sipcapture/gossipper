@@ -157,14 +157,23 @@ function AdminAppInner() {
     return () => setUnauthorizedHandler(undefined)
   }, [toast])
 
+  if (!bearer && me !== null) {
+    setMe(null)
+  }
+
   useEffect(() => {
-    if (!bearer) {
-      setMe(null)
-      return
-    }
+    if (!bearer) return
+    let cancelled = false
     void getMeV2({ bearer })
-      .then(setMe)
-      .catch(() => setMe(null))
+      .then((next) => {
+        if (!cancelled) setMe(next)
+      })
+      .catch(() => {
+        if (!cancelled) setMe(null)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [bearer])
 
   const run = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
