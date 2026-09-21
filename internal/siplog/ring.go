@@ -249,17 +249,18 @@ func (r *Ring) Snapshot(after uint64, limit int) (next, gen uint64, recs []Recor
 	if r == nil {
 		return 0, 0, nil
 	}
-	if limit < 1 {
-		limit = defaultCap
-	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	next = r.seq
 	gen = r.gen
-	if len(r.buf) == 0 {
+	nbuf := len(r.buf)
+	if nbuf == 0 {
 		return next, gen, nil
 	}
-	out := make([]Record, 0, min(limit, len(r.buf)))
+	if limit < 1 || limit > nbuf {
+		limit = nbuf
+	}
+	out := make([]Record, 0, nbuf)
 	for _, rec := range r.buf {
 		if rec.Seq <= after {
 			continue
@@ -327,14 +328,12 @@ func clipRaw(raw []byte) string {
 
 func summarize(raw []byte) (method string, status int, summary string) {
 	line := firstLine(raw)
-	summary = line
 	if strings.HasPrefix(line, "SIP/2.0 ") {
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "SIP/2.0 "))
-		code, reason, _ := strings.Cut(rest, " ")
+		code, _, _ := strings.Cut(rest, " ")
 		if n, err := strconv.Atoi(code); err == nil {
 			status = n
 		}
-		_ = reason
 		return "", status, line
 	}
 	method, _, _ = strings.Cut(line, " ")

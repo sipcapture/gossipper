@@ -2,7 +2,7 @@
 
 ## CodeQL: SIP Digest hashing (`go/weak-sensitive-data-hashing`)
 
-`internal/engine/auth.go` implements **SIP Digest** authentication (RFC 3261, RFC 7616).
+`internal/sip/digest.go` (used from `internal/engine/auth.go` and the REGISTER gateway) implements **SIP Digest** authentication (RFC 3261, RFC 7616).
 The protocol requires **MD5** and optionally **SHA-256** over credentials material when
 building `Authorization` / `Proxy-Authorization` headers. This is **not** password
 storage or a general-purpose password hash.

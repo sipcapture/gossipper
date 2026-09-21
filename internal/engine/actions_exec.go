@@ -141,6 +141,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 				break
 			}
 			last := mustParseLastMessage(renderCtx)
+			if !media.HasMediaLine(last) {
+				break
+			}
 			if e.cfg.MediaScale {
 				if !cfg.Synthetic {
 					return fmt.Errorf("media_scale requires rtp_stream synthetic")

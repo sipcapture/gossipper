@@ -166,16 +166,12 @@ func DigestHex(algorithm, value string) string {
 }
 
 func md5Hex(value string) string {
-	// lgtm[go/weak-sensitive-data-hashing]
-	// codeql[go/weak-sensitive-data-hashing]
-	sum := md5.Sum([]byte(value))
+	sum := md5.Sum([]byte(value)) // lgtm[go/weak-sensitive-data-hashing] // codeql[go/weak-sensitive-data-hashing]
 	return hex.EncodeToString(sum[:])
 }
 
 func sha256Hex(value string) string {
-	// lgtm[go/weak-sensitive-data-hashing]
-	// codeql[go/weak-sensitive-data-hashing]
-	sum := sha256.Sum256([]byte(value))
+	sum := sha256.Sum256([]byte(value)) // lgtm[go/weak-sensitive-data-hashing] // codeql[go/weak-sensitive-data-hashing]
 	return hex.EncodeToString(sum[:])
 }
 

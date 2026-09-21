@@ -15,7 +15,7 @@ import (
 
 var (
 	pcapLocalIP   = net.IPv4(127, 0, 0, 1)
-	pcapLocalPort = 5060
+	pcapLocalPort uint16 = 5060
 	pcapLocalMAC  = net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x01}
 	pcapPeerMAC   = net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x02}
 )
@@ -176,15 +176,16 @@ func serializeSIPFrame(rec Record) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func parsePeerAddr(peer string) (net.IP, int) {
+func parsePeerAddr(peer string) (net.IP, uint16) {
 	host, portStr, err := net.SplitHostPort(strings.TrimSpace(peer))
 	if err != nil {
 		return net.IPv4(0, 0, 0, 0), 5060
 	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil || port < 1 || port > 65535 {
-		port = 5060
+	n, err := strconv.Atoi(portStr)
+	if err != nil || n < 1 || n > 65535 {
+		n = 5060
 	}
+	port := uint16(n)
 	ip := net.ParseIP(host)
 	if v4 := ip.To4(); v4 != nil {
 		return v4, port
