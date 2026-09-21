@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sipcapture/gossipper/internal/media"
 )
 
 var (
@@ -22,36 +24,43 @@ var (
 )
 
 type Context struct {
-	Service       string
-	Transport     string
-	RemoteHost    string
-	RemoteIP      string
-	RemotePort    int
-	LocalIP       string
-	ServerIP      string
-	LocalIPType   string
-	LocalPort     int
-	MediaIP       string
-	MediaIPType   string
-	MediaPort     int
-	IceUfrag      string
-	IcePwd        string
-	CallID        string
-	CSeq          int
-	CallNumber    int
-	MessageIndex  int
-	PID           int
-	Users         int
-	UserID        int
-	BranchBase    string
-	LastMessage   string
-	LastHeaders   map[string][]string
-	BodyLength    int
-	SIPpVersion   string
-	ClockTick     int64
-	DynamicID     int64
-	ExtraKeywords map[string]string
-	Variables     map[string]string
+	Service     string
+	Transport   string
+	RemoteHost  string
+	RemoteIP    string
+	RemotePort  int
+	LocalIP     string
+	ServerIP    string
+	LocalIPType string
+	LocalPort   int
+	// BindIP is the UDP address for RTP ListenUDP. NAT advertised_ip is
+	// LocalIP/MediaIP (SIP Contact and SDP c=) and is often not on a local
+	// interface.
+	BindIP       string
+	MediaIP      string
+	MediaIPType  string
+	MediaPort    int
+	IceUfrag     string
+	IcePwd       string
+	CallID       string
+	CSeq         int
+	CallNumber   int
+	MessageIndex int
+	PID          int
+	Users        int
+	UserID       int
+	BranchBase   string
+	LastMessage  string
+	// LastSDPMessage is the last received SIP message that carried an SDP
+	// m= line. rtp_stream after ACK/BYE uses this instead of LastMessage.
+	LastSDPMessage string
+	LastHeaders    map[string][]string
+	BodyLength     int
+	SIPpVersion    string
+	ClockTick      int64
+	DynamicID      int64
+	ExtraKeywords  map[string]string
+	Variables      map[string]string
 	// CSVFieldOverrides stores per-file, per-line, per-field in-memory overrides.
 	CSVFieldOverrides map[string]map[int]map[int]string
 	BasePath          string
@@ -340,6 +349,21 @@ func (c Context) resolveToken(token string) (string, bool, bool) {
 		return c.MediaIPType, true, false
 	case "media_port", "rtpstream_audio_port", "auto_media_port":
 		return strconv.Itoa(c.MediaPort + delta), true, false
+	case "audio_pt":
+		return strconv.Itoa(c.audioAnswer().PT), true, false
+	case "audio_codec":
+		return c.audioAnswer().Codec, true, false
+	case "audio_rtpmap":
+		ans := c.audioAnswer()
+		return fmt.Sprintf("%d %s", ans.PT, ans.RTPMap), true, false
+	case "audio_fmtp":
+		ans := c.audioAnswer()
+		if ans.FMTP == "" {
+			return "", false, true
+		}
+		return fmt.Sprintf("a=fmtp:%d %s", ans.PT, ans.FMTP), true, false
+	case "audio_sdp":
+		return media.FormatAnswerSDP(c.MediaPort+delta, c.audioAnswer()), true, false
 	case "ice_ufrag":
 		return c.IceUfrag, true, false
 	case "ice_pwd":
@@ -501,6 +525,21 @@ func (c Context) resolveTokenStrict(token string) (string, bool, error) {
 		return c.MediaIPType, false, nil
 	case "media_port", "rtpstream_audio_port", "auto_media_port":
 		return strconv.Itoa(c.MediaPort + delta), false, nil
+	case "audio_pt":
+		return strconv.Itoa(c.audioAnswer().PT), false, nil
+	case "audio_codec":
+		return c.audioAnswer().Codec, false, nil
+	case "audio_rtpmap":
+		ans := c.audioAnswer()
+		return fmt.Sprintf("%d %s", ans.PT, ans.RTPMap), false, nil
+	case "audio_fmtp":
+		ans := c.audioAnswer()
+		if ans.FMTP == "" {
+			return "", true, nil
+		}
+		return fmt.Sprintf("a=fmtp:%d %s", ans.PT, ans.FMTP), false, nil
+	case "audio_sdp":
+		return media.FormatAnswerSDP(c.MediaPort+delta, c.audioAnswer()), false, nil
 	case "ice_ufrag":
 		return c.IceUfrag, false, nil
 	case "ice_pwd":
@@ -922,11 +961,11 @@ func findInfDataRecordsStart(records [][]string) int {
 var csvFileCache sync.Map // path → *csvCacheEntry
 
 type csvCacheEntry struct {
-	records    [][]string
-	dataStart  int // index of first data row (after SEQUENTIAL/RANDOM header)
-	comma      rune
-	loadOnce   sync.Once
-	err        error
+	records   [][]string
+	dataStart int // index of first data row (after SEQUENTIAL/RANDOM header)
+	comma     rune
+	loadOnce  sync.Once
+	err       error
 }
 
 func getCachedCSV(path string) (*csvCacheEntry, error) {
@@ -1279,6 +1318,10 @@ func fillByPattern(seed string, length int) string {
 		return value[:length]
 	}
 	return value
+}
+
+func (c Context) audioAnswer() media.AnswerCodec {
+	return media.AnswerFromSIP(c.LastMessage)
 }
 
 func resolvePath(basePath, name string) string {

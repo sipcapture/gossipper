@@ -20,6 +20,17 @@ import {
 import { lineDiff, sideBySideDiff, summariseDiff, type DiffLine, type SideBySideRow } from '@/lib/lineDiff'
 import { validateScenarioXML } from '@/lib/xmlValidate'
 import { validateMediaRefs } from '@/lib/mediaRefs'
+import {
+  openScenarioEditorWindow,
+  type ScenarioRouteKind,
+} from '@/lib/routing'
+import {
+  clearPendingNewScenario,
+  peekPendingNewScenario,
+  roleMatchesFilter,
+  sourceLabel,
+  stashPendingNewScenario,
+} from '@/lib/scenarioDraft'
 import { PrepToolsPanel } from '@/components/v2/PrepToolsPanel'
 import { PcapImportPanel } from '@/components/v2/PcapImportPanel'
 import { ScenarioGraphEditor } from '@/components/v2/ScenarioGraphEditor'
@@ -30,9 +41,6 @@ import { Label } from '@/components/ui/label'
 import { Modal } from '@/components/ui/modal'
 import { Textarea } from '@/components/ui/textarea'
 
-// slugifyID turns a filename like "My Cool UAC v2.xml" into "my_cool_uac_v2".
-// Server uistore allows [a-z0-9_-./] (no slashes here), so we lower-case and
-// drop everything else; collapse runs and trim leading/trailing separators.
 function slugifyID(name: string): string {
   const stripped = name.replace(/\.[^./]+$/, '')
   return stripped
@@ -61,21 +69,46 @@ Content-Length: 0
 `
 
 type Draft = { id: string; name: string; description?: string; role?: string; xml: string }
+type SourceKind = 'store' | 'builtin' | 'lab'
+type SourceFilter = 'mine' | 'builtin' | 'lab' | 'all'
+
+type ListRow = {
+  key: string
+  id: string
+  name: string
+  role?: string
+  description?: string
+  source: SourceKind
+  updated_at?: string
+}
 
 export type ScenariosV2Props = {
   bearer?: string
   busy: boolean
   run: <T>(fn: () => Promise<T>) => Promise<T | undefined>
   errorText?: string | null
+  scenarioKind?: ScenarioRouteKind
+  scenarioId?: string
+  onScenarioRoute?: (kind: ScenarioRouteKind, id?: string) => void
 }
 
-export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) {
+export function ScenariosV2({
+  bearer,
+  busy,
+  run,
+  errorText,
+  scenarioKind = 'list',
+  scenarioId,
+  onScenarioRoute,
+}: ScenariosV2Props) {
   const [rows, setRows] = useState<ScenarioMeta[]>([])
   const [draft, setDraft] = useState<Draft | null>(null)
   const [createMode, setCreateMode] = useState(false)
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('mine')
   const [roleFilter, setRoleFilter] = useState<'all' | 'server' | 'client' | 'either'>('all')
   const [query, setQuery] = useState('')
   const [dragOver, setDragOver] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [history, setHistory] = useState<ScenarioHistoryEntry[] | null>(null)
   const [historyView, setHistoryView] = useState<{ ts: string; xml: string } | null>(null)
   const [historyMode, setHistoryMode] = useState<'diff' | 'side' | 'xml'>('diff')
@@ -84,17 +117,12 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
   const [forkOpen, setForkOpen] = useState(false)
   const [forkDraft, setForkDraft] = useState({ id: '', name: '' })
   const [builtins, setBuiltins] = useState<BuiltinScenarioMeta[]>([])
-  const [builtinPreview, setBuiltinPreview] = useState<{
-    id: string
-    name?: string
-    role?: string
-    xml: string
-  } | null>(null)
   const [wavNames, setWavNames] = useState<Set<string>>(new Set())
   const [pcapNames, setPcapNames] = useState<Set<string>>(new Set())
   const [editorTab, setEditorTab] = useState<'graph' | 'xml'>('graph')
   const xmlRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const editor = scenarioKind !== 'list'
 
   const xmlError = useMemo(() => (draft ? validateScenarioXML(draft.xml) : null), [draft])
   const mediaWarnings = useMemo(() => {
@@ -119,38 +147,107 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
     void run(() => refresh())
   }, [run, refresh])
 
-  const onEdit = (row: ScenarioMeta) => {
-    void run(async () => {
-      const body = await getScenarioV2(row.id, { bearer })
-      setDraft({
-        id: body.meta.id,
-        name: body.meta.name,
-        description: body.meta.description,
-        role: body.meta.role,
-        xml: body.xml,
-      })
-      setCreateMode(false)
-      setEditorTab('graph')
-    })
-  }
+  const runRef = useRef(run)
+  useEffect(() => {
+    runRef.current = run
+  }, [run])
 
-  const onCreate = () => {
-    setDraft({ id: '', name: '', xml: STARTER_XML })
-    setCreateMode(true)
-    setEditorTab('graph')
-  }
+  useEffect(() => {
+    if (!editor) return
+    let cancelled = false
+    const load = async () => {
+      if (scenarioKind === 'new') {
+        const pending = peekPendingNewScenario()
+        if (cancelled) return
+        setDraft(pending ?? { id: '', name: '', xml: STARTER_XML })
+        setCreateMode(true)
+        setEditorTab('graph')
+        return
+      }
+      if (scenarioKind === 'edit' && scenarioId) {
+        const body = await getScenarioV2(scenarioId, { bearer })
+        if (cancelled) return
+        setDraft({
+          id: body.meta.id,
+          name: body.meta.name,
+          description: body.meta.description,
+          role: body.meta.role,
+          xml: body.xml,
+        })
+        setCreateMode(false)
+        setEditorTab('graph')
+        return
+      }
+      if (scenarioKind === 'builtin' && scenarioId) {
+        const body = await getBuiltinScenario(scenarioId, { bearer })
+        if (cancelled) return
+        setDraft({
+          id: `${scenarioId}_copy`,
+          name: body.meta?.name || scenarioId,
+          role: body.meta?.role,
+          xml: body.xml,
+        })
+        setCreateMode(true)
+        setEditorTab('graph')
+      }
+    }
+    void runRef.current(load)
+    return () => {
+      cancelled = true
+    }
+  }, [editor, scenarioKind, scenarioId, bearer])
+
+  useEffect(() => {
+    if (editor) return
+    const onFocus = () => {
+      void runRef.current(() => refresh())
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [editor, refresh])
+
+  const leaveEditor = useCallback(() => {
+    if (createMode) clearPendingNewScenario()
+    onScenarioRoute?.('list')
+    if (window.opener && !window.opener.closed) {
+      try {
+        window.close()
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [createMode, onScenarioRoute])
+
+  const openNewEditor = useCallback((next?: Draft) => {
+    if (next) stashPendingNewScenario(next)
+    else clearPendingNewScenario()
+    const popped = openScenarioEditorWindow({ kind: 'new' })
+    if (!popped) onScenarioRoute?.('new')
+  }, [onScenarioRoute])
+
+  const openRow = useCallback(
+    (row: ListRow) => {
+      if (row.source === 'store') {
+        const popped = openScenarioEditorWindow({ kind: 'edit', id: row.id })
+        if (!popped) onScenarioRoute?.('edit', row.id)
+        return
+      }
+      const popped = openScenarioEditorWindow({ kind: 'builtin', id: row.id })
+      if (!popped) onScenarioRoute?.('builtin', row.id)
+    },
+    [onScenarioRoute],
+  )
 
   const onUploadFile = (file: File) => {
     void run(async () => {
       const text = await file.text()
       const id = slugifyID(file.name) || 'scenario'
-      setDraft({
+      openNewEditor({
         id,
         name: file.name.replace(/\.[^./]+$/, ''),
         xml: text,
       })
-      setCreateMode(true)
-      setEditorTab('graph')
+      setHelpOpen(false)
     })
   }
 
@@ -166,46 +263,13 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
       }
       if (createMode) {
         await createScenarioV2(meta, draft.xml, { bearer })
+        clearPendingNewScenario()
       } else {
         await updateScenarioV2(draft.id, meta, draft.xml, { bearer })
       }
-      setDraft(null)
       await refresh()
+      leaveEditor()
     })
-  }
-
-  const engineBuiltins = useMemo(
-    () => builtins.filter((b) => b.source !== 'lab'),
-    [builtins],
-  )
-  const labBuiltins = useMemo(
-    () => builtins.filter((b) => b.source === 'lab'),
-    [builtins],
-  )
-
-  const onViewBuiltin = (id: string) => {
-    void run(async () => {
-      const body = await getBuiltinScenario(id, { bearer })
-      setBuiltinPreview({
-        id,
-        name: body.meta?.name,
-        role: body.meta?.role,
-        xml: body.xml,
-      })
-    })
-  }
-
-  const onCloneBuiltin = () => {
-    if (!builtinPreview) return
-    setDraft({
-      id: `${builtinPreview.id}_copy`,
-      name: builtinPreview.name || builtinPreview.id,
-      role: builtinPreview.role,
-      xml: builtinPreview.xml,
-    })
-    setCreateMode(true)
-    setEditorTab('graph')
-    setBuiltinPreview(null)
   }
 
   const insertMediaAlias = (kind: 'wav' | 'pcap', name: string) => {
@@ -240,22 +304,56 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
     setHistoryView(null)
   }
 
-  const onDelete = (row: ScenarioMeta) => {
-    if (!window.confirm(`Delete scenario "${row.id}"?`)) return
-    void run(async () => {
-      await deleteScenarioV2(row.id, { bearer })
-      await refresh()
-    })
-  }
+  const onDelete = useCallback(
+    (row: ListRow) => {
+      if (row.source !== 'store') return
+      if (!window.confirm(`Delete scenario "${row.id}"?`)) return
+      void run(async () => {
+        await deleteScenarioV2(row.id, { bearer })
+        await refresh()
+      })
+    },
+    [bearer, refresh, run],
+  )
+
+  const allRows: ListRow[] = useMemo(() => {
+    const store: ListRow[] = rows.map((s) => ({
+      key: `store:${s.id}`,
+      id: s.id,
+      name: s.name,
+      role: s.role,
+      description: s.description,
+      source: 'store',
+      updated_at: s.updated_at,
+    }))
+    const catalog: ListRow[] = builtins.map((b) => ({
+      key: `${b.source === 'lab' ? 'lab' : 'builtin'}:${b.id}`,
+      id: b.id,
+      name: b.name || b.id,
+      role: b.role,
+      description: b.description,
+      source: b.source === 'lab' ? 'lab' : 'builtin',
+    }))
+    return [...store, ...catalog]
+  }, [rows, builtins])
+
+  const sourceCounts = useMemo(() => {
+    const out = { all: allRows.length, mine: 0, builtin: 0, lab: 0 }
+    for (const r of allRows) {
+      if (r.source === 'store') out.mine++
+      else if (r.source === 'lab') out.lab++
+      else out.builtin++
+    }
+    return out
+  }, [allRows])
 
   const visibleRows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return rows.filter((s) => {
-      if (roleFilter !== 'all') {
-        const r = (s.role ?? '').toLowerCase()
-        const isEither = r === '' || r === 'either' || r === 'any'
-        if (roleFilter === 'either' ? !isEither : r !== roleFilter) return false
-      }
+    return allRows.filter((s) => {
+      if (sourceFilter === 'mine' && s.source !== 'store') return false
+      if (sourceFilter === 'builtin' && s.source !== 'builtin') return false
+      if (sourceFilter === 'lab' && s.source !== 'lab') return false
+      if (!roleMatchesFilter(s.role, roleFilter)) return false
       if (!q) return true
       return (
         s.id.toLowerCase().includes(q) ||
@@ -263,23 +361,35 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
         (s.description ?? '').toLowerCase().includes(q)
       )
     })
-  }, [rows, roleFilter, query])
+  }, [allRows, sourceFilter, roleFilter, query])
 
   const roleCounts = useMemo(() => {
-    const out: Record<string, number> = { all: rows.length, server: 0, client: 0, either: 0 }
-    for (const s of rows) {
-      const r = (s.role ?? '').toLowerCase()
-      if (r === 'server') out.server++
-      else if (r === 'client') out.client++
+    const scoped =
+      sourceFilter === 'all'
+        ? allRows
+        : allRows.filter((s) =>
+            sourceFilter === 'mine' ? s.source === 'store' : s.source === sourceFilter,
+          )
+    const out: Record<string, number> = { all: scoped.length, server: 0, client: 0, either: 0 }
+    for (const s of scoped) {
+      if (roleMatchesFilter(s.role, 'server')) out.server++
+      else if (roleMatchesFilter(s.role, 'client')) out.client++
       else out.either++
     }
     return out
-  }, [rows])
+  }, [allRows, sourceFilter])
 
-  const columns: Column<ScenarioMeta>[] = useMemo(
+  const columns: Column<ListRow>[] = useMemo(
     () => [
       { key: 'id', header: 'ID', render: (r) => <code className="text-xs">{r.id}</code> },
-      { key: 'name', header: 'Name', render: (r) => r.name },
+      { key: 'name', header: 'Name', render: (r) => r.name || '—' },
+      {
+        key: 'source',
+        header: 'Source',
+        render: (r) => (
+          <span className="text-muted-foreground text-[11px]">{sourceLabel(r.source)}</span>
+        ),
+      },
       { key: 'role', header: 'Role', render: (r) => r.role ?? '—' },
       {
         key: 'updated',
@@ -291,18 +401,20 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
         header: '',
         align: 'right',
         render: (r) => (
-          <div className="flex justify-end gap-1">
-            <Button type="button" variant="outline" size="xs" onClick={() => onEdit(r)}>
-              Edit
+          <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+            <Button type="button" variant="outline" size="xs" onClick={() => openRow(r)}>
+              {r.source === 'store' ? 'Edit' : 'Clone'}
             </Button>
-            <Button type="button" variant="destructive" size="xs" onClick={() => onDelete(r)}>
-              Delete
-            </Button>
+            {r.source === 'store' ? (
+              <Button type="button" variant="destructive" size="xs" onClick={() => onDelete(r)}>
+                Delete
+              </Button>
+            ) : null}
           </div>
         ),
       },
     ],
-    [onDelete, onEdit],
+    [onDelete, openRow],
   )
 
   const onOpenHistory = () => {
@@ -316,8 +428,6 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
     })
   }
 
-  // Load the XML for a snapshot chosen as the diff "base" (anything other than
-  // the live editor buffer).
   useEffect(() => {
     if (history === null || !draft) return
     if (historyDiffBase === 'current') {
@@ -336,15 +446,13 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
     }
   }, [history, historyDiffBase, draft, bearer])
 
-  const diffOldXML =
-    historyDiffBase === 'current' ? (draft?.xml ?? '') : historyBaseXML
+  const diffOldXML = historyDiffBase === 'current' ? (draft?.xml ?? '') : historyBaseXML
   const diffNewXML = historyView?.xml ?? ''
   const diffBaseLabel =
     historyDiffBase === 'current'
       ? 'current editor'
-      : new Date(
-          history?.find((h) => h.ts === historyDiffBase)?.timestamp ?? '',
-        ).toLocaleString() || historyDiffBase
+      : new Date(history?.find((h) => h.ts === historyDiffBase)?.timestamp ?? '').toLocaleString() ||
+        historyDiffBase
 
   const onViewHistoryEntry = (ts: string) => {
     if (!draft) return
@@ -356,9 +464,6 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
 
   const onRestoreHistoryEntry = () => {
     if (!draft || !historyView) return
-    // Loads the archived XML into the draft editor without persisting; the
-    // user must hit Save to actually re-snapshot the current version and
-    // promote the restored XML to head.
     setDraft({ ...draft, xml: historyView.xml })
     setHistory(null)
     setHistoryView(null)
@@ -410,8 +515,6 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
     setDragOver(true)
   }
   const onDragLeave = (e: React.DragEvent) => {
-    // Only un-set when leaving the wrapping element itself (drag enters into
-    // child nodes would otherwise constantly flip the overlay off).
     if (e.currentTarget === e.target) setDragOver(false)
   }
   const onDrop = (e: React.DragEvent) => {
@@ -423,165 +526,223 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
     if (f) onUploadFile(f)
   }
 
-  return (
-    <section
-      className="relative flex flex-col gap-3"
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
-      {dragOver ? (
-        <div
-          className="border-primary/60 bg-primary/5 text-primary pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-md border-2 border-dashed text-sm font-medium"
-          aria-hidden
-        >
-          Drop a .xml scenario here…
-        </div>
-      ) : null}
-      <PrepToolsPanel bearer={bearer} run={run} compact />
-      <PcapImportPanel bearer={bearer} run={run} onImported={() => void run(() => refresh())} />
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold">Scenarios</h2>
-          <p className="text-muted-foreground text-xs">
-            SIP XML scenarios. Stored as <code>scenarios/&lt;id&gt;.xml</code> plus a JSON sidecar with metadata.
-            Edit on a canvas (Graph) or as XML. Tip: drag &amp; drop an .xml file anywhere on this panel.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <input
-            ref={fileRef}
-            type="file"
-            className="hidden"
-            accept=".xml,application/xml,text/xml"
-            onChange={(e) => {
-              const f = e.target.files?.[0]
-              if (f) onUploadFile(f)
-              e.target.value = ''
-            }}
-          />
-          <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-            Upload XML
-          </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => void run(() => refresh())}>
-            Refresh
-          </Button>
-          <Button type="button" size="sm" onClick={onCreate}>
-            + New scenario
-          </Button>
-        </div>
-      </div>
-
-      {errorText ? (
-        <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
-          {errorText}
-        </div>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-1">
-          {(['all', 'server', 'client', 'either'] as const).map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setRoleFilter(r)}
-              className={`rounded px-2 py-0.5 text-[11px] ${
-                roleFilter === r
-                  ? 'bg-primary text-primary-foreground'
-                  : 'border-border bg-background hover:bg-muted border'
-              }`}
-            >
-              {r} <span className="text-[10px] opacity-75">({roleCounts[r] ?? 0})</span>
-            </button>
-          ))}
-        </div>
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="filter by id / name / description…"
-          className="h-7 max-w-xs text-xs"
-        />
-        <span className="text-muted-foreground text-[11px]">
-          {visibleRows.length}/{rows.length}
-        </span>
-      </div>
-
-      <DataTable
-        rows={visibleRows}
-        columns={columns}
-        rowKey={(r) => r.id}
-        loading={busy && rows.length === 0}
-        empty={
-          rows.length === 0
-            ? 'No scenarios yet — create one above or upload an XML.'
-            : 'No scenarios match the current filter.'
-        }
-      />
-
-      {engineBuiltins.length > 0 ? (
-        <div className="border-border bg-card rounded-md border p-3">
-          <h3 className="mb-2 text-xs font-medium">Built-in scenarios (read-only)</h3>
-          <ul className="flex flex-wrap gap-2">
-            {engineBuiltins.map((b) => (
-              <li key={b.id}>
-                <Button type="button" variant="outline" size="xs" onClick={() => onViewBuiltin(b.id)}>
-                  {b.id}
-                  {b.role ? ` · ${b.role}` : ''}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {labBuiltins.length > 0 ? (
-        <div className="border-border bg-card rounded-md border p-3">
-          <h3 className="mb-1 text-xs font-medium">Lab scenarios (kefir ports)</h3>
-          <p className="text-muted-foreground mb-2 text-[11px]">
-            Same ids as kefir bundled labs. Run with <code>-sn &lt;id&gt;</code> or clone into the store
-            to edit on the Graph canvas.
-          </p>
-          <ul className="flex flex-wrap gap-2">
-            {labBuiltins.map((b) => (
-              <li key={b.id}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  title={b.description}
-                  onClick={() => onViewBuiltin(b.id)}
-                >
-                  {b.id}
-                  {b.role ? ` · ${b.role}` : ''}
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
+  const historyModals = (
+    <>
       <Modal
-        open={draft !== null}
-        onClose={() => setDraft(null)}
-        size="full"
-        title={createMode ? 'New scenario' : `Edit scenario · ${draft?.id ?? ''}`}
+        open={history !== null}
+        onClose={() => {
+          setHistory(null)
+          setHistoryView(null)
+        }}
+        size="xl"
+        title={`History · ${draft?.id ?? ''}`}
+        description={
+          history && history.length === 0
+            ? 'No prior versions yet. A snapshot is written every time you Save with changed XML.'
+            : 'Click a version to preview. "Restore into editor" loads the archived XML into the current draft — the change is only persisted after Save.'
+        }
         footer={
           <>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={onDeleteHistoryEntry}
+              disabled={!historyView || busy}
+            >
+              Delete snapshot
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={onOpenFork} disabled={!historyView || busy}>
+              Fork as new…
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setHistory(null)
+                setHistoryView(null)
+              }}
+              className="ml-auto"
+            >
+              Close
+            </Button>
+            <Button type="button" size="sm" onClick={onRestoreHistoryEntry} disabled={!historyView || busy}>
+              Restore into editor
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={onRestoreOverwrite}
+              disabled={!historyView || busy}
+            >
+              Restore overwrite
+            </Button>
+          </>
+        }
+      >
+        {history ? (
+          <div className="grid h-[70vh] grid-cols-12 gap-3">
+            <div className="col-span-4 flex min-h-0 flex-col overflow-y-auto">
+              <ul className="space-y-1">
+                {history.map((h) => {
+                  const selected = historyView?.ts === h.ts
+                  return (
+                    <li key={h.ts}>
+                      <button
+                        type="button"
+                        onClick={() => onViewHistoryEntry(h.ts)}
+                        className={`w-full rounded-md border px-2 py-1.5 text-left font-mono text-[11px] ${
+                          selected
+                            ? 'border-primary/60 bg-primary/10'
+                            : 'border-border bg-background hover:bg-muted'
+                        }`}
+                      >
+                        <div>{new Date(h.timestamp).toLocaleString()}</div>
+                        <div className="text-muted-foreground text-[10px]">
+                          {h.size_bytes} B
+                          {h.meta?.name && h.meta.name !== draft?.id ? ` · ${h.meta.name}` : ''}
+                        </div>
+                      </button>
+                    </li>
+                  )
+                })}
+                {history.length === 0 ? (
+                  <li className="text-muted-foreground text-xs">No snapshots yet.</li>
+                ) : null}
+              </ul>
+            </div>
+            <div className="col-span-8 flex min-h-0 flex-col">
+              {historyView ? (
+                <>
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <div className="text-muted-foreground">
+                      Viewing <code>{historyView.ts}</code> · {historyView.xml.length} B
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {historyMode !== 'xml' ? (
+                        <label className="text-muted-foreground flex items-center gap-1">
+                          Base
+                          <select
+                            value={historyDiffBase}
+                            onChange={(e) => setHistoryDiffBase(e.target.value)}
+                            className="border-input bg-background rounded-md border px-1.5 py-0.5 text-[10px]"
+                          >
+                            <option value="current">Current editor</option>
+                            {history
+                              ?.filter((h) => h.ts !== historyView.ts)
+                              .map((h) => (
+                                <option key={h.ts} value={h.ts}>
+                                  {new Date(h.timestamp).toLocaleString()}
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+                      ) : null}
+                      <HistoryDiffSummary oldXML={diffOldXML} newXML={diffNewXML} baseLabel={diffBaseLabel} />
+                      <div className="border-border bg-background flex overflow-hidden rounded-md border text-[10px]">
+                        {(['diff', 'side', 'xml'] as const).map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => setHistoryMode(m)}
+                            className={`px-2 py-0.5 ${
+                              historyMode === m ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
+                            }`}
+                          >
+                            {m === 'diff' ? 'Unified' : m === 'side' ? 'Side-by-side' : 'Snapshot XML'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  {historyMode === 'xml' ? (
+                    <Textarea
+                      value={historyView.xml}
+                      readOnly
+                      className="min-h-0 flex-1 font-mono text-[11px]"
+                      spellCheck={false}
+                    />
+                  ) : historyMode === 'side' ? (
+                    <SideBySideDiffView oldXML={diffOldXML} newXML={diffNewXML} />
+                  ) : (
+                    <DiffView oldXML={diffOldXML} newXML={diffNewXML} />
+                  )}
+                </>
+              ) : (
+                <div className="text-muted-foreground flex flex-1 items-center justify-center text-xs">
+                  Select a version on the left to preview.
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={forkOpen}
+        onClose={() => setForkOpen(false)}
+        size="sm"
+        title="Fork snapshot as new scenario"
+        description="Creates a new scenario from the selected snapshot. The original is unchanged."
+        footer={
+          <>
+            <Button type="button" variant="outline" size="sm" onClick={() => setForkOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" size="sm" onClick={onForkSubmit} disabled={!forkDraft.id.trim() || busy}>
+              Create fork
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <div>
+            <Label className="text-xs">New scenario ID</Label>
+            <Input
+              value={forkDraft.id}
+              onChange={(e) => setForkDraft({ ...forkDraft, id: e.target.value })}
+              className="mt-1 font-mono text-sm"
+              placeholder="my_scenario_fork"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Name</Label>
+            <Input
+              value={forkDraft.name}
+              onChange={(e) => setForkDraft({ ...forkDraft, name: e.target.value })}
+              className="mt-1"
+            />
+          </div>
+        </div>
+      </Modal>
+    </>
+  )
+
+  if (editor) {
+    return (
+      <section className="flex h-full min-h-0 flex-col gap-3">
+        {errorText ? (
+          <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
+            {errorText}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={leaveEditor}>
+              ← List
+            </Button>
+            <p className="text-muted-foreground text-xs">
+              {createMode ? 'New scenario' : `Editing ${draft?.id ?? scenarioId ?? ''}`}
+            </p>
+          </div>
+          <div className="flex gap-2">
             {!createMode ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={onOpenHistory}
-                disabled={busy}
-                className="mr-auto"
-              >
+              <Button type="button" variant="outline" size="sm" onClick={onOpenHistory} disabled={busy}>
                 View history
               </Button>
             ) : null}
-            <Button type="button" variant="outline" size="sm" onClick={() => setDraft(null)}>
-              Cancel
-            </Button>
             <Button
               type="button"
               size="sm"
@@ -591,11 +752,10 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
             >
               {createMode ? 'Create' : 'Save'}
             </Button>
-          </>
-        }
-      >
+          </div>
+        </div>
         {draft ? (
-          <div className="flex h-[70vh] flex-col gap-3">
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div>
                 <Label className="text-xs">ID</Label>
@@ -688,262 +848,178 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
                   ref={xmlRef}
                   value={draft.xml}
                   onChange={(e) => setDraft({ ...draft, xml: e.target.value })}
-                  className={`mt-1 min-h-0 flex-1 font-mono text-xs ${
-                    xmlError ? 'border-destructive/60' : ''
-                  }`}
+                  className={`mt-1 min-h-0 flex-1 font-mono text-xs ${xmlError ? 'border-destructive/60' : ''}`}
                   spellCheck={false}
                 />
               )}
             </div>
           </div>
-        ) : null}
-      </Modal>
+        ) : (
+          <p className="text-muted-foreground text-sm">Loading scenario…</p>
+        )}
+        {historyModals}
+      </section>
+    )
+  }
+
+  return (
+    <section
+      className="relative flex flex-col gap-3"
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragOver ? (
+        <div
+          className="border-primary/60 bg-primary/5 text-primary pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-md border-2 border-dashed text-sm font-medium"
+          aria-hidden
+        >
+          Drop a .xml scenario here…
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">Scenarios</h2>
+          <p className="text-muted-foreground text-xs">
+            Click a row to edit it in a new window. Import from PCAP, XML, or prep tools lives under Help.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            className="hidden"
+            accept=".xml,application/xml,text/xml"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) onUploadFile(f)
+              e.target.value = ''
+            }}
+          />
+          <Button type="button" variant="outline" size="sm" onClick={() => setHelpOpen(true)}>
+            Help
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => void run(() => refresh())}>
+            Refresh
+          </Button>
+          <Button type="button" size="sm" onClick={() => openNewEditor()}>
+            + New scenario
+          </Button>
+        </div>
+      </div>
+
+      {errorText ? (
+        <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border px-3 py-2 text-xs">
+          {errorText}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1">
+          {([
+            ['mine', 'My scenarios'],
+            ['builtin', 'Built-in'],
+            ['lab', 'Lab'],
+            ['all', 'All'],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setSourceFilter(id)}
+              className={`rounded px-2 py-0.5 text-[11px] ${
+                sourceFilter === id
+                  ? 'bg-primary text-primary-foreground'
+                  : 'border-border bg-background hover:bg-muted border'
+              }`}
+            >
+              {label} <span className="text-[10px] opacity-75">({sourceCounts[id] ?? 0})</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {(['all', 'server', 'client', 'either'] as const).map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setRoleFilter(r)}
+              className={`rounded px-2 py-0.5 text-[11px] ${
+                roleFilter === r
+                  ? 'bg-primary text-primary-foreground'
+                  : 'border-border bg-background hover:bg-muted border'
+              }`}
+            >
+              {r} <span className="text-[10px] opacity-75">({roleCounts[r] ?? 0})</span>
+            </button>
+          ))}
+        </div>
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="filter by id / name / description…"
+          className="h-7 max-w-xs text-xs"
+        />
+        <span className="text-muted-foreground text-[11px]">
+          {visibleRows.length}/{allRows.length}
+        </span>
+      </div>
+
+      <DataTable
+        rows={visibleRows}
+        columns={columns}
+        rowKey={(r) => r.key}
+        onRowClick={openRow}
+        loading={busy && allRows.length === 0}
+        empty={
+          sourceFilter === 'mine' && rows.length === 0
+            ? 'No saved scenarios yet — New scenario, or Help to import XML / PCAP.'
+            : 'No scenarios match the current filter.'
+        }
+      />
 
       <Modal
-        open={history !== null}
-        onClose={() => {
-          setHistory(null)
-          setHistoryView(null)
-        }}
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
         size="xl"
-        title={`History · ${draft?.id ?? ''}`}
-        description={
-          history && history.length === 0
-            ? 'No prior versions yet. A snapshot is written every time you Save with changed XML.'
-            : 'Click a version to preview. "Restore into editor" loads the archived XML into the current draft — the change is only persisted after Save.'
-        }
+        title="Help · Import scenarios"
+        description="All ways to bring a scenario into gossipper: XML upload, pcap2scenario job import, and prep tools."
         footer={
-          <>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={onDeleteHistoryEntry}
-              disabled={!historyView || busy}
-            >
-              Delete snapshot
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onOpenFork}
-              disabled={!historyView || busy}
-            >
-              Fork as new…
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setHistory(null)
-                setHistoryView(null)
-              }}
-              className="ml-auto"
-            >
-              Close
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={onRestoreHistoryEntry}
-              disabled={!historyView || busy}
-            >
-              Restore into editor
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={onRestoreOverwrite}
-              disabled={!historyView || busy}
-            >
-              Restore overwrite
-            </Button>
-          </>
+          <Button type="button" variant="outline" size="sm" onClick={() => setHelpOpen(false)}>
+            Close
+          </Button>
         }
       >
-        {history ? (
-          <div className="grid h-[70vh] grid-cols-12 gap-3">
-            <div className="col-span-4 flex min-h-0 flex-col overflow-y-auto">
-              <ul className="space-y-1">
-                {history.map((h) => {
-                  const selected = historyView?.ts === h.ts
-                  return (
-                    <li key={h.ts}>
-                      <button
-                        type="button"
-                        onClick={() => onViewHistoryEntry(h.ts)}
-                        className={`w-full rounded-md border px-2 py-1.5 text-left font-mono text-[11px] ${
-                          selected
-                            ? 'border-primary/60 bg-primary/10'
-                            : 'border-border bg-background hover:bg-muted'
-                        }`}
-                      >
-                        <div>{new Date(h.timestamp).toLocaleString()}</div>
-                        <div className="text-muted-foreground text-[10px]">
-                          {h.size_bytes} B
-                          {h.meta?.name && h.meta.name !== draft?.id ? ` · ${h.meta.name}` : ''}
-                        </div>
-                      </button>
-                    </li>
-                  )
-                })}
-                {history.length === 0 ? (
-                  <li className="text-muted-foreground text-xs">No snapshots yet.</li>
-                ) : null}
-              </ul>
+        <div className="flex flex-col gap-4">
+          <section className="border-border flex flex-col gap-2 rounded-lg border p-3">
+            <h3 className="text-sm font-medium">Upload XML</h3>
+            <p className="text-muted-foreground text-xs">
+              Import a SIPp/gossipper <code>.xml</code> file. It opens in a new editor window — set the ID and Save.
+              You can also drop an XML file onto the Scenarios list.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" onClick={() => fileRef.current?.click()}>
+                Choose XML file
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => openNewEditor()}>
+                Blank scenario
+              </Button>
             </div>
-            <div className="col-span-8 flex min-h-0 flex-col">
-              {historyView ? (
-                <>
-                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                    <div className="text-muted-foreground">
-                      Viewing <code>{historyView.ts}</code> · {historyView.xml.length} B
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {historyMode !== 'xml' ? (
-                        <label className="text-muted-foreground flex items-center gap-1">
-                          Base
-                          <select
-                            value={historyDiffBase}
-                            onChange={(e) => setHistoryDiffBase(e.target.value)}
-                            className="border-input bg-background rounded-md border px-1.5 py-0.5 text-[10px]"
-                          >
-                            <option value="current">Current editor</option>
-                            {history
-                              ?.filter((h) => h.ts !== historyView.ts)
-                              .map((h) => (
-                                <option key={h.ts} value={h.ts}>
-                                  {new Date(h.timestamp).toLocaleString()}
-                                </option>
-                              ))}
-                          </select>
-                        </label>
-                      ) : null}
-                      <HistoryDiffSummary
-                        oldXML={diffOldXML}
-                        newXML={diffNewXML}
-                        baseLabel={diffBaseLabel}
-                      />
-                      <div className="border-border bg-background flex overflow-hidden rounded-md border text-[10px]">
-                        {(['diff', 'side', 'xml'] as const).map((m) => (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => setHistoryMode(m)}
-                            className={`px-2 py-0.5 ${
-                              historyMode === m
-                                ? 'bg-primary text-primary-foreground'
-                                : 'hover:bg-muted'
-                            }`}
-                          >
-                            {m === 'diff' ? 'Unified' : m === 'side' ? 'Side-by-side' : 'Snapshot XML'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  {historyMode === 'xml' ? (
-                    <Textarea
-                      value={historyView.xml}
-                      readOnly
-                      className="min-h-0 flex-1 font-mono text-[11px]"
-                      spellCheck={false}
-                    />
-                  ) : historyMode === 'side' ? (
-                    <SideBySideDiffView oldXML={diffOldXML} newXML={diffNewXML} />
-                  ) : (
-                    <DiffView oldXML={diffOldXML} newXML={diffNewXML} />
-                  )}
-                </>
-              ) : (
-                <div className="text-muted-foreground flex flex-1 items-center justify-center text-xs">
-                  Select a version on the left to preview.
-                </div>
-              )}
-            </div>
-          </div>
-        ) : null}
-      </Modal>
-
-      <Modal
-        open={forkOpen}
-        onClose={() => setForkOpen(false)}
-        size="sm"
-        title="Fork snapshot as new scenario"
-        description="Creates a new scenario from the selected snapshot. The original is unchanged."
-        footer={
-          <>
-            <Button type="button" variant="outline" size="sm" onClick={() => setForkOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={onForkSubmit}
-              disabled={!forkDraft.id.trim() || busy}
-            >
-              Create fork
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          <div>
-            <Label className="text-xs">New scenario ID</Label>
-            <Input
-              value={forkDraft.id}
-              onChange={(e) => setForkDraft({ ...forkDraft, id: e.target.value })}
-              className="mt-1 font-mono text-sm"
-              placeholder="my_scenario_fork"
-            />
-          </div>
-          <div>
-            <Label className="text-xs">Name</Label>
-            <Input
-              value={forkDraft.name}
-              onChange={(e) => setForkDraft({ ...forkDraft, name: e.target.value })}
-              className="mt-1"
-            />
-          </div>
+          </section>
+          <PcapImportPanel
+            bearer={bearer}
+            run={run}
+            onImported={() => {
+              void run(() => refresh())
+              setSourceFilter('mine')
+            }}
+          />
+          <PrepToolsPanel bearer={bearer} run={run} />
         </div>
       </Modal>
-
-      <Modal
-        open={builtinPreview !== null}
-        onClose={() => setBuiltinPreview(null)}
-        size="lg"
-        title={builtinPreview ? `Built-in · ${builtinPreview.id}` : 'Built-in'}
-        footer={
-          builtinPreview ? (
-            <>
-              <Button type="button" variant="outline" size="sm" onClick={() => setBuiltinPreview(null)}>
-                Close
-              </Button>
-              <Button type="button" size="sm" onClick={onCloneBuiltin}>
-                Clone to editor
-              </Button>
-            </>
-          ) : null
-        }
-      >
-        {builtinPreview ? (
-          <Textarea
-            value={builtinPreview.xml}
-            readOnly
-            className="min-h-[50vh] font-mono text-[11px]"
-            spellCheck={false}
-          />
-        ) : null}
-      </Modal>
+      {historyModals}
     </section>
   )
 }
 
-// HistoryDiffSummary renders a compact "+N -M" badge for the diff between
-// base and the snapshot being viewed.
 function HistoryDiffSummary({
   oldXML,
   newXML,
@@ -953,27 +1029,18 @@ function HistoryDiffSummary({
   newXML: string
   baseLabel: string
 }) {
-  const { added, removed } = useMemo(
-    () => summariseDiff(lineDiff(oldXML, newXML)),
-    [oldXML, newXML],
-  )
+  const { added, removed } = useMemo(() => summariseDiff(lineDiff(oldXML, newXML)), [oldXML, newXML])
   if (added === 0 && removed === 0) {
     return <span className="text-muted-foreground">no changes vs {baseLabel}</span>
   }
   return (
     <span className="font-mono">
-      <span className="text-success">+{added}</span>{' '}
-      <span className="text-destructive">-{removed}</span>{' '}
+      <span className="text-success">+{added}</span> <span className="text-destructive">-{removed}</span>{' '}
       <span className="text-muted-foreground">vs {baseLabel}</span>
     </span>
   )
 }
 
-// DiffView renders a unified, single-column line diff with colour-coded
-// gutters. It treats `oldXML` (the snapshot) as "old" and `newXML` (current
-// draft) as "new" — so "+" lines are present in the editor and "-" lines
-// only in the snapshot. Inputs are memoised; per-line virtualisation is not
-// needed at scenario-XML sizes.
 function SideBySideDiffView({ oldXML, newXML }: { oldXML: string; newXML: string }) {
   const rows = useMemo(() => sideBySideDiff(oldXML, newXML), [oldXML, newXML])
   return (
@@ -1025,18 +1092,9 @@ function DiffView({ oldXML, newXML }: { oldXML: string; newXML: string }) {
 
 function DiffRow({ line }: { line: DiffLine }) {
   const sign = line.op === 'add' ? '+' : line.op === 'del' ? '-' : ' '
-  const rowCls =
-    line.op === 'add'
-      ? 'bg-success/10'
-      : line.op === 'del'
-        ? 'bg-destructive/10'
-        : ''
+  const rowCls = line.op === 'add' ? 'bg-success/10' : line.op === 'del' ? 'bg-destructive/10' : ''
   const signCls =
-    line.op === 'add'
-      ? 'text-success'
-      : line.op === 'del'
-        ? 'text-destructive'
-        : 'text-muted-foreground'
+    line.op === 'add' ? 'text-success' : line.op === 'del' ? 'text-destructive' : 'text-muted-foreground'
   const fmt = (n: number) => (n === -1 ? '    ' : n.toString().padStart(4, ' '))
   return (
     <div className={`flex whitespace-pre ${rowCls}`}>

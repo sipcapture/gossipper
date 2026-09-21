@@ -12,6 +12,18 @@ func ParseAudioEndpoint(msg sip.Message, fallbackIP string) (Endpoint, error) {
 	return ParseMediaEndpoint(msg, fallbackIP, "audio")
 }
 
+// HasMediaLine reports whether msg carries an SDP m= line (audio/video/image).
+// Used to keep the last SDP-bearing SIP message for rtp_stream after ACK/BYE.
+func HasMediaLine(msg sip.Message) bool {
+	body := strings.ToLower(strings.ReplaceAll(EffectiveMediaSDPBody(msg), "\r\n", "\n"))
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "m=") {
+			return true
+		}
+	}
+	return false
+}
+
 func ParseMediaEndpoint(msg sip.Message, fallbackIP string, mediaType string) (Endpoint, error) {
 	raw := EffectiveMediaSDPBody(msg)
 	body := strings.ReplaceAll(raw, "\r\n", "\n")

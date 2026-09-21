@@ -38,18 +38,8 @@ func (s *Server) handleLive(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRegistry(w) {
 		return
 	}
-	// Browsers don't send Authorization headers on websocket upgrades, so we
-	// accept the bearer via the ?token= query param too.
-	if s.cfg.Auth != nil && s.cfg.Auth.Enabled() {
-		if tok := r.URL.Query().Get("token"); tok != "" {
-			if r.Header.Get("Authorization") == "" {
-				r.Header.Set("Authorization", "Bearer "+tok)
-			}
-		}
-		if !s.cfg.Auth.ValidRequest(r) {
-			s.writeError(w, http.StatusUnauthorized, "unauthorized")
-			return
-		}
+	if !s.authorizeWS(w, r) {
+		return
 	}
 	intervalMs := 1000
 	if v := strings.TrimSpace(r.URL.Query().Get("interval_ms")); v != "" {
@@ -141,4 +131,21 @@ func jsonUnmarshalInt(raw string, out *int) (int, error) {
 		return *out, nil
 	}
 	return 0, json.Unmarshal([]byte(raw), out)
+}
+
+// authorizeWS copies ?token= onto Authorization (browsers omit that header on
+// the upgrade request) and enforces JWT when auth is enabled.
+func (s *Server) authorizeWS(w http.ResponseWriter, r *http.Request) bool {
+	if s.cfg.Auth != nil && s.cfg.Auth.Enabled() {
+		if tok := r.URL.Query().Get("token"); tok != "" {
+			if r.Header.Get("Authorization") == "" {
+				r.Header.Set("Authorization", "Bearer "+tok)
+			}
+		}
+		if !s.cfg.Auth.ValidRequest(r) {
+			s.writeError(w, http.StatusUnauthorized, "unauthorized")
+			return false
+		}
+	}
+	return true
 }

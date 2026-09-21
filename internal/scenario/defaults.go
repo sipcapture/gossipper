@@ -76,12 +76,30 @@ SIP/2.0 200 OK
 [last_Call-ID:]
 [last_CSeq:]
 Contact: <sip:[local_ip]:[local_port];transport=[transport]>
-Content-Length: 0
+Content-Type: application/sdp
+Content-Length: [len]
+
+v=0
+o=gossip 1 1 IN IP4 [local_ip]
+s=-
+c=IN IP4 [local_ip]
+t=0 0
+[audio_sdp]
 
 ]]>
   </send>
   <recv request="ACK" optional="true"/>
+  <nop>
+    <action>
+      <exec rtp_stream="synthetic,0,[audio_pt],[audio_codec],20"/>
+    </action>
+  </nop>
   <recv request="BYE"/>
+  <nop>
+    <action>
+      <exec rtp_stream="stop"/>
+    </action>
+  </nop>
   <send>
     <![CDATA[
 SIP/2.0 200 OK

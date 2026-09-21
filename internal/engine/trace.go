@@ -459,13 +459,16 @@ func (e *Engine) traceUnexpectedSIP(callNumber int, expected scenario.Command, m
 // emitEvent forwards ev to the structured logger if one is configured.
 // nil log is treated as a no-op so callers don't need to nil-check.
 func (e *Engine) emitEvent(ev eventlog.Event) {
-	if e == nil || e.log == nil {
+	if e == nil {
 		return
 	}
 	if ev.Time.IsZero() {
 		ev.Time = time.Now()
 	}
-	e.log.Emit(ev)
+	if e.log != nil {
+		e.log.Emit(ev)
+	}
+	e.recordAppTrace(ev)
 }
 
 func (e *Engine) traceErrorCode(callNumber, code int, reason, callID, expected string) {

@@ -537,3 +537,175 @@ export const rotateJwtSecret = (opts: Opts) =>
     undefined,
     opts,
   )
+
+// ---------- SIP REGISTER gateway ----------
+export type GatewayConfig = {
+  id?: string
+  name?: string
+  enabled?: boolean
+  domain: string
+  addr: string
+  transport?: string
+  username: string
+  password?: string
+  register: boolean
+  register_user?: string
+  advertised_ip?: string
+  register_expires?: number
+  keepalive_seconds?: number
+  contact_port?: number
+  armed_scenario_id?: string
+  originate_scenario_id?: string
+  originate_to?: string
+  originate_calls?: number
+}
+
+export type GatewayStatus = {
+  state: string
+  registered?: boolean
+  aor?: string
+  code?: number
+  reason?: string
+  error?: string
+  trace?: string
+}
+
+export type GatewaySnapshot = {
+  config: GatewayConfig
+  status: GatewayStatus
+  armed_scenario_id: string
+}
+
+export const getGateway = (opts: Opts) => request<GatewaySnapshot>('GET', '/gateway', undefined, opts)
+export const putGateway = (body: GatewayConfig, opts: Opts) =>
+  request<GatewaySnapshot>('PUT', '/gateway', body, opts)
+export const armGateway = (scenario_id: string, opts: Opts) =>
+  request<GatewaySnapshot>('PUT', '/gateway/arm', { scenario_id }, opts)
+export const originateGateway = (
+  body: { scenario_id: string; to: string; total_calls?: number },
+  opts: Opts,
+) => request<{ job_id: string }>('POST', '/gateway/originate', body, opts)
+
+export const listGateways = (opts: Opts) =>
+  request<{ gateways: GatewaySnapshot[] }>('GET', '/gateways', undefined, opts)
+export const createGateway = (body: GatewayConfig, opts: Opts) =>
+  request<GatewaySnapshot>('POST', '/gateways', body, opts)
+export const getGatewayProfile = (id: string, opts: Opts) =>
+  request<GatewaySnapshot>('GET', `/gateways/${encodeURIComponent(id)}`, undefined, opts)
+export const updateGateway = (id: string, body: GatewayConfig, opts: Opts) =>
+  request<GatewaySnapshot>('PUT', `/gateways/${encodeURIComponent(id)}`, body, opts)
+export const deleteGateway = (id: string, opts: Opts) =>
+  request<unknown>('DELETE', `/gateways/${encodeURIComponent(id)}`, undefined, opts)
+export const armGatewayProfile = (id: string, scenario_id: string, opts: Opts) =>
+  request<GatewaySnapshot>('PUT', `/gateways/${encodeURIComponent(id)}/arm`, { scenario_id }, opts)
+export const originateGatewayProfile = (
+  id: string,
+  body: { scenario_id: string; to: string; total_calls?: number },
+  opts: Opts,
+) => request<{ job_id: string }>('POST', `/gateways/${encodeURIComponent(id)}/originate`, body, opts)
+
+export type GatewayLocalAddr = { ip: string; iface?: string }
+
+export type GatewayIPHints = {
+  local: GatewayLocalAddr[]
+  external?: string
+  external_error?: string
+}
+
+export const getGatewayIPs = (opts: Opts) => request<GatewayIPHints>('GET', '/gateway/ips', undefined, opts)
+
+export interface SIPTraceCapture {
+  sip: boolean
+  app: boolean
+  level?: string
+}
+
+export interface SIPTraceMessage {
+  seq: number
+  ts: string
+  kind?: 'sip' | 'app' | string
+  dir: 'send' | 'recv' | 'app' | string
+  peer?: string
+  scenario?: string
+  summary: string
+  method?: string
+  status?: number
+  call_id?: string
+  level?: string
+  raw: string
+}
+
+export interface SIPTraceResponse {
+  messages: SIPTraceMessage[]
+  next: number
+  cleared?: boolean
+  capture?: SIPTraceCapture
+}
+
+export const getSIPTrace = (opts: Opts & { since?: number }) => {
+  const q = new URLSearchParams()
+  q.set('since', String(opts.since ?? 0))
+  return request<SIPTraceResponse>('GET', `/sip/trace?${q.toString()}`, undefined, opts)
+}
+
+export const clearSIPTrace = (opts: Opts) =>
+  request<SIPTraceResponse>('POST', '/sip/trace/clear', {}, opts)
+
+export const getSIPTraceCapture = (opts: Opts) =>
+  request<SIPTraceCapture>('GET', '/sip/trace/capture', undefined, opts)
+
+export const putSIPTraceCapture = (body: SIPTraceCapture, opts: Opts) =>
+  request<SIPTraceCapture>('PUT', '/sip/trace/capture', body, opts)
+
+export async function downloadSIPTrace(
+  format: 'text' | 'pcap',
+  opts: Opts & { scenario?: string } = {},
+): Promise<void> {
+  const q = new URLSearchParams()
+  q.set('format', format)
+  if (opts.scenario) q.set('scenario', opts.scenario)
+  const headers = new Headers()
+  if (opts.bearer) headers.set('Authorization', 'Bearer ' + opts.bearer)
+  const res = await fetch(url(`/sip/trace/export?${q.toString()}`), {
+    headers,
+    signal: opts.signal,
+  })
+  if (res.status === 401) unauthorizedHandler?.()
+  if (!res.ok) {
+    const text = await readBody(res)
+    let message = res.statusText
+    try {
+      const parsed = JSON.parse(text) as { error?: string }
+      if (parsed.error) message = parsed.error
+    } catch {
+      if (text.trim()) message = text.slice(0, 400)
+    }
+    throw { status: res.status, message } satisfies ApiErrorV2
+  }
+  const blob = await res.blob()
+  const disp = res.headers.get('Content-Disposition')
+  const star = /filename\*=(?:UTF-8''|)([^;]+)/i.exec(disp ?? '')
+  const plain = /filename="?([^";]+)"?/i.exec(disp ?? '')
+  const name =
+    (star ? decodeURIComponent(star[1].trim().replace(/^"+|"+$/g, '')) : undefined) ??
+    plain?.[1]?.trim() ??
+    `gossipper-trace.${format === 'pcap' ? 'pcap' : 'txt'}`
+  const href = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = href
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(href)
+}
+
+// sipTraceWSURL builds the WebSocket URL for /api/v2/sip/trace/ws. Browsers do
+// not send Authorization on upgrades, so the bearer goes on ?token=.
+export const sipTraceWSURL = (bearer?: string, since = 0) => {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const u = new URL(`${BASE}/sip/trace/ws`, `${proto}//${window.location.host}`)
+  if (since) u.searchParams.set('since', String(since))
+  if (bearer) u.searchParams.set('token', bearer)
+  return u.toString()
+}

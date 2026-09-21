@@ -16,6 +16,15 @@ import (
 	templ "github.com/sipcapture/gossipper/internal/template"
 )
 
+// rtpBindIP is the UDP address for RTP ListenUDP. Advertised NAT IPs stay
+// on [local_ip] / SDP c= and are not local interfaces.
+func rtpBindIP(c templ.Context) string {
+	if ip := strings.TrimSpace(c.BindIP); ip != "" {
+		return ip
+	}
+	return c.LocalIP
+}
+
 func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, renderCtx templ.Context, vars *varStore, callMedia *callMedia) error {
 	mediaSession := callMedia.sessionOrNil()
 	switch strings.ToLower(strings.TrimSpace(action.IntCmd)) {
@@ -95,9 +104,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			}
 			mediaSession.ClearSDESSRTP()
 			if e.cfg.TraceMessages {
-				fmt.Fprintf(os.Stdout, "rtp_stream echo listen on %s:%d\n", renderCtx.LocalIP, renderCtx.MediaPort)
+				fmt.Fprintf(os.Stdout, "rtp_stream echo listen on %s:%d\n", rtpBindIP(renderCtx), renderCtx.MediaPort)
 			}
-			if err := mediaSession.StartEcho(ctx, renderCtx.LocalIP, renderCtx.MediaPort); err != nil {
+			if err := mediaSession.StartEcho(ctx, rtpBindIP(renderCtx), renderCtx.MediaPort); err != nil {
 				return err
 			}
 		case "mic":
@@ -115,7 +124,7 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			if e.cfg.TraceMessages {
 				fmt.Fprintf(os.Stdout, "rtp_stream mic -> %s:%d\n", endpoint.IP, endpoint.Port)
 			}
-			if err := mediaSession.StartMicrophone(ctx, endpoint, renderCtx.LocalIP, renderCtx.MediaPort, cfg.MicInput); err != nil {
+			if err := mediaSession.StartMicrophone(ctx, endpoint, rtpBindIP(renderCtx), renderCtx.MediaPort, cfg.MicInput); err != nil {
 				return err
 			}
 		case "start":
@@ -132,6 +141,9 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 				break
 			}
 			last := mustParseLastMessage(renderCtx)
+			if !media.HasMediaLine(last) {
+				break
+			}
 			if e.cfg.MediaScale {
 				if !cfg.Synthetic {
 					return fmt.Errorf("media_scale requires rtp_stream synthetic")
@@ -147,7 +159,7 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 				if e.cfg.TraceMessages {
 					fmt.Fprintf(os.Stdout, "rtp_stream start (scale) synthetic -> %s:%d\n", endpoint.IP, endpoint.Port)
 				}
-				if err := se.RegisterStream(ctx, renderCtx.CallID, endpoint, cfg, renderCtx.LocalIP, renderCtx.MediaPort); err != nil {
+				if err := se.RegisterStream(ctx, renderCtx.CallID, endpoint, cfg, rtpBindIP(renderCtx), renderCtx.MediaPort); err != nil {
 					return err
 				}
 				break
@@ -162,7 +174,7 @@ func (e *Engine) applyExecAction(ctx context.Context, action scenario.Action, re
 			if e.cfg.TraceMessages {
 				fmt.Fprintf(os.Stdout, "rtp_stream start %s -> %s:%d\n", cfg.Path, endpoint.IP, endpoint.Port)
 			}
-			if err := mediaSession.Start(ctx, endpoint, cfg, renderCtx.LocalIP, renderCtx.MediaPort); err != nil {
+			if err := mediaSession.Start(ctx, endpoint, cfg, rtpBindIP(renderCtx), renderCtx.MediaPort); err != nil {
 				return err
 			}
 		}
@@ -422,10 +434,28 @@ func configureMediaSRTPForRTPStream(e *Engine, mediaSession *media.Session, last
 	return nil
 }
 
-func mustParseLastMessage(ctx templ.Context) sip.Message {
+func rememberMediaSDP(renderCtx *templ.Context, raw string) {
+	if renderCtx == nil || strings.TrimSpace(raw) == "" {
+		return
+	}
 	msg := sip.GetMessage()
 	defer sip.PutMessage(msg)
-	if err := sip.ParseInto(msg, []byte(ctx.LastMessage)); err != nil {
+	if err := sip.ParseInto(msg, []byte(raw)); err != nil {
+		return
+	}
+	if media.HasMediaLine(*msg) {
+		renderCtx.LastSDPMessage = raw
+	}
+}
+
+func mustParseLastMessage(ctx templ.Context) sip.Message {
+	raw := ctx.LastSDPMessage
+	if strings.TrimSpace(raw) == "" {
+		raw = ctx.LastMessage
+	}
+	msg := sip.GetMessage()
+	defer sip.PutMessage(msg)
+	if err := sip.ParseInto(msg, []byte(raw)); err != nil {
 		return sip.Message{}
 	}
 	return msg.Copy()

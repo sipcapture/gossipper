@@ -31,6 +31,7 @@ func (e *Engine) runInit(ctx context.Context) error {
 		ServerIP:      e.cfg.LocalIP,
 		LocalIPType:   ipType(e.cfg.LocalIP),
 		LocalPort:     e.cfg.LocalPort,
+		BindIP:        e.cfg.LocalIP,
 		MediaIP:       e.cfg.LocalIP,
 		MediaIPType:   ipType(e.cfg.LocalIP),
 		MediaPort:     e.cfg.LocalPort + 2,

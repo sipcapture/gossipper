@@ -6,13 +6,15 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ThemeToggle, type ThemeMode } from '@/components/ThemeToggle'
 import { cn } from '@/lib/utils'
-import { parseHashRoute, setHashRoute, type NavId } from '@/lib/routing'
+import { parseHashRoute, setHashRoute, type NavId, type ScenarioRouteKind, type SetHashOpts } from '@/lib/routing'
 import { ToastProvider, useToast } from '@/lib/toast'
 import { AboutV2 } from '@/views/v2/AboutV2'
 import { AuditV2 } from '@/views/v2/AuditV2'
 import { ClientsV2 } from '@/views/v2/ClientsV2'
 import { DashboardV2 } from '@/views/v2/DashboardV2'
+import { GatewayV2 } from '@/views/v2/GatewayV2'
 import { JobsV2 } from '@/views/v2/JobsV2'
+import { SipLiveTrace } from '@/views/v2/SipLiveTrace'
 import { MediaV2 } from '@/views/v2/MediaV2'
 import { ReportsV2 } from '@/views/v2/ReportsV2'
 import { ScenariosV2 } from '@/views/v2/ScenariosV2'
@@ -28,7 +30,9 @@ const NAV: { id: NavId; label: string; hint: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Dashboard', hint: 'overview and recent jobs' },
   { id: 'servers', label: 'Servers', hint: 'UAS profiles' },
   { id: 'clients', label: 'Clients', hint: 'UAC profiles' },
-  { id: 'scenarios', label: 'Scenarios', hint: 'XML scenarios + sidecar meta' },
+  { id: 'gateway', label: 'Gateway', hint: 'SIP REGISTER to a PBX, originate and inbound arm' },
+  { id: 'sip', label: 'Live Trace', hint: 'SIP and scenario debug, tagged by scenario' },
+  { id: 'scenarios', label: 'Scenarios', hint: 'scenario list; edit in a new window' },
   { id: 'jobs', label: 'Jobs', hint: 'worker runs (start / stop / inspect)' },
   { id: 'reports', label: 'Reports', hint: 'summary JSON, HTML and PDF from jobs' },
   { id: 'load', label: 'Load test', hint: 'sipstress-style invite_media job wizard' },
@@ -77,14 +81,23 @@ function AdminAppInner() {
   const [inspectJobId, setInspectJobId] = useState<string | null>(initialRoute.jobId ?? null)
   const [reportFilterJobId, setReportFilterJobId] = useState<string | null>(initialRoute.reportJobId ?? null)
   const [loadJobId, setLoadJobId] = useState<string | null>(initialRoute.nav === 'load' ? initialRoute.jobId ?? null : null)
+  const [scenarioKind, setScenarioKind] = useState<ScenarioRouteKind>(initialRoute.scenarioKind ?? 'list')
+  const [scenarioId, setScenarioId] = useState<string | undefined>(initialRoute.scenarioId)
   const [sessionExpired, setSessionExpired] = useState(false)
 
-  const setNav = useCallback((id: NavId, opts?: { jobId?: string; report?: string }) => {
+  const setNav = useCallback((id: NavId, opts?: SetHashOpts) => {
     setNavState(id)
     setHashRoute(id, opts)
     if (id === 'jobs' && opts?.jobId) setInspectJobId(opts.jobId)
     if (id === 'load' && opts?.jobId) setLoadJobId(opts.jobId)
     if (id === 'reports' && opts?.report) setReportFilterJobId(opts.report)
+    if (id === 'scenarios') {
+      setScenarioKind(opts?.scenarioKind ?? 'list')
+      setScenarioId(opts?.scenarioId)
+    } else {
+      setScenarioKind('list')
+      setScenarioId(undefined)
+    }
   }, [])
 
   useLayoutEffect(() => {
@@ -105,6 +118,8 @@ function AdminAppInner() {
         if (r.nav === 'load') setLoadJobId(r.jobId)
       }
       if (r.reportJobId) setReportFilterJobId(r.reportJobId)
+      setScenarioKind(r.scenarioKind ?? 'list')
+      setScenarioId(r.scenarioId)
     }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
@@ -195,7 +210,15 @@ function AdminAppInner() {
 
   const isAdmin = !me?.role || me.role === 'admin'
   const visibleNav = useMemo(() => NAV.filter((n) => !n.adminOnly || isAdmin), [isAdmin])
-  const currentLabel = useMemo(() => NAV.find((n) => n.id === nav)?.label ?? nav, [nav])
+  const scenarioEditor = nav === 'scenarios' && scenarioKind !== 'list'
+  const currentLabel = useMemo(() => {
+    if (nav === 'scenarios' && scenarioKind !== 'list') {
+      if (scenarioKind === 'new') return 'New scenario'
+      if (scenarioKind === 'builtin') return `Clone scenario · ${scenarioId ?? ''}`
+      return `Edit scenario · ${scenarioId ?? ''}`
+    }
+    return NAV.find((n) => n.id === nav)?.label ?? nav
+  }, [nav, scenarioKind, scenarioId])
 
   if (authKind === null) {
     return (
@@ -254,6 +277,7 @@ function AdminAppInner() {
 
   return (
     <div className="bg-background text-foreground flex min-h-screen">
+      {scenarioEditor ? null : (
       <aside className="border-border bg-sidebar text-sidebar-foreground flex w-56 shrink-0 flex-col border-r">
         <div className="border-border border-b px-3 py-3">
           <div className="text-sidebar-primary text-xs font-semibold tracking-wide">GOSSIPPER · UI</div>
@@ -283,6 +307,7 @@ function AdminAppInner() {
           </div>
         </div>
       </aside>
+      )}
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="border-border bg-card/50 flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
@@ -311,7 +336,7 @@ function AdminAppInner() {
           </div>
         ) : null}
 
-        <main className="min-h-0 flex-1 overflow-auto p-4">
+        <main className={scenarioEditor ? 'min-h-0 flex-1 overflow-hidden p-3' : 'min-h-0 flex-1 overflow-auto p-4'}>
           {nav === 'dashboard' && (
             <DashboardV2
               bearer={bearer}
@@ -322,7 +347,26 @@ function AdminAppInner() {
           )}
           {nav === 'servers' && <ServersV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
           {nav === 'clients' && <ClientsV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
-          {nav === 'scenarios' && <ScenariosV2 bearer={bearer} busy={busy} run={run} errorText={lastError} />}
+          {nav === 'gateway' && (
+            <GatewayV2
+              bearer={bearer}
+              busy={busy}
+              run={run}
+              onNavigate={(id, opts) => setNav(id, opts)}
+            />
+          )}
+          {nav === 'sip' && <SipLiveTrace bearer={bearer} fill />}
+          {nav === 'scenarios' && (
+            <ScenariosV2
+              bearer={bearer}
+              busy={busy}
+              run={run}
+              errorText={lastError}
+              scenarioKind={scenarioKind}
+              scenarioId={scenarioId}
+              onScenarioRoute={(kind, id) => setNav('scenarios', { scenarioKind: kind, scenarioId: id })}
+            />
+          )}
           {nav === 'jobs' && (
             <JobsV2
               bearer={bearer}

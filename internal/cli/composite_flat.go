@@ -21,6 +21,8 @@ var compositeFlatTopReserved = map[string]struct{}{
 	"server":    {},
 	"clients":   {},
 	"client":    {},
+	"gateway":   {},
+	"gateways":  {},
 }
 
 func globalBaseForCompositeFlat(top map[string]json.RawMessage) map[string]json.RawMessage {
@@ -150,6 +152,9 @@ func TryLoadCompositeFlatJSON(configPath string, data []byte) (primary Config, j
 
 	primary, joined, extraArgs, err = buildCompositeProfiles(configPath, global, profileEntries)
 	if err != nil {
+		return Config{}, nil, nil, false, err
+	}
+	if err := applyGatewayFromTop(&primary, top); err != nil {
 		return Config{}, nil, nil, false, err
 	}
 	return primary, joined, extraArgs, true, nil

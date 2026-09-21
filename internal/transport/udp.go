@@ -54,6 +54,14 @@ var udpBufPool = sync.Pool{
 
 // SharedUDP is a UDP socket shared by multiple logical SIP flows (gossipper UAC/UAS).
 // On supported platforms it may use several listeners with SO_REUSEPORT and one merged Receive channel.
+// SIPTap is invoked from the UDP send/recv path. Keep it cheap and copy payload
+// if the implementation retains bytes after return.
+type SIPTap func(dir string, payload []byte, addr *net.UDPAddr)
+
+type sipTapBox struct {
+	fn SIPTap
+}
+
 type SharedUDP struct {
 	conns         []*net.UDPConn
 	incoming      chan Packet
@@ -62,6 +70,7 @@ type SharedUDP struct {
 	closed        atomic.Bool
 	receiverCount int
 	sendIdx       atomic.Uint64 // round-robin index for send distribution
+	tap           atomic.Value  // sipTapBox
 }
 
 // NewSharedUDP binds localAddr and starts ingress goroutines. Parallelism is controlled by
@@ -170,6 +179,7 @@ func (s *SharedUDP) readLoop(conn *net.UDPConn) {
 			continue
 		}
 		p := Packet{Data: buffer[:n], Addr: addr, pool: &udpBufPool}
+		s.fireTap("recv", p.Data, addr)
 		select {
 		case s.incoming <- p:
 		default:
@@ -198,7 +208,28 @@ func (s *SharedUDP) Send(payload []byte, addr *net.UDPAddr) error {
 	// Round-robin across sockets to reduce kernel lock contention.
 	idx := s.sendIdx.Add(1) % uint64(len(s.conns))
 	_, err := s.conns[idx].WriteToUDP(payload, addr)
+	if err == nil {
+		s.fireTap("send", payload, addr)
+	}
 	return err
+}
+
+// SetTap installs (or clears) a datagram observer. Safe to call concurrently
+// with Send/readLoop.
+func (s *SharedUDP) SetTap(tap SIPTap) {
+	s.tap.Store(sipTapBox{fn: tap})
+}
+
+func (s *SharedUDP) fireTap(dir string, payload []byte, addr *net.UDPAddr) {
+	v := s.tap.Load()
+	if v == nil {
+		return
+	}
+	box, ok := v.(sipTapBox)
+	if !ok || box.fn == nil {
+		return
+	}
+	box.fn(dir, payload, addr)
 }
 
 func (s *SharedUDP) Receive() <-chan Packet {

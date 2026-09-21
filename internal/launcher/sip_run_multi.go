@@ -17,6 +17,7 @@ import (
 	"github.com/sipcapture/gossipper/internal/reporthtml"
 	"github.com/sipcapture/gossipper/internal/scenario"
 	"github.com/sipcapture/gossipper/internal/settingsauth"
+	"github.com/sipcapture/gossipper/internal/siplog"
 	"github.com/sipcapture/gossipper/internal/stats"
 )
 
@@ -58,6 +59,11 @@ func runSIPScenarioMulti(ctx context.Context, cfg cli.Config) error {
 		closeLogs = append(closeLogs, closeLog)
 		allPrepared[i].EngineConfig.Log = logger
 	}
+
+	sipRing := siplog.New(0)
+	for i := range allPrepared {
+		allPrepared[i].EngineConfig.SIPLog = sipRing
+	}
 	defer func() {
 		for j := len(closeLogs) - 1; j >= 0; j-- {
 			_ = closeLogs[j]()
@@ -78,6 +84,7 @@ func runSIPScenarioMulti(ctx context.Context, cfg cli.Config) error {
 	if preparedPrimary.CLIConfig.ApiAddr != "" && preparedPrimary.CLIConfig.ServerMode {
 		reserved := []string{labels[0]}
 		loadCoord = NewLoadCoordinator(ctx, preparedPrimary.CLIConfig, staticExtraIDs, reserved)
+		loadCoord.SetSIPLog(sipRing)
 	}
 
 	if preparedPrimary.CLIConfig.ApiAddr != "" {
@@ -124,6 +131,11 @@ func runSIPScenarioMulti(ctx context.Context, cfg cli.Config) error {
 			apiCfg.UIStore = uiBundle.Store
 			apiCfg.JobsRegistry = uiBundle.Registry
 			apiCfg.Version = preparedPrimary.CLIConfig.ToolVersion
+		}
+		if preparedPrimary.CLIConfig.ServerMode {
+			gwCtl := AttachGateway(runCtx, &preparedPrimary.CLIConfig, apps[0])
+			defer gwCtl.Stop()
+			apiCfg.Gateway = gwCtl
 		}
 		apSrv := api.New(apiCfg)
 		warnIfNoV2(preparedPrimary.CLIConfig, apSrv)

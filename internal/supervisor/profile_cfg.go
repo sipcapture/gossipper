@@ -54,6 +54,8 @@ func BuildConfigFromSpec(spec Spec) (cli.Config, func(), error) {
 			scenarioID = p.ScenarioRef
 		}
 		applyClientProfileToConfig(&cfg, p)
+	case GatewayProfileKind:
+		cfg.ServerMode = false
 	default:
 		return cli.Config{}, cleanup, fmt.Errorf("supervisor: unsupported profile_kind %q", spec.ProfileKind)
 	}
@@ -337,6 +339,9 @@ func overlayEngineJSON(cfg *cli.Config, raw []byte) error {
 	str("sip_from", &cfg.SipFrom)
 	str("sip_pai", &cfg.SipPAI)
 	str("sip_provider", &cfg.SipProvider)
+	str("auth_username", &cfg.AuthUsername)
+	str("auth_password", &cfg.AuthPassword)
+	str("service", &cfg.Service)
 	flt("health_min_success_ratio", &cfg.HealthMinSuccessRatio)
 	if v, ok := m["health_max_failed_calls"]; ok {
 		var n int

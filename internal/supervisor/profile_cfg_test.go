@@ -224,6 +224,66 @@ func TestOverlayEngineJSONSipAndHealth(t *testing.T) {
 	}
 }
 
+func TestOverlayEngineJSONAuthAndService(t *testing.T) {
+	cfg := cli.DefaultConfig()
+	raw := []byte(`{
+		"sip_from": "sip:1001@pbx.local",
+		"auth_username": "1001",
+		"auth_password": "secret",
+		"service": "100",
+		"remote_host": "192.168.1.10",
+		"remote_port": 5060
+	}`)
+	if err := overlayEngineJSON(&cfg, raw); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SipFrom != "sip:1001@pbx.local" || cfg.AuthUsername != "1001" || cfg.AuthPassword != "secret" {
+		t.Fatalf("auth overlay: from=%q au=%q", cfg.SipFrom, cfg.AuthUsername)
+	}
+	if cfg.Service != "100" || cfg.RemoteHost != "192.168.1.10" || cfg.RemotePort != 5060 {
+		t.Fatalf("remote overlay: service=%q host=%s port=%d", cfg.Service, cfg.RemoteHost, cfg.RemotePort)
+	}
+}
+
+func TestBuildConfigFromSpecGatewayKind(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := uistore.Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	spec := Spec{
+		JobID:        "gw1",
+		DataDir:      dir,
+		ProfileID:    "gateway",
+		ProfileKind:  GatewayProfileKind,
+		ScenarioID:   "one_way",
+		ArtifactsDir: filepath.Join(dir, "artifacts", "gw1"),
+		Engine: map[string]any{
+			"remote_host":   "192.168.1.10",
+			"remote_port":   5060,
+			"sip_from":      "sip:1001@pbx.local",
+			"auth_username": "1001",
+			"auth_password": "secret",
+			"service":       "100",
+		},
+	}
+	cfg, cleanup, err := BuildConfigFromSpec(spec)
+	if cleanup != nil {
+		t.Cleanup(cleanup)
+	}
+	if err != nil {
+		t.Fatalf("BuildConfigFromSpec gateway: %v", err)
+	}
+	if cfg.ServerMode {
+		t.Fatal("gateway originate must be UAC")
+	}
+	if cfg.ScenarioName != "one_way" {
+		t.Fatalf("scenario=%q", cfg.ScenarioName)
+	}
+	if cfg.SipFrom != "sip:1001@pbx.local" || cfg.RemoteHost != "192.168.1.10" || cfg.RemotePort != 5060 || cfg.Service != "100" {
+		t.Fatalf("overlay: %+v", cfg)
+	}
+}
+
 func TestBuildConfigFromSpecSummaryHTML(t *testing.T) {
 	dir := t.TempDir()
 	store, err := uistore.Open(dir)

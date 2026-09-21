@@ -17,16 +17,20 @@ CLI (UAC toward a PBX, unless noted):
 gossipper -sn one_way -i 127.0.0.1 -p 5060 -s 100
 ```
 
-UAS labs (`early_183`, `late_180`) need a listener:
+UAS labs (`early_183`, `late_180`, and `{id}_uas` twins) need a listener:
 
 ```bash
-gossipper -sn early_183 -t uas
+gossipper -sn one_way_uas -t uas
 ```
 
 In the Control UI: pick the id on a client/server profile, or **Clone to editor**
 on Scenarios so the XML lands in `scenarios/<id>_copy.xml` and opens on the Graph
 canvas. Nested `<nop><action><exec rtp_stream=…>` nodes stay **raw** so they are
 not dropped.
+
+To run a UAC lab **through a PBX AOR** (REGISTER + originate) or arm inbound
+UAS labs (`one_way_uas`, `early_183`, `late_180`, …) on the registered Contact, see
+[SIP REGISTER gateway](gateway.md).
 
 ## Mapping vs kefir
 
@@ -43,6 +47,7 @@ bundled `kws.ulaw`, and a UAC cannot emit an illegal 180 after CONNECT.
 | Port move | re-INVITE `m=` `[media_port+2]` |
 | Media redirect | re-INVITE `c=IN IP4 127.0.0.2` |
 | `early_183` / `late_180` | **UAS** only (the only way those SIP sequences work here) |
+| `{id}_uas` | Inbound twin of the UAC lab: recv INVITE, answer with the same SDP/RTP, then wait for BYE (`short_call_uas` sends BYE at 1500 ms). Hold/gap/redirect re-INVITE toward the caller. |
 | `kws` / `hairpin` | bidirectional synthetic PCMU (not a keyword clip / not a second socket) |
 
 Engine-baked `invite_media_early` is a separate UAC early-media load scenario.
@@ -78,3 +83,4 @@ Lab `early_183` is the kefir inbound 183+SDP port.
 | `cn_then_speech` | uac | PT 13 then PCMU |
 | `early_183` | uas | 183+SDP and RTP before CONNECT |
 | `fax_switch` | uac | G.711 then re-INVITE T.38 |
+| `one_way_uas` … `fax_switch_uas` | uas | Inbound twin of each UAC lab (same SDP/RTP; arm on gateway Contact) |

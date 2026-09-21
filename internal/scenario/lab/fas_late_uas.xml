@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Inbound UAS twin of fas_late: fas_late (N16): start cadence 10s after CONNECT. -->
+<scenario name="fas_late_uas">
+  <recv request="INVITE"/>
+  <send retrans="500">
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]LabUAS[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Contact: <sip:[local_ip]:[local_port];transport=[transport]>
+Content-Type: application/sdp
+Content-Length: [len]
+
+v=0
+o=gossip 1 1 IN IP4 [local_ip]
+s=-
+c=IN IP4 [local_ip]
+t=0 0
+[audio_sdp]
+
+]]>
+  </send>
+  <recv request="ACK" optional="true"/>
+  <pause milliseconds="10000"/>
+  <nop>
+    <action>
+      <exec rtp_stream="synthetic,0,[audio_pt],[audio_codec],20"/>
+    </action>
+  </nop>
+  <pause milliseconds="1000"/>
+  <nop>
+    <action>
+      <exec rtp_stream="stop"/>
+    </action>
+  </nop>
+  <pause milliseconds="2000"/>
+  <nop>
+    <action>
+      <exec rtp_stream="synthetic,0,[audio_pt],[audio_codec],20"/>
+    </action>
+  </nop>
+  <pause milliseconds="1000"/>
+  <nop>
+    <action>
+      <exec rtp_stream="stop"/>
+    </action>
+  </nop>
+  <pause milliseconds="2000"/>
+  <nop>
+    <action>
+      <exec rtp_stream="synthetic,0,[audio_pt],[audio_codec],20"/>
+    </action>
+  </nop>
+  <pause milliseconds="1000"/>
+  <nop>
+    <action>
+      <exec rtp_stream="stop"/>
+    </action>
+  </nop>
+  <pause milliseconds="2000"/>
+  <nop>
+    <action>
+      <exec rtp_stream="stop"/>
+    </action>
+  </nop>
+  <recv request="BYE"/>
+  <send>
+    <![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:];tag=[pid]LabUAS[call_number]
+[last_Call-ID:]
+[last_CSeq:]
+Contact: <sip:[local_ip]:[local_port];transport=[transport]>
+Content-Length: 0
+
+]]>
+  </send>
+</scenario>

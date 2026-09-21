@@ -1,0 +1,28 @@
+{
+  "_comment": "Management UAS + SIP REGISTER gateway. Persist arms/creds in ui_data_dir/gateway.json after first start.",
+  "api_addr": ":8080",
+  "ui_data_dir": "/usr/local/gossipper/data",
+  "server": {
+    "id": "listen",
+    "role": "management",
+    "scenario_name": "management",
+    "listeners": [
+      { "transport": "u1", "local_ip": "0.0.0.0", "local_port": 5060 }
+    ],
+    "rate": 1,
+    "max_concurrent": 2048
+  },
+  "gateway": {
+    "id": "desk",
+    "name": "Desk 1001",
+    "enabled": true,
+    "domain": "pbx.local",
+    "addr": "192.168.1.10:5060",
+    "username": "1001",
+    "password": "secret",
+    "register": true,
+    "advertised_ip": "192.168.1.20",
+    "contact_port": 5060,
+    "register_expires": 300
+  }
+}

@@ -15,7 +15,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/sipcapture/gossipper/internal/gateway"
 	"github.com/sipcapture/gossipper/internal/settingsauth"
+	"github.com/sipcapture/gossipper/internal/siplog"
 	"github.com/sipcapture/gossipper/internal/supervisor"
 	"github.com/sipcapture/gossipper/internal/uistore"
 )
@@ -29,6 +31,10 @@ type Config struct {
 	Logger   *slog.Logger
 	// Version is reported in /api/v2/health.
 	Version string
+	// Gateway is the process SIP REGISTER controller (nil when not a management server).
+	Gateway *gateway.Controller
+	// SIPTrace is the process-wide circular SIP buffer (nil when no engine is attached).
+	SIPTrace *siplog.Ring
 }
 
 // Server registers v2 handlers on a given mux.
@@ -91,6 +97,24 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v2/jobs", s.auth(s.handleStartJob))
 	mux.HandleFunc("GET /api/v2/load-test", s.auth(s.handleGetLoadTest))
 	mux.HandleFunc("POST /api/v2/load-test/run", s.auth(s.handleRunLoadTest))
+	mux.HandleFunc("GET /api/v2/gateway", s.auth(s.handleGetGateway))
+	mux.HandleFunc("GET /api/v2/gateway/ips", s.auth(s.handleGetGatewayIPs))
+	mux.HandleFunc("PUT /api/v2/gateway", s.auth(s.handlePutGateway))
+	mux.HandleFunc("PUT /api/v2/gateway/arm", s.auth(s.handleArmGateway))
+	mux.HandleFunc("POST /api/v2/gateway/originate", s.auth(s.handleOriginateGateway))
+	mux.HandleFunc("GET /api/v2/gateways", s.auth(s.handleListGateways))
+	mux.HandleFunc("POST /api/v2/gateways", s.auth(s.handleCreateGateway))
+	mux.HandleFunc("GET /api/v2/gateways/{id}", s.auth(s.handleGetGatewayProfile))
+	mux.HandleFunc("PUT /api/v2/gateways/{id}", s.auth(s.handlePutGatewayProfile))
+	mux.HandleFunc("DELETE /api/v2/gateways/{id}", s.auth(s.handleDeleteGateway))
+	mux.HandleFunc("PUT /api/v2/gateways/{id}/arm", s.auth(s.handleArmGatewayByID))
+	mux.HandleFunc("POST /api/v2/gateways/{id}/originate", s.auth(s.handleOriginateGatewayByID))
+	mux.HandleFunc("GET /api/v2/sip/trace", s.auth(s.handleGetSIPTrace))
+	mux.HandleFunc("GET /api/v2/sip/trace/capture", s.auth(s.handleGetSIPTraceCapture))
+	mux.HandleFunc("PUT /api/v2/sip/trace/capture", s.auth(s.handlePutSIPTraceCapture))
+	mux.HandleFunc("GET /api/v2/sip/trace/export", s.auth(s.handleExportSIPTrace))
+	mux.HandleFunc("GET /api/v2/sip/trace/ws", s.handleSIPTraceWS)
+	mux.HandleFunc("POST /api/v2/sip/trace/clear", s.auth(s.handleClearSIPTrace))
 	mux.HandleFunc("GET /api/v2/tools", s.auth(s.handleListTools))
 	mux.HandleFunc("POST /api/v2/tools/{id}/run", s.auth(s.handleRunTool))
 	mux.HandleFunc("GET /api/v2/jobs/{id}/recordings", s.auth(s.handleListRecordings))
@@ -194,6 +218,14 @@ func (s *Server) requireStore(w http.ResponseWriter) bool {
 func (s *Server) requireRegistry(w http.ResponseWriter) bool {
 	if s.cfg.Registry == nil {
 		s.writeError(w, http.StatusServiceUnavailable, "supervisor not configured")
+		return false
+	}
+	return true
+}
+
+func (s *Server) requireGateway(w http.ResponseWriter) bool {
+	if s.cfg.Gateway == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "gateway not configured")
 		return false
 	}
 	return true

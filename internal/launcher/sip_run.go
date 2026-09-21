@@ -17,6 +17,7 @@ import (
 	"github.com/sipcapture/gossipper/internal/reporthtml"
 	"github.com/sipcapture/gossipper/internal/scenario"
 	"github.com/sipcapture/gossipper/internal/settingsauth"
+	"github.com/sipcapture/gossipper/internal/siplog"
 	"github.com/sipcapture/gossipper/internal/stats"
 )
 
@@ -45,6 +46,9 @@ func runSIPScenarioSingle(ctx context.Context, cfg cli.Config) error {
 	defer func() { _ = closeLog() }()
 	prepared.EngineConfig.Log = logger
 
+	sipRing := siplog.New(0)
+	prepared.EngineConfig.SIPLog = sipRing
+
 	// runCtx is cancelled as soon as app.Run returns so SIGUSR1 / stat-print
 	// goroutines can exit before we wait on them. Parent ctx still drives app.Run
 	// (SIGINT) and is inherited by runCtx.
@@ -59,6 +63,7 @@ func runSIPScenarioSingle(ctx context.Context, cfg cli.Config) error {
 			res = append(res, s)
 		}
 		loadCoord = NewLoadCoordinator(ctx, prepared.CLIConfig, nil, res)
+		loadCoord.SetSIPLog(sipRing)
 	}
 	if prepared.CLIConfig.ApiAddr != "" {
 		apiCfg := api.ServerConfig{
@@ -95,6 +100,11 @@ func runSIPScenarioSingle(ctx context.Context, cfg cli.Config) error {
 			apiCfg.UIStore = uiBundle.Store
 			apiCfg.JobsRegistry = uiBundle.Registry
 			apiCfg.Version = prepared.CLIConfig.ToolVersion
+		}
+		if prepared.CLIConfig.ServerMode {
+			gwCtl := AttachGateway(runCtx, &prepared.CLIConfig, app)
+			defer gwCtl.Stop()
+			apiCfg.Gateway = gwCtl
 		}
 		apSrv := api.New(apiCfg)
 		warnIfNoV2(prepared.CLIConfig, apSrv)

@@ -133,8 +133,13 @@ func (s *Server) handleStartJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		profileSource = p.Source
+	case supervisor.GatewayProfileKind:
+		if body.ScenarioID == "" {
+			s.writeError(w, http.StatusBadRequest, "scenario_id is required for gateway jobs")
+			return
+		}
 	default:
-		s.writeError(w, http.StatusBadRequest, `profile_kind must be "server", "client", or "tool"`)
+		s.writeError(w, http.StatusBadRequest, `profile_kind must be "server", "client", "tool", or "gateway"`)
 		return
 	}
 	if profileSource == uistore.SourceBuiltIn {

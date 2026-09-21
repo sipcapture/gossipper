@@ -13,6 +13,9 @@ func (s Spec) IsToolJob() bool {
 // ToolProfileKind is the ProfileKind value stored for tool jobs.
 const ToolProfileKind = "tool"
 
+// GatewayProfileKind is the ProfileKind for SIP REGISTER gateway originate jobs.
+const GatewayProfileKind = "gateway"
+
 // ToolID returns the tool name for tool jobs (stored in ProfileID).
 func (s Spec) ToolID() string {
 	if !s.IsToolJob() {

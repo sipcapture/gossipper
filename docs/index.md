@@ -14,6 +14,7 @@ Homer/HEP observability.
 | XML & keywords | [Compatibility matrix](compatibility.md) |
 | Long-run / HTTP API | [SIP stress style load testing](sipstress-style-load-testing.md) · [UI mode](ui-mode.md) |
 | Lab (kefir ports) | [Lab scenarios](lab-scenarios.md) |
+| SIP REGISTER to a PBX | [SIP REGISTER gateway](gateway.md) |
 | Media | [RTP in scenarios](rtp-in-scenarios.md) · [SRTP](srtp.md) |
 | Stats & traces | [Statistics mapping](statistics-mapping.md) · [Trace schema](trace-schema-contract.md) |
 

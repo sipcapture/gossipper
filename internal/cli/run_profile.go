@@ -163,6 +163,9 @@ func LoadAndApplyServerConfig(cfg *Config, configPath string) ([]string, error) 
 	if err := applyRunSpec(cfg, &spec, configDir); err != nil {
 		return nil, err
 	}
+	if err := applyGatewayFromTop(cfg, top); err != nil {
+		return nil, err
+	}
 	return append([]string(nil), spec.ExtraArgs...), nil
 }
 

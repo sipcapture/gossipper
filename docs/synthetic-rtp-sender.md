@@ -45,9 +45,9 @@ For thousands of parallel streams on one host, add **`-media_scale`** and **`-rt
 
 | Descriptor | PT | Clock rate | Pkt interval | Payload/pkt |
 |---|---|---|---|---|
-| `PCMU/8000` | 0 | 8 000 Hz | 20 ms | 160 B (μ-law silence `0xFF`) |
-| `PCMA/8000` | 8 | 8 000 Hz | 20 ms | 160 B (A-law silence `0xD5`) |
-| `G722/8000` | 9 | 8 000 Hz | 20 ms | 160 B (zero) |
+| `PCMU/8000` | 0 | 8 000 Hz | 20 ms | 160 B (μ-law 425 Hz ringback) |
+| `PCMA/8000` | 8 | 8 000 Hz | 20 ms | 160 B (A-law 425 Hz ringback) |
+| `G722/8000` | 9 | 8 000 Hz | 20 ms | 160 B (G.722 425 Hz ringback) |
 | `ILBC/8000` | 97 | 8 000 Hz | 30 ms | 240 B (zero) |
 | `H264/90000` | 96 | 90 000 Hz | 33 ms | 3000 B (zero) |
 | `OPUS/48000` | 111 | 48 000 Hz | 20 ms | 3 B (Opus DTX silence frame) |
@@ -226,13 +226,17 @@ Content-Length: 0
 
 ## Payload content
 
-Synthetic payloads contain codec-appropriate silence bytes:
+Synthetic payloads for PCMU, PCMA, and G722 are a 425 Hz ringback tone
+(ITU-T E.180), encoded per packet so phase and G.722 ADPCM state continue
+across the stream. Comfort Noise and Opus stay silence/DTX:
 
 | Codec | Payload | Rationale |
 |---|---|---|
-| PCMU (G.711 μ-law) | `0xFF` × `SamplesPerPkt × Channels` | μ-law encoding of zero-amplitude signal |
-| PCMA (G.711 A-law) | `0xD5` × `SamplesPerPkt × Channels` | A-law encoding of zero-amplitude signal |
+| PCMU (G.711 μ-law) | 160 B μ-law 425 Hz | Audible ringback / fake ringing |
+| PCMA (G.711 A-law) | 160 B A-law 425 Hz | Audible ringback / fake ringing |
+| G722 | 160 B G.722 64 kbit/s 425 Hz | Same tone at 16 kHz (RTP clock 8 kHz) |
 | Opus | `{0xF8, 0xFF, 0xFE}` (3 bytes) | Valid CELT FB 20 ms mono DTX frame (RFC 6716) |
+| CN (PT 13) | `{0x00}` | RFC 3389 noise-level byte |
 | All others | `0x00` × `SamplesPerPkt × Channels` | Zero-filled; most codecs treat this as silence or a degenerate frame |
 
 For PCM-based codecs (PCMU, PCMA, G722) the payload size is

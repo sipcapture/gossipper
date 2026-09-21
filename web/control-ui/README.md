@@ -49,6 +49,7 @@ Output goes to **`internal/api/webdist/`** and is embedded via `go:embed` in `in
 | Reports | `/api/v2/reports`, artifacts |
 | Scenarios | `/api/v2/scenarios`, `/api/v2/tools/*` (Prep). Graph canvas + XML editor. Lab (kefir) builtins via `/api/v2/builtin-scenarios`. |
 | Clients / Servers | `/api/v2/clients`, `/api/v2/servers` |
+| Gateway | `/api/v2/gateways` (CRUD + arm/originate); compat `/api/v2/gateway` |
 
 Deep links: `#/load/{jobId}`, `#/jobs/{jobId}`, `#/reports?report={jobId}`.
 

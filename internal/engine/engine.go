@@ -25,6 +25,7 @@ import (
 	"github.com/sipcapture/gossipper/internal/scenario"
 	"github.com/sipcapture/gossipper/internal/scheduler"
 	"github.com/sipcapture/gossipper/internal/sip"
+	"github.com/sipcapture/gossipper/internal/siplog"
 	"github.com/sipcapture/gossipper/internal/stats"
 	templ "github.com/sipcapture/gossipper/internal/template"
 	"github.com/sipcapture/gossipper/internal/transport"
@@ -46,6 +47,24 @@ var (
 // so INVITE response chains don't abort before the transaction can complete.
 const sipTimerB = 64 * 500 * time.Millisecond
 
+// isInviteTransactionACK reports whether m is an ACK that completes the
+// INVITE 2xx we last sent (RFC 3261 §13.3.1.4 / Timer G). ACK is a new
+// transaction (different Via branch) so it is matched on CSeq number plus
+// last-sent CSeq method INVITE, not Via branch.
+func isInviteTransactionACK(m *sip.Message, lastCSeqNum int, lastCSeqMethod string) bool {
+	if m == nil || m.StatusCode != 0 || !strings.EqualFold(m.Method, "ACK") {
+		return false
+	}
+	if !strings.EqualFold(lastCSeqMethod, "INVITE") {
+		return false
+	}
+	if lastCSeqNum <= 0 {
+		return true
+	}
+	num, _, ok := sip.ParseCSeq(m.Headers)
+	return ok && num == lastCSeqNum
+}
+
 // ServerListener is one SIP bind for server mode with multiple listeners (UDP/TCP/TLS).
 // Transport must be u1, un, t1, tn, l1, or ln.
 type ServerListener struct {
@@ -57,12 +76,12 @@ type ServerListener struct {
 // TransportListenerState describes one SIP server bind for runtime enable/disable via the HTTP API.
 // ScenarioName is the live SIP scenario name (shared across all listeners on this engine).
 type TransportListenerState struct {
-	Index          int    `json:"index"`
-	ScenarioName   string `json:"scenario_name"`
-	Transport      string `json:"transport"`
-	LocalIP        string `json:"local_ip"`
-	LocalPort      int    `json:"local_port"`
-	Enabled        bool   `json:"enabled"`
+	Index        int    `json:"index"`
+	ScenarioName string `json:"scenario_name"`
+	Transport    string `json:"transport"`
+	LocalIP      string `json:"local_ip"`
+	LocalPort    int    `json:"local_port"`
+	Enabled      bool   `json:"enabled"`
 }
 
 // ClientTransportSummary describes a UAC/load engine SIP bind (HTTP API "clients" side).
@@ -153,9 +172,9 @@ type Config struct {
 	WebRTCICEAuthTTLSec int
 	WebRTCPrefersPCMA   bool
 	WebRTCMedia         bool
-	CommandName      string
-	CommandPeers     map[string]string
-	UISourceIPs      []string
+	CommandName         string
+	CommandPeers        map[string]string
+	UISourceIPs         []string
 	// InjectionFile is the CLI -inf CSV path; used as default for [fieldN] without file=.
 	InjectionFile string
 
@@ -167,6 +186,10 @@ type Config struct {
 	// nil is treated as eventlog.Noop().
 	Log  eventlog.Logger
 	Role string // gossipper.role attribute: "client" or "server"
+
+	// SIPLog is the process-wide circular SIP trace. When nil, New allocates a private ring.
+	// Management servers share one ring across the UAS engine, extra clients, and live extras.
+	SIPLog *siplog.Ring
 
 	// PCAPLinkLayer selects the PCAP datalink decoder for play_pcap_* replay (and mirrors CLI -pcap-link).
 	// Empty means auto (uses file DLT; LINUX_SLL2 is detected from the global header).
@@ -198,20 +221,25 @@ type Config struct {
 	SipProvider string
 	// SipExtraHeaders are full header lines "Name: value" appended after Via on the first request (repeatable -sip_extra_header).
 	SipExtraHeaders []string
+
+	// AdvertisedIP, when set, is [local_ip] in rendered SIP (Contact / SDP).
+	// RTP ListenUDP uses the socket/bind IP (or 0.0.0.0), never this value —
+	// a public NAT address is usually not assigned to a local interface.
+	AdvertisedIP string
 }
 
 type Engine struct {
-	cfg      Config
-	sched    scheduler.Scheduler
-	rate     *scheduler.RateController
-	stats    *stats.Collector
-	randomMu sync.Mutex
-	random   *mrand.Rand
-	scopes   *scopedVars
-	commands *commandBroker
-	cmdNet   *commandNetwork
-	trace    *traceLogger
-	hep      *hep.Client
+	cfg       Config
+	sched     scheduler.Scheduler
+	rate      *scheduler.RateController
+	stats     *stats.Collector
+	randomMu  sync.Mutex
+	random    *mrand.Rand
+	scopes    *scopedVars
+	commands  *commandBroker
+	cmdNet    *commandNetwork
+	trace     *traceLogger
+	hep       *hep.Client
 	log       eventlog.Logger
 	logActive bool // true when log is not a no-op (avoids hot-path work)
 
@@ -220,6 +248,22 @@ type Engine struct {
 	// when no calls are active and the mode matches the original scenario.
 	liveScMu     sync.RWMutex
 	liveScenario scenario.Scenario
+
+	inviteResMu    sync.RWMutex
+	inviteResolver InviteScenarioResolver
+
+	uasUDPMu sync.RWMutex
+	uasUDP   *transport.SharedUDP
+	sipLog   *siplog.Ring
+	waitMu   sync.Mutex
+	waiters  map[string]chan []byte
+
+	// autoAnswerOPTIONS replies 200 to unmatched out-of-dialog OPTIONS (PBX keep-alive).
+	autoAnswerOPTIONS atomic.Bool
+
+	// advertisedIP, when non-empty, replaces the bind/socket address in [local_ip]
+	// (Contact / Via / SDP). Gateway NAT uses the public IP the PBX already has.
+	advertisedIP atomic.Value // string
 
 	// startTime is captured at engine construction; [clock_tick] renders milliseconds since this point.
 	startTime time.Time
@@ -270,7 +314,13 @@ func New(cfg Config) *Engine {
 		liveScenario: cfg.Scenario,
 		startTime:    time.Now(),
 		sem:          newDynSemaphore(limit),
+		waiters:      make(map[string]chan []byte),
+		sipLog:       cfg.SIPLog,
 	}
+	if e.sipLog == nil {
+		e.sipLog = siplog.New(0)
+	}
+	e.SetAdvertisedIP(cfg.AdvertisedIP)
 	if n := serverTransportControlSlots(cfg); n > 0 {
 		e.listenerAccept = make([]atomic.Bool, n)
 		for i := range e.listenerAccept {
@@ -422,6 +472,59 @@ func (e *Engine) TryReplaceLiveScenario(next scenario.Scenario) error {
 // LiveScenario returns the SIP scenario used for current and new calls (after optional hot reload).
 func (e *Engine) LiveScenario() scenario.Scenario {
 	return e.snapshotLiveScenario()
+}
+
+// InviteScenarioResolver maps a Request-URI user to a UAS scenario (gateway per-AOR arm).
+type InviteScenarioResolver func(requestUser string) (scenario.Scenario, bool)
+
+type inviteURIKey struct{}
+
+func withInviteURI(ctx context.Context, uri string) context.Context {
+	if strings.TrimSpace(uri) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, inviteURIKey{}, uri)
+}
+
+// SetInviteScenarioResolver installs optional per-AOR UAS lookup. Nil clears it.
+func (e *Engine) SetInviteScenarioResolver(r func(requestUser string) (scenario.Scenario, bool)) {
+	e.inviteResMu.Lock()
+	e.inviteResolver = r
+	e.inviteResMu.Unlock()
+}
+
+// ScenarioForCall is the scenario snapshot used when spawning a new dialog.
+func (e *Engine) ScenarioForCall() scenario.Scenario {
+	return e.snapshotLiveScenario()
+}
+
+// ScenarioForInvite picks a per-AOR armed scenario when a resolver is set, else live.
+func (e *Engine) ScenarioForInvite(requestURI string) scenario.Scenario {
+	user := sip.RequestURIUser(requestURI)
+	e.inviteResMu.RLock()
+	r := e.inviteResolver
+	e.inviteResMu.RUnlock()
+	if r != nil && user != "" {
+		if sc, ok := r(user); ok {
+			return sc
+		}
+	}
+	return e.snapshotLiveScenario()
+}
+
+// SetAutoAnswerOPTIONS enables 200 OK for unmatched out-of-dialog OPTIONS (PBX keep-alive).
+func (e *Engine) SetAutoAnswerOPTIONS(v bool) {
+	e.autoAnswerOPTIONS.Store(v)
+}
+
+func (e *Engine) tryAutoAnswerOPTIONS(msg sip.Message) ([]byte, bool) {
+	if !e.autoAnswerOPTIONS.Load() {
+		return nil, false
+	}
+	if !sip.Match(msg, "OPTIONS", "") {
+		return nil, false
+	}
+	return sip.StatelessResponse(msg, 200, "OK"), true
 }
 
 func (e *Engine) Stats() *stats.Collector {
@@ -1229,6 +1332,8 @@ func (e *Engine) runServerUDP(ctx context.Context) error {
 		return err
 	}
 	defer shared.Close()
+	e.setUASUDP(shared)
+	defer e.setUASUDP(nil)
 
 	st := newServerMultiCoordinator()
 	go e.udpServerReceivePump(ctx, st, e.cfg.Transport, shared, e.cfg.LocalIP, 0)
@@ -1310,6 +1415,8 @@ func (e *Engine) runOneServerListener(ctx context.Context, co *serverMultiCoordi
 			return fmt.Errorf("udp listener %s: %w", localAddr, err)
 		}
 		defer shared.Close()
+		e.setUASUDP(shared)
+		defer e.setUASUDP(nil)
 		e.udpServerReceivePump(ctx, co, ln.Transport, shared, ln.LocalIP, listenerIdx)
 		return nil
 	case "t1":
@@ -1371,6 +1478,13 @@ func (e *Engine) runServerTCPSharedOn(ctx context.Context, co *serverMultiCoordi
 			mu.Lock()
 			sess, exists := sessions[callID]
 			if !exists {
+				if payload, ok := e.tryAutoAnswerOPTIONS(msg); ok {
+					mu.Unlock()
+					writeMu.Lock()
+					_ = reader.Write(payload)
+					writeMu.Unlock()
+					continue
+				}
 				if !e.listenerAcceptNew(listenerIdx) {
 					mu.Unlock()
 					continue
@@ -1537,18 +1651,40 @@ func (e *Engine) udpServerReceivePump(
 			sip.PutMessage(msg)
 			continue
 		}
-		packet.Release()
 
 		callID, ok := sip.Header(msg.Headers, "Call-ID")
 		if !ok {
+			packet.Release()
 			sip.PutMessage(msg)
 			continue
 		}
 		callID = sip.NormalizeCallID(callID)
 
+		if msg.StatusCode > 0 && e.deliverRegisterWaiter(callID, packet.Data) {
+			packet.Release()
+			sip.PutMessage(msg)
+			continue
+		}
+		packet.Release()
+
 		co.mu.Lock()
 		sess, exists := co.sessions[callID]
 		if !exists {
+			if msg.StatusCode > 0 {
+				co.mu.Unlock()
+				sip.PutMessage(msg)
+				continue
+			}
+			if payload, ok := e.tryAutoAnswerOPTIONS(*msg); ok {
+				remote := packet.Addr
+				if viaAddr := resolveResponseAddr(*msg, packet.Addr); viaAddr != nil {
+					remote = viaAddr
+				}
+				co.mu.Unlock()
+				_ = shared.Send(payload, remote)
+				sip.PutMessage(msg)
+				continue
+			}
 			if !e.listenerAcceptNew(listenerIdx) {
 				co.mu.Unlock()
 				sip.PutMessage(msg)
@@ -1607,7 +1743,7 @@ func (e *Engine) udpServerReceivePump(
 
 				send = e.wrapSIPSend(callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send)
 				receive = e.wrapSIPReceive(callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, receive)
-				_ = e.executeCall(ctx, tr, callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send, receive, func(host string, port int) (string, error) {
+				_ = e.executeCall(withInviteURI(ctx, startMsg.RequestURI), tr, callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send, receive, func(host string, port int) (string, error) {
 					resolved, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, port))
 					if err != nil {
 						return "", fmt.Errorf("setdest failed to resolve %s:%d: %w", host, port, err)
@@ -1624,7 +1760,7 @@ func (e *Engine) udpServerReceivePump(
 		select {
 		case sess.inbox <- msg:
 		default:
-			e.log.Emit(eventlog.Event{
+			e.emitEvent(eventlog.Event{
 				Time:  time.Now(),
 				Level: eventlog.LevelWarn,
 				Kind:  eventlog.KindSIPMailboxDrop,
@@ -1724,7 +1860,7 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 						sip.PutMessage(packet.msg)
 						continue
 					}
-						var matched bool
+					var matched bool
 					if firstCmd.RegexpMatch && firstCmd.RecvReqRegex != nil {
 						matched = firstCmd.RecvReqRegex.MatchString(packet.msg.StartLine)
 					} else {
@@ -1771,7 +1907,7 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 						}
 						send = e.wrapSIPSend(callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send)
 						receive = e.wrapSIPReceive(callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, receive)
-						_ = e.executeCall(ctx, e.cfg.Transport, callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send, receive, func(host string, port int) (string, error) {
+						_ = e.executeCall(withInviteURI(ctx, startMsg.RequestURI), e.cfg.Transport, callNumber, id, sess.localIP, sess.localPort, sess.remote.IP.String(), sess.remote.Port, send, receive, func(host string, port int) (string, error) {
 							resolved, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, port))
 							if err != nil {
 								return "", fmt.Errorf("setdest failed to resolve %s:%d: %w", host, port, err)
@@ -1793,7 +1929,7 @@ func (e *Engine) runServerPerSourceIP(ctx context.Context) error {
 				select {
 				case sess.inbox <- packet.msg:
 				default:
-					e.log.Emit(eventlog.Event{
+					e.emitEvent(eventlog.Event{
 						Time:  time.Now(),
 						Level: eventlog.LevelWarn,
 						Kind:  eventlog.KindSIPMailboxDrop,
@@ -1874,12 +2010,12 @@ func (e *Engine) runServerTCPShared(ctx context.Context) error {
 					continue
 				}
 				var matched bool
-			if firstCmd.RegexpMatch && firstCmd.RecvReqRegex != nil {
-				matched = firstCmd.RecvReqRegex.MatchString(msg.StartLine)
-			} else {
-				matched = sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp)
-			}
-			if !matched || e.serverRejectNew(len(sessions)) {
+				if firstCmd.RegexpMatch && firstCmd.RecvReqRegex != nil {
+					matched = firstCmd.RecvReqRegex.MatchString(msg.StartLine)
+				} else {
+					matched = sip.Match(msg, firstCmd.RecvReq, firstCmd.RecvResp)
+				}
+				if !matched || e.serverRejectNew(len(sessions)) {
 					mu.Unlock()
 					continue
 				}
@@ -2014,14 +2150,19 @@ func (e *Engine) executeCall(
 	startedAt := time.Now()
 	e.stats.StartCall()
 	success := false
-	scen := e.snapshotLiveScenario()
+	scen := e.ScenarioForCall()
+	if uri, _ := ctx.Value(inviteURIKey{}).(string); uri != "" {
+		scen = e.ScenarioForInvite(uri)
+	}
 	callMedia, err := newCallMedia(e, scen, callID)
 	if err != nil {
 		return err
 	}
 	callMedia.configure(e, callID)
 	sawUnexpectedSIP := false
-	e.log.Emit(eventlog.Event{
+	bindIP := localIP
+	localIP = sipIdentityIP(e.sipAdvertisedIP(), localIP)
+	e.emitEvent(eventlog.Event{
 		Time:  startedAt,
 		Level: eventlog.LevelInfo,
 		Kind:  eventlog.KindCallStart,
@@ -2073,7 +2214,7 @@ func (e *Engine) executeCall(
 		if !success {
 			level = eventlog.LevelWarn
 		}
-		e.log.Emit(eventlog.Event{
+		e.emitEvent(eventlog.Event{
 			Time:  time.Now(),
 			Level: level,
 			Kind:  eventlog.KindCallEnd,
@@ -2091,6 +2232,7 @@ func (e *Engine) executeCall(
 		LocalIP:     localIP,
 		LocalIPType: ipType(localIP),
 		LocalPort:   localPort,
+		BindIP:      bindIP,
 		MediaIP:     localIP,
 		MediaIPType: ipType(localIP),
 		MediaPort:   clampMediaPort(localPort + 2 + ((callNumber - 1) * 2)),
@@ -2134,10 +2276,10 @@ func (e *Engine) executeCall(
 		// RFC 3261 §13.2.2.4: store the last ACK for the INVITE
 		// transaction so it can be retransmitted when a retransmitted
 		// INVITE 200 OK arrives (indicating our ACK was lost).
-		inviteACK       []byte
-		inviteBranch    string
+		inviteACK    []byte
+		inviteBranch string
 		// Per-call RNG avoids global randomMu contention under high CPS.
-		callRandom      = mrand.New(mrand.NewSource(time.Now().UnixNano() + int64(callNumber)))
+		callRandom = mrand.New(mrand.NewSource(time.Now().UnixNano() + int64(callNumber)))
 	)
 	// Drain pending messages on exit so pooled *sip.Message objects are
 	// returned promptly, reducing GC pressure and peak memory.
@@ -2210,6 +2352,8 @@ func (e *Engine) executeCall(
 			index++
 			continue
 		}
+
+		e.traceScenarioCmd(cmd, callNumber, callID)
 
 		renderCtx.MessageIndex = cmd.Index
 		if name := strings.TrimSpace(cmd.StartRTD); name != "" {
@@ -2384,6 +2528,20 @@ func (e *Engine) executeCall(
 					}
 					return nil
 				}
+				// RFC 3261 §17.2.1: ACK to our INVITE 2xx stops Timer G.
+				// Extra ACK retransmits while waiting for BYE are normal and
+				// must not be logged as unexpected or keep 200 OK flying.
+				waitingForACK := strings.EqualFold(cmd.RecvReq, "ACK")
+				if cmd.RegexpMatch && cmd.RecvReqRegex != nil {
+					waitingForACK = cmd.RecvReqRegex.MatchString(m.StartLine)
+				}
+				if isInviteTransactionACK(m, lastSentCSeqNum, lastSentMethod) && !waitingForACK {
+					lastRetrans = 0
+					if !fromPending {
+						sip.PutMessage(m)
+					}
+					return nil
+				}
 				if fromPending {
 					if cmd.Optional {
 						// Re-queue back so subsequent optional recvs can try it.
@@ -2468,6 +2626,7 @@ func (e *Engine) executeCall(
 			if err != nil {
 				if errors.Is(err, errUnexpectedToMain) && unexpectedForMain != nil && unexpMainIndex >= 0 {
 					renderCtx.LastMessage = unexpectedForMain.Raw
+					rememberMediaSDP(&renderCtx, unexpectedForMain.Raw)
 					renderCtx.LastHeaders = copyHeaders(unexpectedForMain.Headers)
 					store.Set("_unexp.retaddr", strconv.Itoa(index+1))
 					index = unexpMainIndex
@@ -2486,13 +2645,16 @@ func (e *Engine) executeCall(
 			defer sip.PutMessage(msg)
 			e.traceCountRecv(cmd.Index)
 
-			// RFC 3261 §17.1.1.2: stop retransmitting once any response
-			// is received for the INVITE client transaction.
-			if cmd.RecvResp != "" && lastRetrans > 0 {
+			// RFC 3261 §17.1.1.2: stop client INVITE retransmits on any
+			// response. RFC 3261 §17.2.1: stop UAS INVITE 2xx (Timer G)
+			// once ACK is received — otherwise <send retrans> on 200 keeps
+			// firing through the following recv BYE.
+			if lastRetrans > 0 && (cmd.RecvResp != "" || strings.EqualFold(cmd.RecvReq, "ACK") || strings.EqualFold(msg.Method, "ACK")) {
 				lastRetrans = 0
 			}
 
 			renderCtx.LastMessage = msg.Raw
+			rememberMediaSDP(&renderCtx, msg.Raw)
 			renderCtx.LastHeaders = copyHeaders(msg.Headers)
 			if err := maybeAcceptWebRTCAnswer(callMedia, msg.Raw); err != nil {
 				return err
@@ -2654,7 +2816,7 @@ func (e *Engine) emitTimeoutEvent(callNumber int, callID string, cmd scenario.Co
 	if expected != "" {
 		msg = "recv timeout waiting for " + expected
 	}
-	e.log.Emit(eventlog.Event{
+	e.emitEvent(eventlog.Event{
 		Level: eventlog.LevelWarn,
 		Kind:  eventlog.KindTimeout,
 		Msg:   msg,
@@ -2693,7 +2855,7 @@ func (e *Engine) emitRecvCSeqReject(callNumber int, callID string, cmd scenario.
 			}
 		}
 	}
-	e.log.Emit(eventlog.Event{
+	e.emitEvent(eventlog.Event{
 		Time:  time.Now(),
 		Level: eventlog.LevelWarn,
 		Kind:  eventlog.KindSIPRecvCSeq,
@@ -2822,6 +2984,7 @@ func (e *Engine) waitForMatch(
 			// (e.g., BYE auto-response, late provisional discard), making
 			// subsequent field reads a use-after-free race.
 			msgStatus := msg.StatusCode
+			msgMethod := msg.Method
 			msgMatchesTxn := sip.ResponseMatchesCached(*msg, lastSentBranch, lastSentMethod)
 			if stash != nil {
 				if stashErr := stash(msg, fromPending); stashErr != nil {
@@ -2834,6 +2997,12 @@ func (e *Engine) waitForMatch(
 			// per §17.1.3) — stale retransmissions must not suppress
 			// retransmissions for the active transaction.
 			if msgStatus >= 200 && msgMatchesTxn {
+				finalResponseSeen = true
+			}
+			// RFC 3261 §17.2.1 Timer G: ACK to INVITE 2xx stops 200
+			// retransmits even when the current recv is BYE (ACK already
+			// consumed by an earlier optional recv ACK).
+			if strings.EqualFold(msgMethod, "ACK") && strings.EqualFold(lastSentMethod, "INVITE") {
 				finalResponseSeen = true
 			}
 			if cmd.Optional {
@@ -3435,7 +3604,7 @@ func (e *Engine) applyActions(ctx context.Context, callNumber int, actions []sce
 			}
 			assignActionValue(action.AssignTo, formatActionFloat(value), vars)
 		case scenario.ActionLog:
-			if e.cfg.TraceLogs {
+			if e.cfg.TraceLogs || e.appTraceOn() {
 				message, err := templ.RenderMessageStrict(action.Message, renderCtx)
 				if err != nil {
 					return actionResult{}, err

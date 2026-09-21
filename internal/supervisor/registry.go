@@ -108,6 +108,14 @@ func (r *StubRunner) Started() []string {
 	return out
 }
 
+// Spec returns the recorded start spec for jobID (test helper).
+func (r *StubRunner) Spec(jobID string) (Spec, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	sp, ok := r.started[jobID]
+	return sp, ok
+}
+
 // Registry composes a JobsStore and a Runner so the HTTP layer has a single
 // place to issue start/stop/delete operations.
 type Registry struct {

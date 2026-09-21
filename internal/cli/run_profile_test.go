@@ -71,6 +71,53 @@ func TestLoadAndApplyServerConfigRejectsAliasesLayout(t *testing.T) {
 	}
 }
 
+func TestLoadAndApplyServerConfigGateway(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.json")
+	raw := []byte(`{
+		"transport":"u1","local_port":5060,"api_addr":":8080",
+		"gateway":{"domain":"pbx.local","addr":"10.0.0.8:5060","username":"1001","password":"x","register":true,"advertised_ip":"10.0.0.9"}
+	}`)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	if _, err := LoadAndApplyServerConfig(&cfg, path); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Gateway.Enabled || cfg.Gateway.Username != "1001" || cfg.Gateway.Domain != "pbx.local" {
+		t.Fatalf("gateway=%+v", cfg.Gateway)
+	}
+}
+
+func TestLoadAndApplyServerConfigGatewaysArray(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.json")
+	raw := []byte(`{
+		"transport":"u1","local_port":5060,"api_addr":":8080",
+		"gateways":[
+			{"id":"gw-a","name":"Desk","domain":"pbx.local","addr":"10.0.0.8:5060","username":"1001","password":"x","register":true},
+			{"id":"gw-b","name":"Hunt","enabled":false,"domain":"pbx.local","addr":"10.0.0.8:5060","username":"1002","register":true}
+		]
+	}`)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	if _, err := LoadAndApplyServerConfig(&cfg, path); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Gateways) != 2 {
+		t.Fatalf("gateways=%d", len(cfg.Gateways))
+	}
+	if !cfg.Gateways[0].Enabled || cfg.Gateways[0].ID != "gw-a" || cfg.Gateways[0].Name != "Desk" {
+		t.Fatalf("gw-a=%+v", cfg.Gateways[0])
+	}
+	if cfg.Gateways[1].Enabled {
+		t.Fatalf("gw-b should be disabled: %+v", cfg.Gateways[1])
+	}
+}
+
 func TestLoadAndApplyServerConfigFlat(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "server.json")
