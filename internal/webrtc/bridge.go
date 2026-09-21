@@ -48,24 +48,25 @@ type Logger interface {
 
 // Bridge owns a single pion PeerConnection plus its outbound audio track.
 type Bridge struct {
-	pc               *webrtc.PeerConnection
-	outbound         *webrtc.TrackLocalStaticSample
-	inboundOnce      sync.Once
-	inboundMu        sync.RWMutex
-	inboundCB        func(payload []byte)
-	codec            string // "PCMU" or "PCMA"
-	opts             Options
-	iceGatherTimeout time.Duration
-	trickleFullGather bool
-	iceServers       []string
-	iceAuthMode      string
-	closed           chan struct{}
-	closeOnce        sync.Once
-	stateMu          sync.RWMutex
-	gatheringState   string
-	connectionState  string
-	selectedLocal    string
-	selectedRemote   string
+	pc                  *webrtc.PeerConnection
+	outbound            *webrtc.TrackLocalStaticSample
+	inboundOnce         sync.Once
+	inboundMu           sync.RWMutex
+	inboundCB           func(payload []byte)
+	codec               string // "PCMU" or "PCMA"
+	opts                Options
+	iceGatherTimeout    time.Duration
+	trickleFullGather   bool
+	iceServers          []string
+	iceAuthMode         string
+	closed              chan struct{}
+	closeOnce           sync.Once
+	pcMu                sync.Mutex
+	stateMu             sync.RWMutex
+	gatheringState      string
+	connectionState     string
+	selectedLocal       string
+	selectedRemote      string
 	localCandidateCount int
 	localCandidates     []*webrtc.ICECandidate
 	remoteTrickleAdded  int
@@ -144,7 +145,8 @@ func NewBridge(opts Options) (*Bridge, error) {
 		b.stateMu.Lock()
 		b.connectionState = s.String()
 		b.stateMu.Unlock()
-		b.refreshSelectedCandidatePair()
+		// Do not call GetStats from this callback: pion Close() fires it
+		// while mutating the PeerConnection (DATA RACE in pion itself).
 	})
 
 	pc.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
@@ -305,7 +307,26 @@ func (b *Bridge) consumeRemoteTrack(remote *webrtc.TrackRemote) {
 // Close tears down the PeerConnection.
 func (b *Bridge) Close() error {
 	b.closeOnce.Do(func() { close(b.closed) })
+	b.pcMu.Lock()
+	defer b.pcMu.Unlock()
 	return b.pc.Close()
+}
+
+// statsReport is the only GetStats entry point. It serializes with Close via
+// pcMu and skips after Close so we never overlap pion's unlocked GetStats
+// tail with PeerConnection.close().
+func (b *Bridge) statsReport() webrtc.StatsReport {
+	if b == nil || b.pc == nil {
+		return nil
+	}
+	b.pcMu.Lock()
+	defer b.pcMu.Unlock()
+	select {
+	case <-b.closed:
+		return nil
+	default:
+	}
+	return b.pc.GetStats()
 }
 
 // Codec reports the outbound codec name ("PCMA" or "PCMU").
@@ -320,12 +341,12 @@ func (b *Bridge) ICEDiagnostics() map[string]any {
 	b.stateMu.RLock()
 	defer b.stateMu.RUnlock()
 	out := map[string]any{
-		"ice_gathering":       b.gatheringState,
-		"ice_connection":      b.connectionState,
-		"ice_servers":         len(b.iceServers),
-		"turn_auth":           b.iceAuthMode,
-		"ice_trickle":         !b.trickleFullGather,
-		"local_candidates":    b.localCandidateCount,
+		"ice_gathering":        b.gatheringState,
+		"ice_connection":       b.connectionState,
+		"ice_servers":          len(b.iceServers),
+		"turn_auth":            b.iceAuthMode,
+		"ice_trickle":          !b.trickleFullGather,
+		"local_candidates":     b.localCandidateCount,
 		"remote_trickle_added": b.remoteTrickleAdded,
 	}
 	if b.turnRefreshCount > 0 {
@@ -344,10 +365,11 @@ func (b *Bridge) ICEDiagnostics() map[string]any {
 }
 
 func (b *Bridge) refreshSelectedCandidatePair() {
-	if b == nil || b.pc == nil {
+	report := b.statsReport()
+	if report == nil {
 		return
 	}
-	for _, s := range b.pc.GetStats() {
+	for _, s := range report {
 		pair, ok := s.(webrtc.ICECandidatePairStats)
 		if !ok || !pair.Nominated || pair.State != webrtc.StatsICECandidatePairStateSucceeded {
 			continue

@@ -20,7 +20,6 @@ import (
 )
 
 func TestRunSupports3PCCMasterSlaveAliases(t *testing.T) {
-	t.Parallel()
 
 	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	if err != nil {
@@ -123,7 +122,6 @@ func TestRunSupports3PCCMasterSlaveAliases(t *testing.T) {
 }
 
 func TestRunSippNoArgs(t *testing.T) {
-	t.Parallel()
 	for _, argv := range [][]string{{"sipp"}, {"sipp", "sipp"}} {
 		if err := run(argv); err != nil {
 			t.Fatalf("run(%v) error = %v", argv, err)
@@ -132,7 +130,6 @@ func TestRunSippNoArgs(t *testing.T) {
 }
 
 func TestRunSippRejectsGossipperSubcommands(t *testing.T) {
-	t.Parallel()
 	err := run([]string{"sipp", "tui"})
 	if err == nil {
 		t.Fatal("expected error")
@@ -402,7 +399,6 @@ func TestSummaryToPDFSubcommandHelp(t *testing.T) {
 }
 
 func TestRunPrintsVersion(t *testing.T) {
-	t.Parallel()
 
 	oldStdout := os.Stdout
 	r, w, err := os.Pipe()
@@ -432,7 +428,6 @@ func TestRunPrintsVersion(t *testing.T) {
 }
 
 func TestRunGeneratesInfIndex(t *testing.T) {
-	t.Parallel()
 
 	basePath := t.TempDir()
 	csvPath := filepath.Join(basePath, "users.csv")
@@ -450,7 +445,6 @@ func TestRunGeneratesInfIndex(t *testing.T) {
 }
 
 func TestShouldRunInteractive(t *testing.T) {
-	t.Parallel()
 
 	cases := []struct {
 		name string
@@ -469,7 +463,6 @@ func TestShouldRunInteractive(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			if got := shouldRunInteractive(tc.args); got != tc.want {
 				t.Fatalf("shouldRunInteractive(%v) = %v, want %v", tc.args, got, tc.want)
 			}
@@ -478,7 +471,6 @@ func TestShouldRunInteractive(t *testing.T) {
 }
 
 func TestRunRejectsSlaveScenarioStartingWithSendCmd(t *testing.T) {
-	t.Parallel()
 
 	peersPath := filepath.Join(t.TempDir(), "peers.cfg")
 	if err := os.WriteFile(peersPath, []byte("m;127.0.0.1:7001\ns1;127.0.0.1:7002\n"), 0o644); err != nil {
@@ -508,7 +500,6 @@ X-Reply: too-early
 }
 
 func TestRunSupportsServerTransportAliasS1(t *testing.T) {
-	t.Parallel()
 
 	port := reserveUDPPort(t)
 	serverDone := make(chan error, 1)
@@ -602,7 +593,6 @@ func TestRunSupportsServerTransportAliasS1(t *testing.T) {
 }
 
 func TestRunRejectsServerTransportAliasForClientScenario(t *testing.T) {
-	t.Parallel()
 
 	err := run([]string{
 		"-sn", "uac",
@@ -615,7 +605,6 @@ func TestRunRejectsServerTransportAliasForClientScenario(t *testing.T) {
 }
 
 func TestRunWritesMessageAndShortTraceFiles(t *testing.T) {
-	t.Parallel()
 
 	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	if err != nil {
@@ -708,7 +697,6 @@ func TestRunWritesMessageAndShortTraceFiles(t *testing.T) {
 }
 
 func TestRunWritesActionLogTraceFile(t *testing.T) {
-	t.Parallel()
 
 	scenarioPath := filepath.Join(t.TempDir(), "log_only.xml")
 	if err := os.WriteFile(scenarioPath, []byte(`<?xml version="1.0" encoding="UTF-8"?>
@@ -741,7 +729,6 @@ func TestRunWritesActionLogTraceFile(t *testing.T) {
 }
 
 func TestRunHonorsTimeoutGlobal(t *testing.T) {
-	t.Parallel()
 
 	scenarioPath := filepath.Join(t.TempDir(), "long_pause.xml")
 	if err := os.WriteFile(scenarioPath, []byte(`<?xml version="1.0" encoding="UTF-8"?>
@@ -766,7 +753,6 @@ func TestRunHonorsTimeoutGlobal(t *testing.T) {
 }
 
 func TestRunWritesUnexpectedResponseToErrorTraceFile(t *testing.T) {
-	t.Parallel()
 
 	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	if err != nil {
@@ -844,7 +830,6 @@ Content-Length: 0
 }
 
 func TestRunWritesUnexpectedResponseToErrorCodesTraceFile(t *testing.T) {
-	t.Parallel()
 
 	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	if err != nil {
@@ -926,7 +911,6 @@ Content-Length: 0
 }
 
 func TestRunSupportsOutOfCallOptionsWorkflow(t *testing.T) {
-	t.Parallel()
 
 	port := reserveUDPPort(t)
 	serverDone := make(chan error, 1)
@@ -957,7 +941,6 @@ func TestRunSupportsOutOfCallOptionsWorkflow(t *testing.T) {
 }
 
 func TestRunSupportsDigestAuthenticationKeyword(t *testing.T) {
-	t.Parallel()
 
 	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	if err != nil {
@@ -1062,7 +1045,6 @@ func TestRunSupportsDigestAuthenticationKeyword(t *testing.T) {
 }
 
 func TestRunBundledPCAPScenarios(t *testing.T) {
-	t.Parallel()
 
 	tests := []struct {
 		name            string
@@ -1095,7 +1077,6 @@ func TestRunBundledPCAPScenarios(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 
 			rtpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 			if err != nil {

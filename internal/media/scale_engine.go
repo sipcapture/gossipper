@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,24 +42,27 @@ type ScaleEngine struct {
 
 	sendCh chan scaleSendJob
 
+	// directSend sends UDP batches from the scheduler (no sender worker queue).
+	directSend bool
+
 	packetsSent atomic.Uint64
 	octetsSent  atomic.Uint64
 }
 
 type scaleStream struct {
-	id       uint64
-	callID   string
-	conn     *net.UDPConn
-	remote   *net.UDPAddr
-	cfg      StreamConfig
-	packet   []byte
-	sendBuf  []byte
-	sequence uint16
+	id        uint64
+	callID    string
+	conn      *net.UDPConn
+	remote    *net.UDPAddr
+	cfg       StreamConfig
+	packet    []byte
+	sendBuf   []byte
+	sequence  uint16
 	timestamp uint32
-	interval time.Duration
-	nextSend time.Time
-	paused   bool
-	heapIdx  int
+	interval  time.Duration
+	nextSend  time.Time
+	paused    bool
+	heapIdx   int
 
 	packetsSent uint64
 }
@@ -67,13 +72,30 @@ type scaleSendJob struct {
 	msgs []udpSendMsg
 }
 
+// ScaleOptions configures a ScaleEngine at construction. DirectSend is also
+// enabled when GOSSIPPER_MEDIA_IOURING is 1/true/yes (legacy process-wide opt-in).
+type ScaleOptions struct {
+	DirectSend bool
+}
+
 // NewScaleEngine constructs a scale engine; call Run before registering streams.
 func NewScaleEngine() *ScaleEngine {
+	return NewScaleEngineOpts(ScaleOptions{})
+}
+
+// NewScaleEngineOpts constructs a scale engine with per-instance send mode.
+func NewScaleEngineOpts(opt ScaleOptions) *ScaleEngine {
 	return &ScaleEngine{
-		streams: make(map[uint64]*scaleStream),
-		byCall:  make(map[string][]uint64),
-		sendCh:  make(chan scaleSendJob, scaleSendQueueDepth),
+		streams:    make(map[uint64]*scaleStream),
+		byCall:     make(map[string][]uint64),
+		sendCh:     make(chan scaleSendJob, scaleSendQueueDepth),
+		directSend: opt.DirectSend || envMediaIOUring(),
 	}
+}
+
+func envMediaIOUring() bool {
+	v := strings.TrimSpace(os.Getenv("GOSSIPPER_MEDIA_IOURING"))
+	return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
 }
 
 // Run starts scheduler and sender workers until ctx is cancelled.
@@ -84,7 +106,7 @@ func (e *ScaleEngine) Run(ctx context.Context) {
 	child, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 
-	if !ScaleDirectSend() {
+	if !e.directSend {
 		workers := runtime.GOMAXPROCS(0)
 		if workers < 1 {
 			workers = 1
@@ -289,15 +311,11 @@ func (e *ScaleEngine) tick(now time.Time) {
 		st.nextSend = st.nextSend.Add(st.interval)
 		heap.Push(&e.heap, st)
 	}
-	e.mu.Unlock()
-	if len(due) == 0 {
-		return
-	}
 
 	byConn := make(map[*net.UDPConn][]udpSendMsg)
 	for _, st := range due {
 		patchRTPPacket(st.sendBuf, st.sequence, st.timestamp)
-		if ScaleDirectSend() {
+		if e.directSend {
 			byConn[st.conn] = append(byConn[st.conn], udpSendMsg{Addr: st.remote, Buf: st.sendBuf})
 		} else {
 			buf, bp := allocScalePacket(st.sendBuf)
@@ -307,6 +325,10 @@ func (e *ScaleEngine) tick(now time.Time) {
 		st.timestamp += st.cfg.SamplesPerPkt
 		st.packetsSent++
 	}
+	e.mu.Unlock()
+	if len(due) == 0 {
+		return
+	}
 
 	for conn, msgs := range byConn {
 		for off := 0; off < len(msgs); off += scaleMaxBatch {
@@ -315,7 +337,7 @@ func (e *ScaleEngine) tick(now time.Time) {
 				end = len(msgs)
 			}
 			batch := msgs[off:end]
-			if ScaleDirectSend() {
+			if e.directSend {
 				n, _ := udpSendBatch(conn, batch)
 				e.addSent(n, batch)
 				continue

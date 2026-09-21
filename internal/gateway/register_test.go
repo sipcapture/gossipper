@@ -45,15 +45,7 @@ func TestRegistrarDigest401Then200(t *testing.T) {
 }
 
 func TestRegistrarRefreshAndDeregisterExpires0(t *testing.T) {
-	prevRetry := registerRetry
-	prevMin := registerMinRefresh
-	registerRetry = 50 * time.Millisecond
-	registerMinRefresh = 40 * time.Millisecond
-	t.Cleanup(func() {
-		registerRetry = prevRetry
-		registerMinRefresh = prevMin
-	})
-
+	t.Parallel()
 	stub := startStubRegistrar(t, stubMode{expires: 1})
 	reg := NewRegistrar(Config{
 		Domain:          "pbx.local",
@@ -65,6 +57,8 @@ func TestRegistrarRefreshAndDeregisterExpires0(t *testing.T) {
 		ContactPort:     5060,
 		RegisterExpires: 1,
 	})
+	reg.retry = 50 * time.Millisecond
+	reg.minRefresh = 40 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go reg.Loop(ctx)
@@ -176,10 +170,7 @@ func TestRegistrarViaUsesAdvertisedIP(t *testing.T) {
 }
 
 func TestRegistrarFailThenRetry(t *testing.T) {
-	prevRetry := registerRetry
-	registerRetry = 40 * time.Millisecond
-	t.Cleanup(func() { registerRetry = prevRetry })
-
+	t.Parallel()
 	stub := startStubRegistrar(t, stubMode{failThenOK: true, expires: 60})
 	reg := NewRegistrar(Config{
 		Domain:          "pbx.local",
@@ -191,6 +182,7 @@ func TestRegistrarFailThenRetry(t *testing.T) {
 		ContactPort:     5060,
 		RegisterExpires: 60,
 	})
+	reg.retry = 40 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go reg.Loop(ctx)

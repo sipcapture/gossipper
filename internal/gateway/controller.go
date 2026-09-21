@@ -192,7 +192,7 @@ func (c *Controller) restartOne(parent context.Context, id string) {
 	if oldDone != nil {
 		select {
 		case <-oldDone:
-		case <-time.After(deregisterTO + time.Second):
+		case <-time.After(defaultDeregisterTO + time.Second):
 		}
 	}
 	if !cfg.ShouldRegister() {

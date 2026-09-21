@@ -16,11 +16,11 @@ import (
 
 var errUASUDPNotReady = errors.New("uas udp not ready")
 
-var (
-	registerRetry      = 15 * time.Second
-	registerTimeout    = 8 * time.Second
-	deregisterTO       = 5 * time.Second
-	registerMinRefresh = 5 * time.Second
+const (
+	defaultRegisterRetry      = 15 * time.Second
+	defaultRegisterTimeout    = 8 * time.Second
+	defaultDeregisterTO       = 5 * time.Second
+	defaultRegisterMinRefresh = 5 * time.Second
 )
 
 // State is the public REGISTER status (password never included).
@@ -82,15 +82,24 @@ type Registrar struct {
 	trip  RegisterTransport
 
 	cseq int
+
+	retry      time.Duration
+	minRefresh time.Duration
+	timeout    time.Duration
+	deregWait  time.Duration
 }
 
 // NewRegistrar constructs a registrar with state off.
 func NewRegistrar(cfg Config) *Registrar {
 	cfg.Normalize()
 	return &Registrar{
-		cfg:   cfg,
-		state: State{State: StateOff, AOR: cfg.AOR()},
-		cseq:  1,
+		cfg:        cfg,
+		state:      State{State: StateOff, AOR: cfg.AOR()},
+		cseq:       1,
+		retry:      defaultRegisterRetry,
+		minRefresh: defaultRegisterMinRefresh,
+		timeout:    defaultRegisterTimeout,
+		deregWait:  defaultDeregisterTO,
 	}
 }
 
@@ -186,7 +195,7 @@ func (r *Registrar) Loop(ctx context.Context) {
 				r.setState(State{State: StateOff, AOR: aor})
 				return
 			}
-			wait := registerRetry
+			wait := r.retry
 			if errors.Is(err, errUASUDPNotReady) {
 				wait = 200 * time.Millisecond
 				r.setState(State{State: StateRegistering, AOR: aor})
@@ -232,7 +241,7 @@ func (r *Registrar) Loop(ctx context.Context) {
 				r.deregister(cfg, sess)
 				r.setState(State{State: StateOff, AOR: aor, Trace: trace})
 				return
-			case <-time.After(registerRetry):
+			case <-time.After(r.retry):
 				r.setState(State{State: StateRegistering, AOR: aor, Trace: trace})
 				continue
 			}
@@ -242,8 +251,8 @@ func (r *Registrar) Loop(ctx context.Context) {
 			ttl = time.Duration(res.expires) * time.Second
 		}
 		refresh := time.Duration(float64(ttl) * 0.9)
-		if refresh < registerMinRefresh {
-			refresh = registerMinRefresh
+		if refresh < r.minRefresh {
+			refresh = r.minRefresh
 		}
 		st := State{
 			State:      StateRegistered,
@@ -343,7 +352,7 @@ func (r *Registrar) deregister(cfg Config, sess *registerSession) {
 	if sess == nil {
 		return
 	}
-	dctx, cancel := context.WithTimeout(context.Background(), deregisterTO)
+	dctx, cancel := context.WithTimeout(context.Background(), r.deregWait)
 	defer cancel()
 	_, _, _ = r.sendRegister(dctx, cfg, sess, true)
 }
@@ -372,7 +381,7 @@ func (r *Registrar) sendRegister(ctx context.Context, cfg Config, sess *register
 		expires = 0
 	}
 
-	attempt, cancel := context.WithTimeout(ctx, registerTimeout)
+	attempt, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
 	cseq := r.nextCSeq()
@@ -573,7 +582,7 @@ func recvUDP(ctx context.Context, conn *net.UDPConn) ([]byte, error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetReadDeadline(deadline)
 	} else {
-		_ = conn.SetReadDeadline(time.Now().Add(registerTimeout))
+		_ = conn.SetReadDeadline(time.Now().Add(defaultRegisterTimeout))
 	}
 	buf := make([]byte, 65535)
 	n, _, err := conn.ReadFromUDP(buf)

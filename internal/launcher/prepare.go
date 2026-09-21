@@ -6,7 +6,6 @@ import (
 
 	"github.com/sipcapture/gossipper/internal/cli"
 	"github.com/sipcapture/gossipper/internal/engine"
-	"github.com/sipcapture/gossipper/internal/media"
 	"github.com/sipcapture/gossipper/internal/scenario"
 	"github.com/sipcapture/gossipper/internal/stats"
 )
@@ -55,7 +54,6 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		return Prepared{}, err
 	}
 	applyBuiltinScenarioFlags(&cfg, sc)
-	applyScaleMediaFlags(&cfg)
 
 	totalCalls := cfg.TotalCalls
 	unlimited := cfg.TotalCallsSetExplicitly && cfg.TotalCalls == 0
@@ -128,28 +126,28 @@ func Prepare(cfg cli.Config) (Prepared, error) {
 		WebRTCICEAuthTTLSec: cfg.WebRTCICEAuthTTLSec,
 		WebRTCPrefersPCMA:   cfg.WebRTCPrefersPCMA,
 		WebRTCMedia:         cfg.WebRTCMedia,
-		CommandName:      cfg.CommandName,
-		CommandPeers:     cfg.CommandPeers,
-		UISourceIPs:      append([]string(nil), cfg.UISourceIPs...),
-		InjectionFile:    cfg.InjectionFile,
-		Keys:             cfg.Keys,
-		Role:             roleFromScenario(sc),
-		PCAPLinkLayer:    cfg.PCAPLinkLayer,
-		SipFrom:          cfg.SipFrom,
-		SipPAI:           cfg.SipPAI,
-		SipProvider:      cfg.SipProvider,
-		SipExtraHeaders:  append([]string(nil), cfg.SipExtraHeaders...),
-		RecordWAVDir:     cfg.RecordWAVDir,
-		RecordWAVDuplex:  cfg.RecordWAVDuplex,
-		CallRecordsJSONL: cfg.CallRecordsJSONL,
-		MediaRejectSRTP:  cfg.MediaRejectSRTP,
-		MediaSRTP:        cfg.MediaSRTP,
-		MediaScale:       cfg.MediaScale,
-		MediaIOUring:     cfg.MediaIOUring,
-		TURNServer:       cfg.TURNServer,
-		TURNUser:         cfg.TURNUser,
-		TURNPass:         cfg.TURNPass,
-		TURNRealm:        cfg.TURNRealm,
+		CommandName:         cfg.CommandName,
+		CommandPeers:        cfg.CommandPeers,
+		UISourceIPs:         append([]string(nil), cfg.UISourceIPs...),
+		InjectionFile:       cfg.InjectionFile,
+		Keys:                cfg.Keys,
+		Role:                roleFromScenario(sc),
+		PCAPLinkLayer:       cfg.PCAPLinkLayer,
+		SipFrom:             cfg.SipFrom,
+		SipPAI:              cfg.SipPAI,
+		SipProvider:         cfg.SipProvider,
+		SipExtraHeaders:     append([]string(nil), cfg.SipExtraHeaders...),
+		RecordWAVDir:        cfg.RecordWAVDir,
+		RecordWAVDuplex:     cfg.RecordWAVDuplex,
+		CallRecordsJSONL:    cfg.CallRecordsJSONL,
+		MediaRejectSRTP:     cfg.MediaRejectSRTP,
+		MediaSRTP:           cfg.MediaSRTP,
+		MediaScale:          cfg.MediaScale,
+		MediaIOUring:        cfg.MediaIOUring,
+		TURNServer:          cfg.TURNServer,
+		TURNUser:            cfg.TURNUser,
+		TURNPass:            cfg.TURNPass,
+		TURNRealm:           cfg.TURNRealm,
 	}
 
 	return Prepared{
@@ -266,11 +264,6 @@ func applyBuiltinScenarioFlags(cfg *cli.Config, sc scenario.Scenario) {
 		}
 	}
 }
-
-func applyScaleMediaFlags(cfg *cli.Config) {
-	media.EnableScaleDirectSend(cfg.MediaIOUring)
-}
-
 
 func Validate3PCCRole(cfg cli.Config, sc scenario.Scenario) error {
 	if cfg.CommandRole != "slave" {

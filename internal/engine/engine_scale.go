@@ -12,7 +12,7 @@ func (e *Engine) startScaleEngine(ctx context.Context) {
 	if e.scaleEngine != nil {
 		return
 	}
-	se := media.NewScaleEngine()
+	se := media.NewScaleEngineOpts(media.ScaleOptions{DirectSend: e.cfg.MediaIOUring})
 	se.Run(ctx)
 	e.scaleEngine = se
 }

@@ -79,3 +79,48 @@ func TestScaleEnginePauseResume(t *testing.T) {
 		t.Fatalf("expected more packets after resume: before=%d after=%d", st1.RTPPacketsSent, st2.RTPPacketsSent)
 	}
 }
+
+func TestScaleEngineDirectSend(t *testing.T) {
+	recvConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP recv: %v", err)
+	}
+	defer recvConn.Close()
+	recvAddr := recvConn.LocalAddr().(*net.UDPAddr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	eng := NewScaleEngineOpts(ScaleOptions{DirectSend: true})
+	if !eng.directSend {
+		t.Fatal("expected DirectSend on this engine")
+	}
+	if !envMediaIOUring() {
+		queued := NewScaleEngine()
+		if queued.directSend {
+			t.Fatal("default ScaleEngine must not share DirectSend with another instance")
+		}
+	}
+	eng.Run(ctx)
+	defer eng.Stop()
+
+	cfg := DefaultConfig("")
+	cfg.Synthetic = true
+	cfg.PacketDuration = 20 * time.Millisecond
+	if err := eng.RegisterStream(ctx, "call-direct", Endpoint{IP: "127.0.0.1", Port: recvAddr.Port}, cfg, "127.0.0.1", 0); err != nil {
+		t.Fatalf("RegisterStream: %v", err)
+	}
+
+	buf := make([]byte, 2048)
+	_ = recvConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, _, err := recvConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("ReadFromUDP: %v", err)
+	}
+	if n < 12 {
+		t.Fatalf("short RTP packet: %d bytes", n)
+	}
+	st := eng.UnregisterCall("call-direct")
+	if st.RTPPacketsSent < 1 {
+		t.Fatalf("RTPPacketsSent = %d, want at least 1", st.RTPPacketsSent)
+	}
+}

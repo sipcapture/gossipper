@@ -16,11 +16,12 @@ type RTPStats struct {
 
 // RTPStats reads the latest audio RTP counters from pion GetStats().
 func (b *Bridge) RTPStats() RTPStats {
-	if b == nil || b.pc == nil {
+	report := b.statsReport()
+	if report == nil {
 		return RTPStats{}
 	}
 	var out RTPStats
-	for _, s := range b.pc.GetStats() {
+	for _, s := range report {
 		switch st := s.(type) {
 		case pion.InboundRTPStreamStats:
 			if st.Kind != "audio" {

@@ -49,3 +49,41 @@ func TestPrepareInviteMediaScaleDefaultTransportU1(t *testing.T) {
 		t.Fatalf("transport = %q, want u1", prepared.CLIConfig.Transport)
 	}
 }
+
+func TestPreparePropagatesMediaIOUring(t *testing.T) {
+	t.Parallel()
+	cfg := cli.Config{
+		ScenarioName: scenario.BuiltinInviteMediaScale,
+		Transport:    "u1",
+		LocalIP:      "127.0.0.1",
+		LocalPort:    5060,
+		RemoteHost:   "127.0.0.1",
+		RemotePort:   5060,
+		MediaScale:   true,
+		MediaIOUring: true,
+	}
+	prepared, err := Prepare(cfg)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if !prepared.EngineConfig.MediaIOUring {
+		t.Fatal("expected EngineConfig.MediaIOUring=true")
+	}
+
+	off := cli.Config{
+		ScenarioName: scenario.BuiltinInviteMediaScale,
+		Transport:    "u1",
+		LocalIP:      "127.0.0.1",
+		LocalPort:    5061,
+		RemoteHost:   "127.0.0.1",
+		RemotePort:   5060,
+		MediaScale:   true,
+	}
+	preparedOff, err := Prepare(off)
+	if err != nil {
+		t.Fatalf("Prepare off: %v", err)
+	}
+	if preparedOff.EngineConfig.MediaIOUring {
+		t.Fatal("expected EngineConfig.MediaIOUring=false for a separate Prepare")
+	}
+}

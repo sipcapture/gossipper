@@ -45,7 +45,7 @@ func RunRTPSenderScale(ctx context.Context, cfg cli.Config) error {
 		defer senderCancel()
 	}
 
-	eng := media.NewScaleEngine()
+	eng := media.NewScaleEngineOpts(media.ScaleOptions{DirectSend: cfg.MediaIOUring})
 	eng.Run(senderCtx)
 	defer eng.Stop()
 
