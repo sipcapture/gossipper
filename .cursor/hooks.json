@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      { "command": ".agents/hooks/fmt.sh" }
+    ],
+    "stop": [
+      { "command": ".agents/hooks/gate.sh", "timeout": 900 }
+    ]
+  }
+}
