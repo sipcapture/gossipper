@@ -47,6 +47,10 @@ func runSIPScenarioSingle(ctx context.Context, cfg cli.Config) error {
 	prepared.EngineConfig.Log = logger
 
 	sipRing := siplog.New(0)
+	if err := attachCallsDB(sipRing, prepared.CLIConfig); err != nil {
+		return err
+	}
+	defer sipRing.ClosePersist()
 	prepared.EngineConfig.SIPLog = sipRing
 
 	// runCtx is cancelled as soon as app.Run returns so SIGUSR1 / stat-print

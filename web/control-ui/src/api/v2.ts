@@ -617,13 +617,14 @@ export const getGatewayIPs = (opts: Opts) => request<GatewayIPHints>('GET', '/ga
 export interface SIPTraceCapture {
   sip: boolean
   app: boolean
+  rtp?: boolean
   level?: string
 }
 
 export interface SIPTraceMessage {
   seq: number
   ts: string
-  kind?: 'sip' | 'app' | string
+  kind?: 'sip' | 'app' | 'rtp' | string
   dir: 'send' | 'recv' | 'app' | string
   peer?: string
   scenario?: string
@@ -658,7 +659,7 @@ export const putSIPTraceCapture = (body: SIPTraceCapture, opts: Opts) =>
   request<SIPTraceCapture>('PUT', '/sip/trace/capture', body, opts)
 
 export async function downloadSIPTrace(
-  format: 'text' | 'pcap',
+  format: 'text' | 'pcap' | 'zip',
   opts: Opts & { scenario?: string } = {},
 ): Promise<void> {
   const q = new URLSearchParams()
@@ -670,18 +671,37 @@ export async function downloadSIPTrace(
     headers,
     signal: opts.signal,
   })
+  await throwIfNotOk(res)
+  const fallback = `gossipper-trace.${format === 'zip' ? 'zip' : format === 'pcap' ? 'pcap' : 'txt'}`
+  await saveBlobResponse(res, fallback)
+}
+
+export async function downloadCallDump(id: string, opts: Opts = {}): Promise<void> {
+  const headers = new Headers()
+  if (opts.bearer) headers.set('Authorization', 'Bearer ' + opts.bearer)
+  const res = await fetch(url(`/calls/${encodeURIComponent(id)}?format=zip`), {
+    headers,
+    signal: opts.signal,
+  })
+  await throwIfNotOk(res)
+  await saveBlobResponse(res, 'gossipper-call.zip')
+}
+
+async function throwIfNotOk(res: Response): Promise<void> {
   if (res.status === 401) unauthorizedHandler?.()
-  if (!res.ok) {
-    const text = await readBody(res)
-    let message = res.statusText
-    try {
-      const parsed = JSON.parse(text) as { error?: string }
-      if (parsed.error) message = parsed.error
-    } catch {
-      if (text.trim()) message = text.slice(0, 400)
-    }
-    throw { status: res.status, message } satisfies ApiErrorV2
+  if (res.ok) return
+  const text = await readBody(res)
+  let message = res.statusText
+  try {
+    const parsed = JSON.parse(text) as { error?: string }
+    if (parsed.error) message = parsed.error
+  } catch {
+    if (text.trim()) message = text.slice(0, 400)
   }
+  throw { status: res.status, message } satisfies ApiErrorV2
+}
+
+async function saveBlobResponse(res: Response, fallbackName: string): Promise<void> {
   const blob = await res.blob()
   const disp = res.headers.get('Content-Disposition')
   const star = /filename\*=(?:UTF-8''|)([^;]+)/i.exec(disp ?? '')
@@ -689,7 +709,7 @@ export async function downloadSIPTrace(
   const name =
     (star ? decodeURIComponent(star[1].trim().replace(/^"+|"+$/g, '')) : undefined) ??
     plain?.[1]?.trim() ??
-    `gossipper-trace.${format === 'pcap' ? 'pcap' : 'txt'}`
+    fallbackName
   const href = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = href
@@ -709,3 +729,54 @@ export const sipTraceWSURL = (bearer?: string, since = 0) => {
   if (bearer) u.searchParams.set('token', bearer)
   return u.toString()
 }
+
+export interface CallSummary {
+  call_id: string
+  scenario?: string
+  from?: string
+  to?: string
+  peer?: string
+  direction?: string
+  state: string
+  result?: string
+  error?: string
+  started_at: string
+  ended_at?: string
+  duration_ms: number
+  sip_count: number
+  sip_send: number
+  sip_recv: number
+  debug_count: number
+  rtp_count: number
+  rtp_send: number
+  rtp_recv: number
+  rtp_bytes_send: number
+  rtp_bytes_recv: number
+  rtp_dest?: string
+  rtp_src?: string
+  payload_type?: number
+  codec?: string
+}
+
+export interface CallRTPSample {
+  ts: string
+  dir: string
+  src: string
+  dst: string
+  pt: number
+  seq: number
+  size: number
+}
+
+export interface CallDetail extends CallSummary {
+  sip: SIPTraceMessage[]
+  debug: SIPTraceMessage[]
+  rtp: CallRTPSample[]
+}
+
+export const listCalls = (opts: Opts) => request<{ calls: CallSummary[] }>('GET', '/calls', undefined, opts)
+
+export const getCall = (id: string, opts: Opts) =>
+  request<CallDetail>('GET', `/calls/${encodeURIComponent(id)}`, undefined, opts)
+
+export const clearCalls = (opts: Opts) => request<{ calls: CallSummary[] }>('POST', '/calls/clear', {}, opts)

@@ -15,6 +15,7 @@ import (
 type sipTraceCapture struct {
 	SIP   bool   `json:"sip"`
 	App   bool   `json:"app"`
+	RTP   bool   `json:"rtp"`
 	Level string `json:"level"`
 }
 
@@ -27,7 +28,7 @@ type sipTraceResponse struct {
 
 func (s *Server) captureState() sipTraceCapture {
 	sip, app := s.cfg.SIPTrace.Capture()
-	return sipTraceCapture{SIP: sip, App: app, Level: s.cfg.SIPTrace.MinLevel()}
+	return sipTraceCapture{SIP: sip, App: app, RTP: s.cfg.SIPTrace.RTPEnabled(), Level: s.cfg.SIPTrace.MinLevel()}
 }
 
 func (s *Server) handleGetSIPTraceCapture(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +49,7 @@ func (s *Server) handlePutSIPTraceCapture(w http.ResponseWriter, r *http.Request
 		}
 	}
 	s.cfg.SIPTrace.SetCapture(body.SIP, body.App)
+	s.cfg.SIPTrace.SetRTP(body.RTP)
 	if level != "" {
 		_ = s.cfg.SIPTrace.SetMinLevel(level)
 	}
@@ -90,16 +92,30 @@ func (s *Server) handleExportSIPTrace(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "text"
 	}
-	if format != "text" && format != "pcap" {
-		s.writeError(w, http.StatusBadRequest, "format must be text or pcap")
+	if format != "text" && format != "pcap" && format != "zip" {
+		s.writeError(w, http.StatusBadRequest, "format must be text, pcap, or zip")
 		return
 	}
 	_, recs := s.cfg.SIPTrace.Since(0, 1<<20)
 	recs = siplog.FilterScenario(recs, r.URL.Query().Get("scenario"))
 	sipOn, appOn := s.cfg.SIPTrace.Capture()
-	recs = siplog.FilterKind(recs, sipOn, appOn)
-	recs = siplog.FilterLevel(recs, s.cfg.SIPTrace.MinLevel())
+	rtpOn := s.cfg.SIPTrace.RTPEnabled()
+	rtpPkts := s.cfg.SIPTrace.RTPPackets()
 	stamp := time.Now().UTC().Format("20060102-150405")
+	if format == "zip" {
+		var buf bytes.Buffer
+		if err := siplog.WriteCallDump(&buf, recs, rtpPkts); err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		name := fmt.Sprintf("gossipper-dump-%s.zip", stamp)
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+		_, _ = w.Write(buf.Bytes())
+		return
+	}
+	recs = siplog.FilterKind(recs, sipOn, appOn, rtpOn)
+	recs = siplog.FilterLevel(recs, s.cfg.SIPTrace.MinLevel())
 	if format == "text" {
 		name := fmt.Sprintf("gossipper-trace-%s.txt", stamp)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -108,7 +124,7 @@ func (s *Server) handleExportSIPTrace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var buf bytes.Buffer
-	if err := siplog.WritePCAP(&buf, recs); err != nil {
+	if err := siplog.WritePCAPAll(&buf, recs, rtpPkts); err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -152,7 +168,7 @@ func (s *Server) handleSIPTraceWS(w http.ResponseWriter, r *http.Request) {
 	defer unsub()
 
 	var lastGen uint64
-	var lastSip, lastApp bool
+	var lastSip, lastApp, lastRTP bool
 	var lastLevel string
 	captureInit := false
 	first := true
@@ -164,8 +180,8 @@ func (s *Server) handleSIPTraceWS(w http.ResponseWriter, r *http.Request) {
 		cap := s.captureState()
 		cleared := !first && gen != lastGen
 		lastGen = gen
-		captureChanged := captureInit && (cap.SIP != lastSip || cap.App != lastApp || cap.Level != lastLevel)
-		lastSip, lastApp, lastLevel = cap.SIP, cap.App, cap.Level
+		captureChanged := captureInit && (cap.SIP != lastSip || cap.App != lastApp || cap.RTP != lastRTP || cap.Level != lastLevel)
+		lastSip, lastApp, lastRTP, lastLevel = cap.SIP, cap.App, cap.RTP, cap.Level
 		captureInit = true
 		if cleared {
 			since = next

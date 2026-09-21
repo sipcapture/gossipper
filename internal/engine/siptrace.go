@@ -61,21 +61,31 @@ func (e *Engine) recordAppTrace(ev eventlog.Event) {
 }
 
 func (e *Engine) traceScenarioCmd(cmd scenario.Command, callNumber int, callID string) {
-	if !e.appTraceOn() || cmd.Type == scenario.CommandLabel {
+	if e == nil || e.sipLog == nil || cmd.Type == scenario.CommandLabel {
 		return
 	}
 	summary := scenarioCmdSummary(cmd)
-	e.emitEvent(eventlog.Event{
-		Level: eventlog.LevelDebug,
-		Kind:  eventlog.KindScenarioCmd,
-		Msg:   summary,
-		Attrs: map[string]any{
-			"call_id":       callID,
-			"call_num":      callNumber,
-			"command.index": cmd.Index,
-			"command.type":  string(cmd.Type),
-		},
+	if e.appTraceOn() {
+		e.emitEvent(eventlog.Event{
+			Level: eventlog.LevelDebug,
+			Kind:  eventlog.KindScenarioCmd,
+			Msg:   summary,
+			Attrs: map[string]any{
+				"call_id":       callID,
+				"call_num":      callNumber,
+				"command.index": cmd.Index,
+				"command.type":  string(cmd.Type),
+			},
+		})
+		return
+	}
+	raw := eventlog.KindScenarioCmd + "\n" + summary + "\n" + eventlog.FormatAttrs(map[string]any{
+		"call_id":       callID,
+		"call_num":      callNumber,
+		"command.index": cmd.Index,
+		"command.type":  string(cmd.Type),
 	})
+	e.sipLog.AddApp(e.LiveScenario().Name, eventlog.KindScenarioCmd, summary, callID, raw, "debug")
 }
 
 func scenarioCmdSummary(cmd scenario.Command) string {

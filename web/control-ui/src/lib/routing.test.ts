@@ -50,6 +50,17 @@ describe('parseHashRoute scenarios', () => {
     expect(parseHashRoute('#/sip')).toEqual({ nav: 'sip', jobId: undefined, reportJobId: undefined })
     expect(buildHashRoute('sip')).toBe('#/sip')
   })
+
+  it('opens Calls list and detail', () => {
+    expect(parseHashRoute('#/calls')).toEqual({ nav: 'calls', callId: undefined, reportJobId: undefined })
+    expect(parseHashRoute('#/calls/abc%40host')).toEqual({
+      nav: 'calls',
+      callId: 'abc@host',
+      reportJobId: undefined,
+    })
+    expect(buildHashRoute('calls')).toBe('#/calls')
+    expect(buildHashRoute('calls', { callId: 'abc@host' })).toBe('#/calls/abc%40host')
+  })
 })
 
 describe('scenario href helpers', () => {

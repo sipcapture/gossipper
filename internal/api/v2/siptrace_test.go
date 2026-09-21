@@ -1,6 +1,7 @@
 package v2
 
 import (
+	"archive/zip"
 	"bytes"
 	"io"
 	"net/http"
@@ -20,7 +21,7 @@ func TestSIPTracePollAndClear(t *testing.T) {
 	if empty.Next != 0 || len(empty.Messages) != 0 {
 		t.Fatalf("empty %+v", empty)
 	}
-	if !empty.Capture.SIP || empty.Capture.App {
+	if !empty.Capture.SIP || empty.Capture.App || empty.Capture.RTP {
 		t.Fatalf("default capture %+v", empty.Capture)
 	}
 
@@ -122,6 +123,33 @@ func TestSIPTraceExportTextAndPCAP(t *testing.T) {
 		t.Fatalf("packets=%d", n)
 	}
 
+	h.sipLog.SetRTP(true)
+	h.sipLog.AddRTP("send", "127.0.0.1", 4000, "10.0.0.2", 5004, "a1", []byte{0x80, 0x08, 0x00, 0x01, 0xaa})
+	zipResp := h.do(http.MethodGet, "/api/v2/sip/trace/export?format=zip", nil)
+	defer zipResp.Body.Close()
+	if zipResp.StatusCode != http.StatusOK {
+		t.Fatalf("zip status=%d", zipResp.StatusCode)
+	}
+	zipRaw, err := io.ReadAll(zipResp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(zipRaw), int64(len(zipRaw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"README.txt": false, "call.log": false, "call.pcap": false}
+	for _, f := range zr.File {
+		if _, ok := want[f.Name]; ok {
+			want[f.Name] = true
+		}
+	}
+	for name, ok := range want {
+		if !ok {
+			t.Fatalf("zip missing %s", name)
+		}
+	}
+
 	bad := h.do(http.MethodGet, "/api/v2/sip/trace/export?format=json", nil)
 	if bad.StatusCode != http.StatusBadRequest {
 		t.Fatalf("bad format status=%d", bad.StatusCode)
@@ -132,11 +160,11 @@ func TestSIPTraceExportTextAndPCAP(t *testing.T) {
 func TestSIPTraceCaptureToggle(t *testing.T) {
 	h := newHarness(t, false)
 	got := decode[sipTraceCapture](t, h.do(http.MethodGet, "/api/v2/sip/trace/capture", nil))
-	if !got.SIP || got.App || got.Level != "debug" {
+	if !got.SIP || got.App || got.RTP || got.Level != "debug" {
 		t.Fatalf("default %+v", got)
 	}
-	put := decode[sipTraceCapture](t, h.do(http.MethodPut, "/api/v2/sip/trace/capture", map[string]any{"sip": false, "app": true, "level": "info"}))
-	if put.SIP || !put.App || put.Level != "info" {
+	put := decode[sipTraceCapture](t, h.do(http.MethodPut, "/api/v2/sip/trace/capture", map[string]any{"sip": false, "app": true, "rtp": true, "level": "info"}))
+	if put.SIP || !put.App || !put.RTP || put.Level != "info" {
 		t.Fatalf("put %+v", put)
 	}
 	keep := decode[sipTraceCapture](t, h.do(http.MethodPut, "/api/v2/sip/trace/capture", map[string]any{"sip": false, "app": true}))

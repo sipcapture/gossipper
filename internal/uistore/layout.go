@@ -7,6 +7,7 @@
 // Layout (relative to Layout.Root):
 //
 //	settings.sqlite              # auth + jobs + artifacts + audit
+//	calls.sqlite                 # Calls CDR (SIP/debug/RTP) for the Control UI
 //	profiles/servers/<id>.json   # ServerProfile
 //	profiles/clients/<id>.json   # ClientProfile
 //	scenarios/<id>.xml           # raw SIP XML
@@ -68,6 +69,9 @@ func (l Layout) Ensure() error {
 
 // SettingsDBPath returns the SQLite settings DB path (auth + jobs + audit).
 func (l Layout) SettingsDBPath() string { return filepath.Join(l.Root, "settings.sqlite") }
+
+// CallsDBPath returns the SQLite CDR store for Control UI Calls.
+func (l Layout) CallsDBPath() string { return filepath.Join(l.Root, "calls.sqlite") }
 
 func (l Layout) ServersDir() string       { return filepath.Join(l.Root, "profiles", "servers") }
 func (l Layout) ClientsDir() string       { return filepath.Join(l.Root, "profiles", "clients") }

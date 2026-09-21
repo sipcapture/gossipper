@@ -1,6 +1,6 @@
 import type { SIPTraceCapture, SIPTraceMessage, SIPTraceResponse } from '@/api/v2'
 
-export function sipTraceExportQuery(format: 'text' | 'pcap', scenario?: string): string {
+export function sipTraceExportQuery(format: 'text' | 'pcap' | 'zip', scenario?: string): string {
   const q = new URLSearchParams()
   q.set('format', format)
   if (scenario) q.set('scenario', scenario)
@@ -24,7 +24,11 @@ export function filenameFromDisposition(header: string | null): string | undefin
 export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const
 
 export function isSIPRow(row: SIPTraceMessage): boolean {
-  return row.kind !== 'app'
+  return row.kind !== 'app' && row.kind !== 'rtp'
+}
+
+export function isRTPRow(row: SIPTraceMessage): boolean {
+  return row.kind === 'rtp'
 }
 
 export function levelRank(level?: string): number {
@@ -43,6 +47,7 @@ export function levelRank(level?: string): number {
 }
 
 export function rowMatchesCapture(row: SIPTraceMessage, capture: SIPTraceCapture): boolean {
+  if (isRTPRow(row)) return Boolean(capture.rtp)
   if (isSIPRow(row)) return capture.sip
   if (!capture.app) return false
   return levelRank(row.level) >= levelRank(capture.level)

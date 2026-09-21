@@ -11,3 +11,5 @@ gossipper_*_*.log
 # MkDocs local preview
 site/
 .venv-docs/
+*~
+.claude/settings.local.json

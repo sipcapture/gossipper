@@ -15,6 +15,7 @@ import { DashboardV2 } from '@/views/v2/DashboardV2'
 import { GatewayV2 } from '@/views/v2/GatewayV2'
 import { JobsV2 } from '@/views/v2/JobsV2'
 import { SipLiveTrace } from '@/views/v2/SipLiveTrace'
+import { CallsV2 } from '@/views/v2/CallsV2'
 import { MediaV2 } from '@/views/v2/MediaV2'
 import { ReportsV2 } from '@/views/v2/ReportsV2'
 import { ScenariosV2 } from '@/views/v2/ScenariosV2'
@@ -32,6 +33,7 @@ const NAV: { id: NavId; label: string; hint: string; adminOnly?: boolean }[] = [
   { id: 'clients', label: 'Clients', hint: 'UAC profiles' },
   { id: 'gateway', label: 'Gateway', hint: 'SIP REGISTER to a PBX, originate and inbound arm' },
   { id: 'sip', label: 'Live Trace', hint: 'SIP and scenario debug, tagged by scenario' },
+  { id: 'calls', label: 'Calls', hint: 'CDR list — SIP, RTP dest, debug per Call-ID' },
   { id: 'scenarios', label: 'Scenarios', hint: 'scenario list; edit in a new window' },
   { id: 'jobs', label: 'Jobs', hint: 'worker runs (start / stop / inspect)' },
   { id: 'reports', label: 'Reports', hint: 'summary JSON, HTML and PDF from jobs' },
@@ -79,6 +81,7 @@ function AdminAppInner() {
   const [busy, setBusy] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
   const [inspectJobId, setInspectJobId] = useState<string | null>(initialRoute.jobId ?? null)
+  const [inspectCallId, setInspectCallId] = useState<string | null>(initialRoute.callId ?? null)
   const [reportFilterJobId, setReportFilterJobId] = useState<string | null>(initialRoute.reportJobId ?? null)
   const [loadJobId, setLoadJobId] = useState<string | null>(initialRoute.nav === 'load' ? initialRoute.jobId ?? null : null)
   const [scenarioKind, setScenarioKind] = useState<ScenarioRouteKind>(initialRoute.scenarioKind ?? 'list')
@@ -89,6 +92,7 @@ function AdminAppInner() {
     setNavState(id)
     setHashRoute(id, opts)
     if (id === 'jobs' && opts?.jobId) setInspectJobId(opts.jobId)
+    if (id === 'calls') setInspectCallId(opts?.callId ?? null)
     if (id === 'load' && opts?.jobId) setLoadJobId(opts.jobId)
     if (id === 'reports' && opts?.report) setReportFilterJobId(opts.report)
     if (id === 'scenarios') {
@@ -117,6 +121,7 @@ function AdminAppInner() {
         if (r.nav === 'jobs') setInspectJobId(r.jobId)
         if (r.nav === 'load') setLoadJobId(r.jobId)
       }
+      setInspectCallId(r.nav === 'calls' ? r.callId ?? null : null)
       if (r.reportJobId) setReportFilterJobId(r.reportJobId)
       setScenarioKind(r.scenarioKind ?? 'list')
       setScenarioId(r.scenarioId)
@@ -356,6 +361,15 @@ function AdminAppInner() {
             />
           )}
           {nav === 'sip' && <SipLiveTrace bearer={bearer} fill />}
+          {nav === 'calls' && (
+            <CallsV2
+              bearer={bearer}
+              busy={busy}
+              run={run}
+              callId={inspectCallId}
+              onOpenCall={(id) => setNav('calls', id ? { callId: id } : undefined)}
+            />
+          )}
           {nav === 'scenarios' && (
             <ScenariosV2
               bearer={bearer}

@@ -40,6 +40,7 @@ describe('sipLive', () => {
       '/sip/trace/export?format=pcap&scenario=REGISTER',
     )
     expect(sipTraceExportQuery('text')).toBe('/sip/trace/export?format=text')
+    expect(sipTraceExportQuery('zip')).toBe('/sip/trace/export?format=zip')
     expect(filenameFromDisposition('attachment; filename="gossipper-sip.pcap"')).toBe(
       'gossipper-sip.pcap',
     )
@@ -48,9 +49,12 @@ describe('sipLive', () => {
   it('filters SIP vs app by capture flags', () => {
     const sip = msg(1)
     const app: SIPTraceMessage = { ...msg(2), kind: 'app', dir: 'app', summary: 'call started' }
+    const rtp: SIPTraceMessage = { ...msg(3), kind: 'rtp', dir: 'send', summary: 'RTP send PT=8' }
     expect(rowMatchesCapture(sip, { sip: true, app: false })).toBe(true)
     expect(rowMatchesCapture(app, { sip: true, app: false })).toBe(false)
     expect(rowMatchesCapture(app, { sip: false, app: true })).toBe(true)
+    expect(rowMatchesCapture(rtp, { sip: true, app: true, rtp: false })).toBe(false)
+    expect(rowMatchesCapture(rtp, { sip: false, app: false, rtp: true })).toBe(true)
   })
 
   it('hides debug app rows when min level is info', () => {
