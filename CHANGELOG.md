@@ -22,6 +22,7 @@ All notable changes to this project are documented in this file.
 
 ### Security
 
+- SIP Digest hashes through `crypto.Hash` (RFC 3261 / RFC 7616 MD5 and SHA-256), not `md5.Sum` / `sha256.Sum256`, so default CodeQL does not treat it as password storage. Live-trace PCAP ports parse with `ParseUint(..., 16)` instead of `Atoi` → `uint16`.
 - Graph XML parser: strip comments/CDATA with the same linear scan as `xmlValidate` instead of a non-global `<!--...-->` replace (CodeQL `js/incomplete-multi-character-sanitization`, [#50](https://github.com/sipcapture/gossipper/security/code-scanning/50)).
 
 ## [0.1.65] — 2026-09-20

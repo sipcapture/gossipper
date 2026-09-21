@@ -123,6 +123,26 @@ func TestWritePCAPDirections(t *testing.T) {
 	}
 }
 
+func TestParsePeerAddr(t *testing.T) {
+	t.Parallel()
+	ip, port := parsePeerAddr("10.0.0.1:5070")
+	if !ip.Equal(net.IPv4(10, 0, 0, 1)) || port != 5070 {
+		t.Fatalf("got %v:%d", ip, port)
+	}
+	_, port = parsePeerAddr("not-an-addr")
+	if port != 5060 {
+		t.Fatalf("fallback port %d", port)
+	}
+	_, port = parsePeerAddr("10.0.0.1:0")
+	if port != 5060 {
+		t.Fatalf("port 0 fallback %d", port)
+	}
+	_, port = parsePeerAddr("10.0.0.1:70000")
+	if port != 5060 {
+		t.Fatalf("overflow fallback %d", port)
+	}
+}
+
 func decodeIPv4UDP(t *testing.T, pkt []byte) (src, dst net.IP, payload []byte) {
 	t.Helper()
 	p := gopacket.NewPacket(pkt, layers.LayerTypeEthernet, gopacket.Default)

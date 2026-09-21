@@ -14,10 +14,10 @@ import (
 )
 
 var (
-	pcapLocalIP   = net.IPv4(127, 0, 0, 1)
+	pcapLocalIP          = net.IPv4(127, 0, 0, 1)
 	pcapLocalPort uint16 = 5060
-	pcapLocalMAC  = net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x01}
-	pcapPeerMAC   = net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x02}
+	pcapLocalMAC         = net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x01}
+	pcapPeerMAC          = net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x02}
 )
 
 // FilterScenario keeps records whose Scenario equals scenario. Empty scenario returns recs.
@@ -177,18 +177,22 @@ func serializeSIPFrame(rec Record) ([]byte, error) {
 }
 
 func parsePeerAddr(peer string) (net.IP, uint16) {
+	const fallback uint16 = 5060
 	host, portStr, err := net.SplitHostPort(strings.TrimSpace(peer))
 	if err != nil {
-		return net.IPv4(0, 0, 0, 0), 5060
+		return net.IPv4(0, 0, 0, 0), fallback
 	}
-	n, err := strconv.Atoi(portStr)
-	if err != nil || n < 1 || n > 65535 {
-		n = 5060
+	// bitSize 16 bounds the value; CodeQL does not treat Atoi (int) → uint16 as safe.
+	u, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil || u < 1 {
+		return peerIPv4(host), fallback
 	}
-	port := uint16(n)
-	ip := net.ParseIP(host)
-	if v4 := ip.To4(); v4 != nil {
-		return v4, port
+	return peerIPv4(host), uint16(u)
+}
+
+func peerIPv4(host string) net.IP {
+	if v4 := net.ParseIP(host).To4(); v4 != nil {
+		return v4
 	}
-	return net.IPv4(0, 0, 0, 0), port
+	return net.IPv4(0, 0, 0, 0)
 }
