@@ -52,16 +52,17 @@ export function CallsV2({ bearer, busy, run, callId, onOpenCall }: CallsV2Props)
     [bearer],
   )
 
+  if (!callId && (detail !== null || missing)) {
+    setDetail(null)
+    setMissing(false)
+  }
+
   useEffect(() => {
     void run(() => refreshList())
   }, [run, refreshList])
 
   useEffect(() => {
-    if (!callId) {
-      setDetail(null)
-      setMissing(false)
-      return
-    }
+    if (!callId) return
     void run(() => refreshDetail(callId))
   }, [callId, run, refreshDetail])
 
