@@ -44,9 +44,10 @@
   "overrides": {
     "@babel/core": "^7.29.7",
     "@hono/node-server": "^2.0.5",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "baseline-browser-mapping": "2.11.21",
     "browserslist": "4.28.9",
-    "fast-uri": "3.1.7",
+    "fast-uri": "3.1.8",
     "hono": "4.13.7",
     "js-yaml": "4.3.2",
     "nanoid": "3.3.18",
