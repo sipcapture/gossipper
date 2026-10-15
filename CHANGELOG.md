@@ -8,6 +8,7 @@ All notable changes to this project are documented in this file.
 
 - Close open Dependabot alerts: `google.golang.org/grpc` 1.83.2, OTLP log exporters 0.21.0, and Control UI transitive pins (`js-yaml`, `hono`, `qs`, `fast-uri`, `browserslist`, `postcss-selector-parser`, `baseline-browser-mapping`, `nanoid`, `vitest`).
 - Migrate OTel log records onto `go.opentelemetry.io/otel/attribute` after `otel/log` 0.21 removed `KeyValue`/`Value`.
+- Drop the Control UI's `shadcn` dependency, which closes the unfixable `braces` alert (`GHSA-vfj7-8cjw-p6xm`) and with it the `micromatch`, `fast-glob`, `ts-morph` and `postcss-selector-parser` findings. The package was used only for its 95-line `dist/tailwind.css`, now vendored at `web/control-ui/src/shadcn-tailwind.css`; the built bundle is byte-identical.
 
 ## [0.1.64] — 2026-06-05
 
