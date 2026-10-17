@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Modal } from '@/components/ui/modal'
 import { PREP_TOOLS, prepExampleArgs, type PrepToolEntry } from '@/lib/prepTools'
-import { useToast } from '@/lib/toast'
+import { useToast } from '@/lib/toastContext'
 
 export type PrepToolsPanelProps = {
   bearer?: string

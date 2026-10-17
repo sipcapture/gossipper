@@ -112,19 +112,22 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
     void run(() => refresh())
   }, [run, refresh])
 
-  const onEdit = (row: ScenarioMeta) => {
-    void run(async () => {
-      const body = await getScenarioV2(row.id, { bearer })
-      setDraft({
-        id: body.meta.id,
-        name: body.meta.name,
-        description: body.meta.description,
-        role: body.meta.role,
-        xml: body.xml,
+  const onEdit = useCallback(
+    (row: ScenarioMeta) => {
+      void run(async () => {
+        const body = await getScenarioV2(row.id, { bearer })
+        setDraft({
+          id: body.meta.id,
+          name: body.meta.name,
+          description: body.meta.description,
+          role: body.meta.role,
+          xml: body.xml,
+        })
+        setCreateMode(false)
       })
-      setCreateMode(false)
-    })
-  }
+    },
+    [run, bearer],
+  )
 
   const onCreate = () => {
     setDraft({ id: '', name: '', xml: STARTER_XML })
@@ -203,13 +206,16 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
     setHistoryView(null)
   }
 
-  const onDelete = (row: ScenarioMeta) => {
-    if (!window.confirm(`Delete scenario "${row.id}"?`)) return
-    void run(async () => {
-      await deleteScenarioV2(row.id, { bearer })
-      await refresh()
-    })
-  }
+  const onDelete = useCallback(
+    (row: ScenarioMeta) => {
+      if (!window.confirm(`Delete scenario "${row.id}"?`)) return
+      void run(async () => {
+        await deleteScenarioV2(row.id, { bearer })
+        await refresh()
+      })
+    },
+    [run, bearer, refresh],
+  )
 
   const visibleRows = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -282,11 +288,7 @@ export function ScenariosV2({ bearer, busy, run, errorText }: ScenariosV2Props) 
   // Load the XML for a snapshot chosen as the diff "base" (anything other than
   // the live editor buffer).
   useEffect(() => {
-    if (history === null || !draft) return
-    if (historyDiffBase === 'current') {
-      setHistoryBaseXML(draft.xml)
-      return
-    }
+    if (history === null || !draft || historyDiffBase === 'current') return
     let cancelled = false
     void getScenarioHistory(draft.id, historyDiffBase, { bearer })
       .then((body) => {

@@ -26,7 +26,7 @@ import {
 import { JobStatsChart } from '@/components/v2/JobStatsChart'
 import { WebRTCDiagnosticsStrip } from '@/components/v2/WebRTCDiagnosticsStrip'
 import { ArtifactLinks } from '@/components/v2/ArtifactLinks'
-import { buildEnginePayload, EngineOverridesForm, type EngineOverrides } from '@/components/v2/EngineOverridesForm'
+import { EngineOverridesForm } from '@/components/v2/EngineOverridesForm'
 import { ReportPreview } from '@/components/v2/ReportPreview'
 import { ScenarioPreview, ScenarioSelect } from '@/components/v2/ScenarioSelect'
 import { JobReportsPanel } from '@/views/v2/ReportsV2'
@@ -37,11 +37,12 @@ import { Label } from '@/components/ui/label'
 import { Modal } from '@/components/ui/modal'
 import { fetchArtifactText } from '@/lib/artifacts'
 import { parseCallRecordsWebRTC, type CallRecordLine } from '@/lib/callRecords'
+import { buildEnginePayload, type EngineOverrides } from '@/lib/engineOverrides'
 import { validateJobID } from '@/lib/jobId'
 import { jobMatchesKindFilter, type JobKindFilter } from '@/lib/jobKind'
 import { isProfilePortBlocked, iceServersFromProfile, profileHasWebRTC } from '@/lib/profileHelpers'
 import { mergeLiveJobs, parseStatsLines, useLiveJobs } from '@/lib/jobsLive'
-import { useToast } from '@/lib/toast'
+import { useToast } from '@/lib/toastContext'
 
 const STATUS_BADGE: Record<JobStatus, string> = {
   pending: 'bg-muted text-foreground/80',
@@ -125,20 +126,23 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
     })
   }, [inspectJobId, bearer, run, onInspectJobHandled])
 
+  const detailJobId = detail?.job.id
+  const detailJobStatus = detail?.job.status
+
   useEffect(() => {
-    if (!detail?.job) return
-    if (detail.job.status !== 'running' && detail.job.status !== 'pending') return
+    if (!detailJobId || !detailJobStatus) return
+    if (detailJobStatus !== 'running' && detailJobStatus !== 'pending') return
     const t = setInterval(() => {
-      void getJob(detail.job.id, { bearer })
+      void getJob(detailJobId, { bearer })
         .then((d) =>
-          listRecordings(detail.job.id, { bearer })
+          listRecordings(detailJobId, { bearer })
             .catch(() => ({ recordings: [] as Recording[] }))
             .then((recs) => setDetail({ ...d, recordings: recs.recordings ?? [] })),
         )
         .catch(() => {})
     }, 3000)
     return () => clearInterval(t)
-  }, [detail?.job.id, detail?.job.status, bearer])
+  }, [detailJobId, detailJobStatus, bearer])
 
   const mergedRows = useMemo(() => mergeLiveJobs(rows, liveJobs), [rows, liveJobs])
 
@@ -177,7 +181,7 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
 
   const jobIdError = useMemo(() => validateJobID(draft.job_id), [draft.job_id])
 
-  const openStartModal = (prefill?: Partial<typeof draft>) => {
+  const openStartModal = useCallback((prefill?: Partial<typeof draft>) => {
     setDraft({
       job_id: '',
       profile_kind: 'server',
@@ -188,7 +192,7 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
       ...prefill,
     })
     setStartOpen(true)
-  }
+  }, [])
 
   const onStart = () => {
     if (!draft.profile_id || startBlocked.blocked || jobIdError) return
@@ -211,31 +215,34 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
     })
   }
 
-  const onRestart = (job: Job) => {
-    if (!job.profile_id || !job.profile_kind) return
-    if (job.profile_kind === 'tool') {
-      let args: Record<string, unknown> = {}
-      if (job.args_json) {
-        try {
-          args = JSON.parse(job.args_json) as Record<string, unknown>
-        } catch {
-          toast('Could not parse tool args for restart', 'error')
-          return
+  const onRestart = useCallback(
+    (job: Job) => {
+      if (!job.profile_id || !job.profile_kind) return
+      if (job.profile_kind === 'tool') {
+        let args: Record<string, unknown> = {}
+        if (job.args_json) {
+          try {
+            args = JSON.parse(job.args_json) as Record<string, unknown>
+          } catch {
+            toast('Could not parse tool args for restart', 'error')
+            return
+          }
         }
+        void run(async () => {
+          await runTool(job.profile_id!, { args }, { bearer })
+          toast('Tool job restarted', 'success')
+          await refresh()
+        })
+        return
       }
-      void run(async () => {
-        await runTool(job.profile_id!, { args }, { bearer })
-        toast('Tool job restarted', 'success')
-        await refresh()
+      openStartModal({
+        profile_kind: job.profile_kind as 'server' | 'client',
+        profile_id: job.profile_id,
+        scenario_id: job.scenario_id ?? '',
       })
-      return
-    }
-    openStartModal({
-      profile_kind: job.profile_kind as 'server' | 'client',
-      profile_id: job.profile_id,
-      scenario_id: job.scenario_id ?? '',
-    })
-  }
+    },
+    [toast, run, bearer, refresh, openStartModal],
+  )
 
   const onStopAllRunning = () => {
     const running = mergedRows.filter((j) => j.status === 'running' || j.status === 'pending')
@@ -248,30 +255,39 @@ export function JobsV2({ bearer, busy, run, errorText, inspectJobId, onInspectJo
     })
   }
 
-  const onStop = (id: string) => {
-    void run(async () => {
-      await stopJob(id, { bearer })
-      toast('Stop requested', 'info')
-      await refresh()
-    })
-  }
-  const onDelete = (id: string) => {
-    if (!window.confirm(`Delete job ${id}?`)) return
-    void run(async () => {
-      await deleteJobV2(id, { bearer })
-      toast('Job deleted', 'success')
-      await refresh()
-    })
-  }
-  const onInspect = (id: string) => {
-    void run(async () => {
-      const [d, recs] = await Promise.all([
-        getJob(id, { bearer }),
-        listRecordings(id, { bearer }).catch(() => ({ recordings: [] as Recording[] })),
-      ])
-      setDetail({ ...d, recordings: recs.recordings ?? [] })
-    })
-  }
+  const onStop = useCallback(
+    (id: string) => {
+      void run(async () => {
+        await stopJob(id, { bearer })
+        toast('Stop requested', 'info')
+        await refresh()
+      })
+    },
+    [run, bearer, refresh, toast],
+  )
+  const onDelete = useCallback(
+    (id: string) => {
+      if (!window.confirm(`Delete job ${id}?`)) return
+      void run(async () => {
+        await deleteJobV2(id, { bearer })
+        toast('Job deleted', 'success')
+        await refresh()
+      })
+    },
+    [run, bearer, refresh, toast],
+  )
+  const onInspect = useCallback(
+    (id: string) => {
+      void run(async () => {
+        const [d, recs] = await Promise.all([
+          getJob(id, { bearer }),
+          listRecordings(id, { bearer }).catch(() => ({ recordings: [] as Recording[] })),
+        ])
+        setDetail({ ...d, recordings: recs.recordings ?? [] })
+      })
+    },
+    [run, bearer],
+  )
 
   const columns: Column<Job>[] = useMemo(
     () => [
@@ -687,12 +703,12 @@ function JobStatsTail({ job, bearer }: { job: Job; bearer?: string }) {
   const tailN = 25
 
   useEffect(() => {
-    if (!job.profile_id || !job.profile_kind) {
-      setIceServers([])
-      setWebrtcProfile(false)
-      return
-    }
     void (async () => {
+      if (!job.profile_id || !job.profile_kind) {
+        setIceServers([])
+        setWebrtcProfile(false)
+        return
+      }
       try {
         if (job.profile_kind === 'server') {
           const r = await listServers({ bearer })

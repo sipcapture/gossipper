@@ -40,7 +40,9 @@ export function SettingsV2({ bearer, theme, onThemeChange, onSignOut, authKind, 
     }
   }, [bearer])
   useEffect(() => {
-    void refresh()
+    void (async () => {
+      await refresh()
+    })()
   }, [refresh])
 
   const onRotate = async () => {

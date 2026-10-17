@@ -38,7 +38,7 @@ jobs:
 
       - name: Test and build on macOS
         run: |
-          (cd web/control-ui && npm ci && npm test)
+          (cd web/control-ui && npm ci && npm test && npm run lint)
           CGO_ENABLED=0 go build -o /dev/null ./cmd/gossip
           # internal/engine has Linux-specific loopback / multi-IP UDP tests (127.0.0.2, …).
           go test $(go list ./... | grep -v '/internal/engine$')
@@ -71,7 +71,7 @@ jobs:
 
       - name: Test
         run: |
-          (cd web/control-ui && npm ci && npm test)
+          (cd web/control-ui && npm ci && npm test && npm run lint)
           go test ./...
           go test -race -short \
             ./internal/api/... \
