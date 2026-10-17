@@ -1,4 +1,4 @@
-import { artifactURL, getJob, jobEventsURL, listClients, listRecordings, listServers, stopJob, type Job, type JobArtifact, type Recording } from '@/api/v2'
+import { getJob, jobEventsURL, listClients, listRecordings, listServers, stopJob, type Job, type JobArtifact, type Recording } from '@/api/v2'
 import { JobStatsChart } from '@/components/v2/JobStatsChart'
 import { SummaryKPICards } from '@/components/v2/SummaryKPI'
 import { WebRTCDiagnosticsStrip } from '@/components/v2/WebRTCDiagnosticsStrip'
@@ -59,12 +59,12 @@ export function JobMonitorPanel({
   }, [jobId, bearer])
 
   useEffect(() => {
-    if (!job?.profile_id || !job.profile_kind) {
-      setIceServers([])
-      setWebrtcProfile(false)
-      return
-    }
     void (async () => {
+      if (!job?.profile_id || !job.profile_kind) {
+        setIceServers([])
+        setWebrtcProfile(false)
+        return
+      }
       try {
         if (job.profile_kind === 'server') {
           const r = await listServers({ bearer })
@@ -85,7 +85,13 @@ export function JobMonitorPanel({
   }, [job, bearer])
 
   useEffect(() => {
-    void refresh().catch((e) => setError(String(e instanceof Error ? e.message : e)))
+    void (async () => {
+      try {
+        await refresh()
+      } catch (e) {
+        setError(String(e instanceof Error ? e.message : e))
+      }
+    })()
   }, [refresh])
 
   useEffect(() => {

@@ -36,10 +36,13 @@ export function ReportsV2({ bearer, run, onOpenJob, initialJobFilter }: ReportsV
   const [compareA, setCompareA] = useState<string>('')
   const [compareB, setCompareB] = useState<string>('')
   const [previewJobId, setPreviewJobId] = useState<string | null>(null)
+  const [prevInitialJobFilter, setPrevInitialJobFilter] = useState(initialJobFilter)
 
-  useEffect(() => {
+  // Keep the filter in sync when navigation hands over a new initialJobFilter.
+  if (initialJobFilter !== prevInitialJobFilter) {
+    setPrevInitialJobFilter(initialJobFilter)
     if (initialJobFilter) setQuery(initialJobFilter)
-  }, [initialJobFilter])
+  }
 
   const refresh = useCallback(async () => {
     const r = await listReports({ bearer }, 200)

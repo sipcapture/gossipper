@@ -7,7 +7,7 @@ import { DataTable, type Column } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Modal } from '@/components/ui/modal'
-import { useToast } from '@/lib/toast'
+import { useToast } from '@/lib/toastContext'
 
 export type UsersV2Props = {
   bearer?: string
@@ -71,14 +71,17 @@ export function UsersV2({ bearer, busy, run, errorText }: UsersV2Props) {
     })
   }
 
-  const onDelete = (u: User) => {
-    if (!window.confirm(`Delete user "${u.username}"?`)) return
-    void run(async () => {
-      await deleteUser(u.id, { bearer })
-      toast('User deleted', 'success')
-      await refresh()
-    })
-  }
+  const onDelete = useCallback(
+    (u: User) => {
+      if (!window.confirm(`Delete user "${u.username}"?`)) return
+      void run(async () => {
+        await deleteUser(u.id, { bearer })
+        toast('User deleted', 'success')
+        await refresh()
+      })
+    },
+    [run, bearer, toast, refresh],
+  )
 
   const columns: Column<User>[] = useMemo(
     () => [

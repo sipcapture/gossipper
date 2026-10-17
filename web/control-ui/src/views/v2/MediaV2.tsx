@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { DataTable, type Column } from '@/components/ui/data-table'
 import { scenariosReferencingMedia } from '@/lib/mediaRefs'
-import { useToast } from '@/lib/toast'
+import { useToast } from '@/lib/toastContext'
 
 function fmtSize(n: number): string {
   if (n < 1024) return n + ' B'
@@ -65,14 +65,17 @@ export function MediaV2({ bearer, busy, run, errorText }: MediaV2Props) {
     })
   }
 
-  const onDelete = (row: MediaAsset) => {
-    if (!window.confirm(`Delete ${row.name}?`)) return
-    void run(async () => {
-      await deleteMedia(kind, row.name, { bearer })
-      toast('Media deleted', 'success')
-      await refresh()
-    })
-  }
+  const onDelete = useCallback(
+    (row: MediaAsset) => {
+      if (!window.confirm(`Delete ${row.name}?`)) return
+      void run(async () => {
+        await deleteMedia(kind, row.name, { bearer })
+        toast('Media deleted', 'success')
+        await refresh()
+      })
+    },
+    [kind, run, bearer, toast, refresh],
+  )
 
   const refsFor = useCallback(
     (name: string) => scenariosReferencingMedia(scenarioXML, kind, name),

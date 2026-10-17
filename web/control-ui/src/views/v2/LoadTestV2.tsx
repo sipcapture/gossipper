@@ -21,7 +21,7 @@ import {
 } from '@/lib/loadTestPresets'
 import { validateJobID } from '@/lib/jobId'
 import { setHashRoute } from '@/lib/routing'
-import { useToast } from '@/lib/toast'
+import { useToast } from '@/lib/toastContext'
 
 export type LoadTestV2Props = {
   bearer?: string
@@ -37,10 +37,13 @@ export function LoadTestV2({ bearer, run, onNavigate, initialJobId }: LoadTestV2
   const [presets, setPresets] = useState<LoadTestPreset[]>(() => listLoadTestPresets())
   const [presetName, setPresetName] = useState('')
   const [schemaHint, setSchemaHint] = useState<string | null>(null)
+  const [prevInitialJobId, setPrevInitialJobId] = useState(initialJobId)
 
-  useEffect(() => {
+  // Keep the active job in sync when navigation hands over a new initialJobId.
+  if (initialJobId !== prevInitialJobId) {
+    setPrevInitialJobId(initialJobId)
     if (initialJobId) setActiveJobId(initialJobId)
-  }, [initialJobId])
+  }
 
   useEffect(() => {
     void getLoadTestSchema({ bearer })

@@ -46,7 +46,9 @@ export function ManagementV1Panel({ bearer }: ManagementV1PanelProps) {
   }, [bearer])
 
   useEffect(() => {
-    void refresh()
+    void (async () => {
+      await refresh()
+    })()
     const t = setInterval(() => void refresh(), 5000)
     return () => clearInterval(t)
   }, [refresh])
