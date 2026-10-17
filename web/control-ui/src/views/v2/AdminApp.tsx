@@ -7,7 +7,8 @@ import { Label } from '@/components/ui/label'
 import { ThemeToggle, type ThemeMode } from '@/components/ThemeToggle'
 import { cn } from '@/lib/utils'
 import { parseHashRoute, setHashRoute, type NavId } from '@/lib/routing'
-import { ToastProvider, useToast } from '@/lib/toast'
+import { ToastProvider } from '@/lib/toast'
+import { useToast } from '@/lib/toastContext'
 import { AboutV2 } from '@/views/v2/AboutV2'
 import { AuditV2 } from '@/views/v2/AuditV2'
 import { ClientsV2 } from '@/views/v2/ClientsV2'
@@ -138,13 +139,17 @@ function AdminAppInner() {
   }, [toast])
 
   useEffect(() => {
-    if (!bearer) {
-      setMe(null)
-      return
-    }
-    void getMeV2({ bearer })
-      .then(setMe)
-      .catch(() => setMe(null))
+    void (async () => {
+      if (!bearer) {
+        setMe(null)
+        return
+      }
+      try {
+        setMe(await getMeV2({ bearer }))
+      } catch {
+        setMe(null)
+      }
+    })()
   }, [bearer])
 
   const run = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {

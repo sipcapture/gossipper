@@ -26,7 +26,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { RuntimeBadge } from '@/components/v2/RuntimeBadge'
 import { TransportListEditor } from '@/components/v2/TransportListEditor'
 import { crossProfilePortConflicts, isProfilePortBlocked } from '@/lib/profileHelpers'
-import { useToast } from '@/lib/toast'
+import { useToast } from '@/lib/toastContext'
 
 const emptyDraft = (): ClientProfile => ({
   id: '',
@@ -101,59 +101,71 @@ export function ClientsV2({ bearer, busy, run, errorText }: ClientsV2Props) {
     })
   }
 
-  const onDelete = (row: ClientProfile) => {
-    if (!window.confirm(`Delete client profile "${row.id}"?`)) return
-    void run(async () => {
-      await deleteClient(row.id, { bearer })
-      await refresh()
-    })
-  }
-  const onDuplicate = (row: ClientProfile) => {
-    const base = `${row.id}-copy`
-    let id = base
-    let n = 2
-    while (rows.some((r) => r.id === id)) {
-      id = `${base}-${n++}`
-    }
-    setDraft({
-      ...row,
-      id,
-      name: `${row.name} (copy)`,
-      source: undefined,
-      runtime: undefined,
-      transports: (row.transports ?? []).map((t) => ({ ...t })),
-    })
-    setCreateMode(true)
-  }
+  const onDelete = useCallback(
+    (row: ClientProfile) => {
+      if (!window.confirm(`Delete client profile "${row.id}"?`)) return
+      void run(async () => {
+        await deleteClient(row.id, { bearer })
+        await refresh()
+      })
+    },
+    [run, bearer, refresh],
+  )
+  const onDuplicate = useCallback(
+    (row: ClientProfile) => {
+      const base = `${row.id}-copy`
+      let id = base
+      let n = 2
+      while (rows.some((r) => r.id === id)) {
+        id = `${base}-${n++}`
+      }
+      setDraft({
+        ...row,
+        id,
+        name: `${row.name} (copy)`,
+        source: undefined,
+        runtime: undefined,
+        transports: (row.transports ?? []).map((t) => ({ ...t })),
+      })
+      setCreateMode(true)
+    },
+    [rows],
+  )
 
-  const onStart = (row: ClientProfile) => {
-    const block = isProfilePortBlocked('client', row.id, servers, rows)
-    if (block.blocked) {
-      toast(`Port conflict: ${block.details.join(', ')}`, 'error')
-      return
-    }
-    void run(async () => {
-      try {
-        await startClientProfile(row.id, { bearer })
-        toast('Job started', 'success')
-      } catch (err) {
-        console.warn('start:', err)
-      } finally {
-        await refresh()
+  const onStart = useCallback(
+    (row: ClientProfile) => {
+      const block = isProfilePortBlocked('client', row.id, servers, rows)
+      if (block.blocked) {
+        toast(`Port conflict: ${block.details.join(', ')}`, 'error')
+        return
       }
-    })
-  }
-  const onStop = (row: ClientProfile) => {
-    void run(async () => {
-      try {
-        await stopClientProfile(row.id, { bearer })
-      } catch (err) {
-        console.warn('stop:', err)
-      } finally {
-        await refresh()
-      }
-    })
-  }
+      void run(async () => {
+        try {
+          await startClientProfile(row.id, { bearer })
+          toast('Job started', 'success')
+        } catch (err) {
+          console.warn('start:', err)
+        } finally {
+          await refresh()
+        }
+      })
+    },
+    [rows, servers, toast, run, bearer, refresh],
+  )
+  const onStop = useCallback(
+    (row: ClientProfile) => {
+      void run(async () => {
+        try {
+          await stopClientProfile(row.id, { bearer })
+        } catch (err) {
+          console.warn('stop:', err)
+        } finally {
+          await refresh()
+        }
+      })
+    },
+    [run, bearer, refresh],
+  )
 
   const conflicts = useMemo(() => crossProfilePortConflicts(servers, rows), [servers, rows])
 
@@ -273,7 +285,7 @@ export function ClientsV2({ bearer, busy, run, errorText }: ClientsV2Props) {
         },
       },
     ],
-    [busy, conflicts, onDelete, onStart, onStop],
+    [busy, conflicts, onDelete, onDuplicate, onStart, onStop, rows, servers],
   )
 
   return (

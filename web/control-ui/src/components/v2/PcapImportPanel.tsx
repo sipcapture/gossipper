@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { importScenarioFromPCAPJob, listJobs, type Job } from '@/api/v2'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useToast } from '@/lib/toast'
+import { useToast } from '@/lib/toastContext'
 
 export type PcapImportPanelProps = {
   bearer?: string
@@ -18,7 +18,7 @@ export function PcapImportPanel({ bearer, run, onImported }: PcapImportPanelProp
   const [scenarioId, setScenarioId] = useState('')
   const [selectedJob, setSelectedJob] = useState('')
 
-  const refreshJobs = () => {
+  const refreshJobs = useCallback(() => {
     void listJobs({ bearer }, 50).then((r) => {
       setJobs(
         (r.jobs ?? []).filter(
@@ -26,11 +26,11 @@ export function PcapImportPanel({ bearer, run, onImported }: PcapImportPanelProp
         ),
       )
     })
-  }
+  }, [bearer])
 
   useEffect(() => {
     refreshJobs()
-  }, [bearer])
+  }, [refreshJobs])
 
   const onAutoImport = (which: 'uac' | 'uas' | 'both') => {
     const jobId = selectedJob.trim()

@@ -38,7 +38,9 @@ export function AuditLogPanel({
   }, [bearer, limit, onRefresh])
 
   useEffect(() => {
-    void loadAudit()
+    void (async () => {
+      await loadAudit()
+    })()
   }, [loadAudit])
 
   useEffect(() => {

@@ -10,6 +10,10 @@ All notable changes to this project are documented in this file.
 - Migrate OTel log records onto `go.opentelemetry.io/otel/attribute` after `otel/log` 0.21 removed `KeyValue`/`Value`.
 - Drop the Control UI's `shadcn` dependency, which closes the unfixable `braces` alert (`GHSA-vfj7-8cjw-p6xm`) and with it the `micromatch`, `fast-glob`, `ts-morph` and `postcss-selector-parser` findings. The package was used only for its 95-line `dist/tailwind.css`, now vendored at `web/control-ui/src/shadcn-tailwind.css`; the built bundle is byte-identical.
 
+### Fixed
+
+- Control UI `npm run lint` is green again: resolve the `react-hooks/set-state-in-effect` errors and the `exhaustive-deps` / `react-refresh/only-export-components` warnings surfaced by `eslint-plugin-react-hooks` v7. The `lint` script now runs with `--max-warnings 0`, and CI (`go.yml`) gates on it.
+
 ## [0.1.64] — 2026-06-05
 
 ### Security
