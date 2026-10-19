@@ -39,7 +39,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.26.1"
+          go-version-file: go.mod
           cache: false
 
       - name: Set up Node (Control UI unit tests)
@@ -88,7 +88,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.26.1"
+          go-version-file: go.mod
           cache: false
 
       - name: Set version

@@ -8,7 +8,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  workflows: write
 
 jobs:
   update-go:
@@ -46,9 +45,7 @@ jobs:
           CURRENT: ${{ steps.current.outputs.version }}
           LATEST: ${{ steps.latest.outputs.version }}
         run: |
-          sed -i "s/^go ${CURRENT}$/go ${LATEST}/" go.mod
-          sed -i "s/go-version: \"${CURRENT}\"/go-version: \"${LATEST}\"/g" .github/workflows/go.yml
-          sed -i "s/go-version: \"${CURRENT}\"/go-version: \"${LATEST}\"/g" .github/workflows/release.yml
+          sed -i "s/^go ${CURRENT}$/go ${LATEST}/" go.mod web/control-ui/go.mod
 
       - name: Create pull request
         if: steps.check.outputs.needed == 'true'
@@ -67,6 +64,7 @@ jobs:
 
             Updated files:
             - `go.mod`
-            - `.github/workflows/go.yml`
-            - `.github/workflows/release.yml`
+            - `web/control-ui/go.mod`
+
+            CI reads the Go version from `go.mod`.
           labels: dependencies
